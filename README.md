@@ -32,8 +32,17 @@ flutter pub get
 flutter analyze
 flutter test
 flutter build apk --debug
-flutter build apk --release --dart-define=APP_VARIANT=mobile --build-name=2.0.0 --build-number=9200
-flutter build apk --release --dart-define=APP_VARIANT=tv --dart-define=APP_IS_TV=true --build-name=2.0.0 --build-number=9200
+export VERSION_NAME=2.0.0
+export BUILD_NUMBER=$(date -u +%Y%m%d%H)
+flutter build appbundle --release --dart-define=APP_VARIANT=mobile --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
+flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi --dart-define=APP_VARIANT=mobile --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
+flutter build apk --release --dart-define=APP_VARIANT=tv --dart-define=APP_IS_TV=true --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
 ```
 
 Codemagic workflows are defined in `codemagic.yaml`.
+
+- `android-v2-release`: runs analyze/test, then builds mobile/tablet AAB, mobile/tablet split APKs, and Android TV universal APK.
+- `ios-v2-release`: runs analyze/test, builds unsigned iOS app, and packages an unsigned IPA.
+- `windows-v2-release`: runs analyze/test, builds Windows release, and packages a portable ZIP.
+
+CI artifact names use `VERSION_NAME` and `BUILD_NUMBER`/`PROJECT_BUILD_NUMBER`, so every build has a unique versioned filename.

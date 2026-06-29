@@ -1,72 +1,121 @@
 workflows:
   android-v2-release:
     name: CineViet v2 Android Release
-    max_build_duration: 60
+    max_build_duration: 90
     instance_type: linux_x2
     environment:
       flutter: stable
+      vars:
+        VERSION_NAME: "2.0.0"
     scripts:
       - name: Flutter clean/get
         script: |
           flutter clean
           flutter pub get
-      - name: Build mobile/tablet APKs by ABI
-        script: flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi --dart-define=APP_VARIANT=mobile --build-name=2.0.0 --build-number=9200
-      - name: Build Android TV universal APK
-        script: flutter build apk --release --dart-define=APP_VARIANT=tv --dart-define=APP_IS_TV=true --build-name=2.0.0 --build-number=9200
-      - name: Collect APK artifacts
+      - name: Analyze and test
         script: |
-          mkdir -p build/app/outputs/cineviet-v2-release
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/cineviet-v2-release/CineViet-v2-Mobile-Tablet-arm64-v8a-2.0.0+9200.apk
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk build/app/outputs/cineviet-v2-release/CineViet-v2-Mobile-Tablet-armeabi-v7a-2.0.0+9200.apk
-          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/cineviet-v2-release/CineViet-v2-Android-TV-universal-2.0.0+9200.apk
+          flutter analyze
+          flutter test
+      - name: Build mobile/tablet AAB and APKs
+        script: |
+          set -euo pipefail
+          CV_VERSION_NAME="${VERSION_NAME:-2.0.0}"
+          CV_BUILD_NUMBER="${BUILD_NUMBER:-${PROJECT_BUILD_NUMBER:-$(date -u +%Y%m%d%H)}}"
+          echo "Building CineViet mobile/tablet ${CV_VERSION_NAME}+${CV_BUILD_NUMBER}"
+          flutter build appbundle --release \
+            --dart-define=APP_VARIANT=mobile \
+            --build-name="${CV_VERSION_NAME}" \
+            --build-number="${CV_BUILD_NUMBER}"
+          flutter build apk --release \
+            --target-platform android-arm,android-arm64 \
+            --split-per-abi \
+            --dart-define=APP_VARIANT=mobile \
+            --build-name="${CV_VERSION_NAME}" \
+            --build-number="${CV_BUILD_NUMBER}"
+      - name: Build Android TV APK
+        script: |
+          set -euo pipefail
+          CV_VERSION_NAME="${VERSION_NAME:-2.0.0}"
+          CV_BUILD_NUMBER="${BUILD_NUMBER:-${PROJECT_BUILD_NUMBER:-$(date -u +%Y%m%d%H)}}"
+          echo "Building CineViet Android TV ${CV_VERSION_NAME}+${CV_BUILD_NUMBER}"
+          flutter build apk --release \
+            --dart-define=APP_VARIANT=tv \
+            --dart-define=APP_IS_TV=true \
+            --build-name="${CV_VERSION_NAME}" \
+            --build-number="${CV_BUILD_NUMBER}"
+      - name: Collect Android artifacts
+        script: |
+          set -euo pipefail
+          CV_VERSION_NAME="${VERSION_NAME:-2.0.0}"
+          CV_BUILD_NUMBER="${BUILD_NUMBER:-${PROJECT_BUILD_NUMBER:-$(date -u +%Y%m%d%H)}}"
+          OUT_DIR="build/app/outputs/cineviet-v2-release"
+          mkdir -p "${OUT_DIR}"
+          cp build/app/outputs/bundle/release/app-release.aab "${OUT_DIR}/CineViet-v2-Mobile-Tablet-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.aab"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "${OUT_DIR}/CineViet-v2-Mobile-Tablet-arm64-v8a-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "${OUT_DIR}/CineViet-v2-Mobile-Tablet-armeabi-v7a-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "${OUT_DIR}/CineViet-v2-Android-TV-universal-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"
+          ls -lh "${OUT_DIR}"
     artifacts:
-      - build/app/outputs/cineviet-v2-release/*.apk
+      - build/app/outputs/cineviet-v2-release/*
 
   ios-v2-release:
     name: CineViet v2 iOS Release
-    max_build_duration: 60
+    max_build_duration: 90
     instance_type: mac_mini_m2
     environment:
       flutter: stable
       xcode: latest
       cocoapods: default
-      groups:
-        - app_store_connect
       vars:
+        VERSION_NAME: "2.0.0"
         BUNDLE_ID: "live.cineviet.cinevietios"
     scripts:
       - name: Flutter clean/get
         script: |
           flutter clean
           flutter pub get
+      - name: Analyze and test
+        script: |
+          flutter analyze
+          flutter test
       - name: Install pods
         script: |
           cd ios
           pod install --repo-update
           cd ..
       - name: Build unsigned iOS app
-        script: flutter build ios --release --no-codesign --dart-define=APP_VARIANT=ios --build-name=2.0.0 --build-number=9200
+        script: |
+          set -euo pipefail
+          CV_VERSION_NAME="${VERSION_NAME:-2.0.0}"
+          CV_BUILD_NUMBER="${BUILD_NUMBER:-${PROJECT_BUILD_NUMBER:-$(date -u +%Y%m%d%H)}}"
+          flutter build ios --release --no-codesign \
+            --dart-define=APP_VARIANT=ios \
+            --build-name="${CV_VERSION_NAME}" \
+            --build-number="${CV_BUILD_NUMBER}"
       - name: Package unsigned IPA
         script: |
-          rm -rf build/ios/unsigned_ipa
-          mkdir -p build/ios/unsigned_ipa/Payload
-          cp -R build/ios/iphoneos/Runner.app build/ios/unsigned_ipa/Payload/
-          cd build/ios/unsigned_ipa
-          zip -yr CineViet-v2-unsigned-2.0.0+9200.ipa Payload
+          set -euo pipefail
+          CV_VERSION_NAME="${VERSION_NAME:-2.0.0}"
+          CV_BUILD_NUMBER="${BUILD_NUMBER:-${PROJECT_BUILD_NUMBER:-$(date -u +%Y%m%d%H)}}"
+          IPA_DIR="build/ios/unsigned_ipa"
+          rm -rf "${IPA_DIR}"
+          mkdir -p "${IPA_DIR}/Payload"
+          cp -R build/ios/iphoneos/Runner.app "${IPA_DIR}/Payload/"
+          cd "${IPA_DIR}"
+          zip -yr "CineViet-v2-iOS-unsigned-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.ipa" Payload
     artifacts:
-      - build/ios/unsigned_ipa/CineViet-v2-unsigned-2.0.0+9200.ipa
+      - build/ios/unsigned_ipa/*.ipa
       - build/ios/iphoneos/Runner.app
       - /tmp/xcodebuild_logs/*.log
 
   windows-v2-release:
     name: CineViet v2 Windows Release
-    max_build_duration: 60
+    max_build_duration: 90
     instance_type: windows_x2
     environment:
       flutter: stable
       vars:
-        WINDOWS_ZIP_NAME: "CineViet-v2-Windows-2.0.0+9200.zip"
+        VERSION_NAME: "2.0.0"
     scripts:
       - name: Enable Windows desktop
         script: flutter config --enable-windows-desktop
@@ -74,10 +123,20 @@ workflows:
         script: |
           flutter clean
           flutter pub get
-      - name: Build Windows release
-        script: flutter build windows --release --dart-define=APP_VARIANT=windows --build-name=2.0.0 --build-number=9200
-      - name: Package Windows portable zip
-        script: powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item scripts\register_windows_protocol.ps1 build\windows\x64\runner\Release\Register-CineViet-Google-Login.ps1 -Force; New-Item -ItemType Directory -Force build\windows\package | Out-Null; Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\windows\package\$env:WINDOWS_ZIP_NAME -Force"
+      - name: Analyze and test
+        script: |
+          flutter analyze
+          flutter test
+      - name: Build and package Windows release
+        script: |
+          $ErrorActionPreference = "Stop"
+          $version = if ($env:VERSION_NAME) { $env:VERSION_NAME } else { "2.0.0" }
+          $build = if ($env:BUILD_NUMBER) { $env:BUILD_NUMBER } elseif ($env:PROJECT_BUILD_NUMBER) { $env:PROJECT_BUILD_NUMBER } else { Get-Date -Format "yyyyMMddHH" }
+          $zipName = "CineViet-v2-Windows-$version+$build.zip"
+          flutter build windows --release --dart-define=APP_VARIANT=windows --build-name=$version --build-number=$build
+          Copy-Item scripts\register_windows_protocol.ps1 build\windows\x64\runner\Release\Register-CineViet-Google-Login.ps1 -Force
+          New-Item -ItemType Directory -Force build\windows\package | Out-Null
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath "build\windows\package\$zipName" -Force
     artifacts:
-      - build/windows/package/CineViet-v2-Windows-2.0.0+9200.zip
+      - build/windows/package/*.zip
       - build/windows/x64/runner/Release/**
