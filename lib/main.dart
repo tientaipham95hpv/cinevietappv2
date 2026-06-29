@@ -139,6 +139,9 @@ double? asDouble(dynamic value) {
 
 String cleanText(dynamic value) => '${value ?? ''}'.trim();
 
+String compactKey(String value) =>
+    value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
+
 String get windowsOAuthBridgePath =>
     '${Directory.systemTemp.path}\\cineviet_oauth_callback.txt';
 
@@ -493,6 +496,39 @@ class EpisodeItem {
     linkM3u8: cleanText(json['link_m3u8']),
     linkEmbed: cleanText(json['link_embed']),
   );
+}
+
+class PlaybackSourceCandidate {
+  const PlaybackSourceCandidate({
+    required this.server,
+    required this.episode,
+    required this.serverIndex,
+    required this.qualityLabel,
+    required this.qualityRank,
+    required this.sourceLabel,
+    required this.urls,
+  });
+
+  final EpisodeServer server;
+  final EpisodeItem episode;
+  final int serverIndex;
+  final String qualityLabel;
+  final int qualityRank;
+  final String sourceLabel;
+  final List<String> urls;
+
+  String get id =>
+      '${serverIndex}_${compactKey(server.name)}_${compactKey(episode.name)}_'
+      '${compactKey(episode.linkM3u8)}_${compactKey(episode.linkEmbed)}';
+
+  String get displayName => '$sourceLabel • $qualityLabel';
+}
+
+class PlaybackUrlCandidate {
+  const PlaybackUrlCandidate({required this.source, required this.url});
+
+  final PlaybackSourceCandidate source;
+  final String url;
 }
 
 class WatchItem {
@@ -5332,8 +5368,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool leavingPlayer = false;
   String? lastWatchRoomFrom;
   int lastWatchSyncSentAt = 0;
-  List<String> activePlayableUrls = const [];
+  List<PlaybackUrlCandidate> activePlayableUrls = const [];
   int activePlayableUrlIndex = 0;
+  String selectedPlaybackSourceId = 'auto';
+  String selectedPlaybackSourceLabel = 'Auto';
   bool recoveringPlayback = false;
   bool reportingPlaybackIssue = false;
   int runtimeRecoveryAttempts = 0;
@@ -5402,6 +5440,139 @@ class _PlayerScreenState extends State<PlayerScreen>
     return urls;
   }
 
+  String _qualityLabelFor(EpisodeServer server, EpisodeItem episode) {
+    final haystack =
+        '${episode.filename} ${episode.name} ${server.name} '
+                '${episode.linkM3u8} ${episode.linkEmbed}'
+            .toLowerCase();
+    if (haystack.contains('2160') || haystack.contains('4k')) return '4K';
+    if (haystack.contains('1080') ||
+        haystack.contains('fhd') ||
+        haystack.contains('fullhd')) {
+      return '1080p';
+    }
+    if (haystack.contains('720') || RegExp(r'\bhd\b').hasMatch(haystack)) {
+      return '720p';
+    }
+    if (haystack.contains('480')) return '480p';
+    if (haystack.contains('360')) return '360p';
+    if (haystack.contains('cam') || haystack.contains('ts')) return 'CAM';
+    final movieQuality = widget.movie.quality.trim();
+    return movieQuality.isEmpty ? 'Auto' : movieQuality;
+  }
+
+  int _qualityRank(String label) {
+    final text = label.toLowerCase();
+    if (text.contains('4k') || text.contains('2160')) return 2160;
+    if (text.contains('1080') || text.contains('fhd')) return 1080;
+    if (text.contains('720') || text == 'hd') return 720;
+    if (text.contains('480')) return 480;
+    if (text.contains('360')) return 360;
+    if (text.contains('cam') || text.contains('ts')) return 120;
+    return 600;
+  }
+
+  bool _sameEpisodeName(EpisodeItem a, EpisodeItem b) {
+    final left = compactKey(a.name);
+    final right = compactKey(b.name);
+    if (left.isEmpty || right.isEmpty) return a.playUrl == b.playUrl;
+    return left == right || a.displayName == b.displayName;
+  }
+
+  List<PlaybackSourceCandidate> _playbackSources() {
+    final sources = <PlaybackSourceCandidate>[];
+    final servers = widget.movie.episodes.isEmpty
+        ? [currentServer]
+        : widget.movie.episodes;
+    for (var serverIndex = 0; serverIndex < servers.length; serverIndex++) {
+      final server = servers[serverIndex];
+      for (final episode in server.items) {
+        if (!_sameEpisodeName(episode, currentEpisode)) continue;
+        final urls = _playableUrls(episode.playUrl);
+        if (urls.isEmpty) continue;
+        final quality = _qualityLabelFor(server, episode);
+        final sourceType = episode.linkM3u8.isNotEmpty ? 'M3U8' : 'Embed';
+        sources.add(
+          PlaybackSourceCandidate(
+            server: server,
+            episode: episode,
+            serverIndex: serverIndex,
+            qualityLabel: quality,
+            qualityRank: _qualityRank(quality),
+            sourceLabel: '${server.displayName} • $sourceType',
+            urls: urls,
+          ),
+        );
+      }
+    }
+    if (sources.isEmpty) {
+      final urls = _playableUrls(currentEpisode.playUrl);
+      if (urls.isNotEmpty) {
+        final quality = _qualityLabelFor(currentServer, currentEpisode);
+        sources.add(
+          PlaybackSourceCandidate(
+            server: currentServer,
+            episode: currentEpisode,
+            serverIndex: currentServerIndex,
+            qualityLabel: quality,
+            qualityRank: _qualityRank(quality),
+            sourceLabel: currentServer.displayName,
+            urls: urls,
+          ),
+        );
+      }
+    }
+    sources.sort((a, b) {
+      final aCurrent =
+          a.server.name == currentServer.name &&
+          a.episode.name == currentEpisode.name &&
+          a.episode.playUrl == currentEpisode.playUrl;
+      final bCurrent =
+          b.server.name == currentServer.name &&
+          b.episode.name == currentEpisode.name &&
+          b.episode.playUrl == currentEpisode.playUrl;
+      if (aCurrent != bCurrent) return aCurrent ? -1 : 1;
+      final quality = b.qualityRank.compareTo(a.qualityRank);
+      if (quality != 0) return quality;
+      final m3u8 = (b.episode.linkM3u8.isNotEmpty ? 1 : 0).compareTo(
+        a.episode.linkM3u8.isNotEmpty ? 1 : 0,
+      );
+      if (m3u8 != 0) return m3u8;
+      return a.sourceLabel.compareTo(b.sourceLabel);
+    });
+    return sources;
+  }
+
+  List<PlaybackUrlCandidate> _playbackUrlCandidates() {
+    final sources = _playbackSources();
+    final filtered = selectedPlaybackSourceId == 'auto'
+        ? sources
+        : selectedPlaybackSourceId.startsWith('quality:')
+        ? sources
+              .where(
+                (source) =>
+                    compactKey(source.qualityLabel) ==
+                    selectedPlaybackSourceId.substring('quality:'.length),
+              )
+              .toList()
+        : sources
+              .where(
+                (source) => 'source:${source.id}' == selectedPlaybackSourceId,
+              )
+              .toList();
+    final selected = filtered.isEmpty ? sources : filtered;
+    final urls = <PlaybackUrlCandidate>[];
+    final seen = <String>{};
+    for (final source in selected) {
+      for (final url in source.urls) {
+        if (seen.add(url)) {
+          urls.add(PlaybackUrlCandidate(source: source, url: url));
+        }
+      }
+    }
+    return urls;
+  }
+
   String _sourceType(String url) {
     final parsed = Uri.tryParse(url);
     if (parsed == null) return 'unknown';
@@ -5416,16 +5587,18 @@ class _PlayerScreenState extends State<PlayerScreen>
     String errorCode = '',
     String errorMessage = '',
   }) {
-    final url = activePlayableUrls.isNotEmpty
+    final active = activePlayableUrls.isNotEmpty
         ? activePlayableUrls[activePlayableUrlIndex
               .clamp(0, activePlayableUrls.length - 1)
               .toInt()]
-        : currentEpisode.playUrl;
+        : null;
+    final url = active?.url ?? currentEpisode.playUrl;
+    final source = active?.source;
     unawaited(
       widget.repo.reportPlaybackEvent(
         movie: widget.movie,
-        server: currentServer,
-        episode: currentEpisode,
+        server: source?.server ?? currentServer,
+        episode: source?.episode ?? currentEpisode,
         eventType: eventType,
         errorCode: errorCode,
         errorMessage: errorMessage,
@@ -5449,13 +5622,14 @@ class _PlayerScreenState extends State<PlayerScreen>
     controller?.removeListener(_handlePlayerTick);
     await controller?.dispose();
     controller = null;
-    activePlayableUrls = _playableUrls(currentEpisode.playUrl);
+    activePlayableUrls = _playbackUrlCandidates();
     for (
       var index = startUrlIndex.clamp(0, activePlayableUrls.length).toInt();
       index < activePlayableUrls.length;
       index++
     ) {
-      final url = activePlayableUrls[index];
+      final candidate = activePlayableUrls[index];
+      final url = candidate.url;
       activePlayableUrlIndex = index;
       try {
         final next = VideoPlayerController.networkUrl(Uri.parse(url));
@@ -5487,6 +5661,9 @@ class _PlayerScreenState extends State<PlayerScreen>
         } else {
           await next.play();
         }
+        currentServer = candidate.source.server;
+        currentEpisode = candidate.source.episode;
+        currentServerIndex = candidate.source.serverIndex;
         recoveringPlayback = false;
         next.addListener(_handlePlayerTick);
         saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
@@ -6007,6 +6184,18 @@ class _PlayerScreenState extends State<PlayerScreen>
         : items.indexWhere((e) => e.name == currentEpisode.name);
   }
 
+  String get _activeSourceLabel {
+    if (activePlayableUrls.isNotEmpty) {
+      final source =
+          activePlayableUrls[activePlayableUrlIndex
+                  .clamp(0, activePlayableUrls.length - 1)
+                  .toInt()]
+              .source;
+      return '${selectedPlaybackSourceLabel == 'Auto' ? 'Auto' : selectedPlaybackSourceLabel} • ${source.qualityLabel}';
+    }
+    return selectedPlaybackSourceLabel;
+  }
+
   Future<void> _switchTo(EpisodeServer server, EpisodeItem episode) async {
     await _save();
     final serverIndex = widget.movie.episodes.indexOf(server);
@@ -6016,6 +6205,8 @@ class _PlayerScreenState extends State<PlayerScreen>
       currentServerIndex = serverIndex < 0 ? currentServerIndex : serverIndex;
       controls = true;
       error = null;
+      selectedPlaybackSourceId = 'auto';
+      selectedPlaybackSourceLabel = 'Auto';
     });
     runtimeRecoveryAttempts = 0;
     lastGoodPosition = null;
@@ -6054,6 +6245,137 @@ class _PlayerScreenState extends State<PlayerScreen>
           Navigator.of(context).pop();
           _switchTo(server, episode);
         },
+      ),
+    );
+    _showControls();
+  }
+
+  Future<void> _selectPlaybackSource(String id, String label) async {
+    await _save();
+    final position = controller?.value.position ?? lastGoodPosition;
+    setState(() {
+      selectedPlaybackSourceId = id;
+      selectedPlaybackSourceLabel = label;
+      controls = true;
+      error = null;
+      playbackNotice = label == 'Auto'
+          ? 'Đang bật Auto source...'
+          : 'Đang đổi sang $label...';
+    });
+    runtimeRecoveryAttempts = 0;
+    _trackPlaybackEvent('manual_source_select', errorMessage: label);
+    await _init(startAt: position);
+    _showControls();
+  }
+
+  Future<void> _showSourceSheet() async {
+    final sources = _playbackSources();
+    final qualities = <String, int>{};
+    for (final source in sources) {
+      qualities[compactKey(source.qualityLabel)] = source.qualityRank;
+    }
+    final qualityLabels = qualities.keys.toList()
+      ..sort((a, b) => (qualities[b] ?? 0).compareTo(qualities[a] ?? 0));
+    String labelForQuality(String key) => sources
+        .firstWhere((source) => compactKey(source.qualityLabel) == key)
+        .qualityLabel;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: CvColors.ink,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => SafeArea(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxHeight: (MediaQuery.sizeOf(context).height * .82).clamp(
+              280.0,
+              620.0,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(child: SectionTitle('Nguồn & chất lượng')),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    ChoiceChip(
+                      label: const Text('Auto'),
+                      selected: selectedPlaybackSourceId == 'auto',
+                      onSelected: (_) {
+                        Navigator.of(context).pop();
+                        unawaited(_selectPlaybackSource('auto', 'Auto'));
+                      },
+                    ),
+                    for (final qualityKey in qualityLabels)
+                      ChoiceChip(
+                        label: Text(labelForQuality(qualityKey)),
+                        selected:
+                            selectedPlaybackSourceId == 'quality:$qualityKey',
+                        onSelected: (_) {
+                          Navigator.of(context).pop();
+                          unawaited(
+                            _selectPlaybackSource(
+                              'quality:$qualityKey',
+                              labelForQuality(qualityKey),
+                            ),
+                          );
+                        },
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Nguồn cụ thể',
+                  style: TextStyle(fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 10),
+                Expanded(
+                  child: ListView.separated(
+                    itemCount: sources.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final source = sources[index];
+                      final id = 'source:${source.id}';
+                      return ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        selected: selectedPlaybackSourceId == id,
+                        leading: Icon(
+                          source.episode.linkM3u8.isNotEmpty
+                              ? Icons.high_quality_rounded
+                              : Icons.public_rounded,
+                        ),
+                        title: Text(source.sourceLabel),
+                        subtitle: Text(source.qualityLabel),
+                        trailing: selectedPlaybackSourceId == id
+                            ? const Icon(Icons.check_rounded)
+                            : null,
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          unawaited(
+                            _selectPlaybackSource(id, source.displayName),
+                          );
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
     _showControls();
@@ -6198,7 +6520,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     message: error!,
                     reporting: reportingPlaybackIssue,
                     onRetry: _retryPlayback,
-                    onChangeSource: _showEpisodeSheet,
+                    onChangeSource: _showSourceSheet,
                     onReport: _reportPlaybackIssue,
                   )
                 else if (c == null || !c.value.isInitialized)
@@ -6223,6 +6545,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     title: widget.movie.title,
                     episode:
                         '${currentServer.displayName} • ${currentEpisode.displayName}',
+                    sourceLabel: _activeSourceLabel,
                     fitLabel: fitMode.label,
                     canPrevious: _currentEpisodeIndex > 0,
                     canNext:
@@ -6234,6 +6557,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     onPrevious: () => _playSibling(-1),
                     onNext: () => _playSibling(1),
                     onEpisodes: _showEpisodeSheet,
+                    onSources: _showSourceSheet,
                     onSettings: _showSettingsSheet,
                     onFit: _cycleFitMode,
                     onBack: isWatchTogether ? _leavePlayer : null,
@@ -6437,6 +6761,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.controller,
     required this.title,
     required this.episode,
+    required this.sourceLabel,
     required this.fitLabel,
     required this.canPrevious,
     required this.canNext,
@@ -6446,6 +6771,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.onPrevious,
     required this.onNext,
     required this.onEpisodes,
+    required this.onSources,
     required this.onSettings,
     required this.onFit,
     this.onBack,
@@ -6453,6 +6779,7 @@ class PlayerOverlay extends StatelessWidget {
   final VideoPlayerController? controller;
   final String title;
   final String episode;
+  final String sourceLabel;
   final String fitLabel;
   final bool canPrevious;
   final bool canNext;
@@ -6462,6 +6789,7 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onEpisodes;
+  final VoidCallback onSources;
   final VoidCallback onSettings;
   final VoidCallback onFit;
   final VoidCallback? onBack;
@@ -6504,8 +6832,10 @@ class PlayerOverlay extends StatelessWidget {
                           style: const TextStyle(fontWeight: FontWeight.w800),
                         ),
                         Text(
-                          episode,
+                          '$episode • $sourceLabel',
                           style: const TextStyle(color: CvColors.muted),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
@@ -6534,6 +6864,11 @@ class PlayerOverlay extends StatelessWidget {
                               icon: Icons.video_library_rounded,
                               label: 'Tập',
                               onPressed: onEpisodes,
+                            ),
+                            PlayerControlButton(
+                              icon: Icons.high_quality_rounded,
+                              label: 'Nguồn',
+                              onPressed: onSources,
                             ),
                             PlayerControlButton(
                               icon: Icons.skip_previous_rounded,
@@ -6583,7 +6918,8 @@ class PlayerOverlay extends StatelessWidget {
                                   buttons[3],
                                   buttons[4],
                                   buttons[5],
-                                  buttons[7],
+                                  buttons[6],
+                                  buttons[8],
                                 ]
                               : buttons;
                           return Row(
