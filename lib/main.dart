@@ -26,6 +26,15 @@ const googleServerClientId =
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+    debugPrint('CineViet Flutter error: ${details.exceptionAsString()}');
+  };
+  ui.PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('CineViet platform error: $error');
+    debugPrintStack(stackTrace: stack);
+    return true;
+  };
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   runApp(const CineVietV2App());
 }
@@ -162,6 +171,7 @@ class Api {
               return handler.resolve(retry);
             } catch (_) {}
           }
+          if (await _retryTransient(error, handler)) return;
           handler.next(error);
         },
       ),
@@ -181,6 +191,36 @@ class Api {
     ),
   );
   bool _refreshing = false;
+
+  Future<bool> _retryTransient(
+    DioException error,
+    ErrorInterceptorHandler handler,
+  ) async {
+    final request = error.requestOptions;
+    final method = request.method.toUpperCase();
+    if (method != 'GET' && method != 'HEAD') return false;
+    final attempts = (request.extra['retryCount'] as int?) ?? 0;
+    if (attempts >= 2) return false;
+    final status = error.response?.statusCode ?? 0;
+    final transient =
+        error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.receiveTimeout ||
+        error.type == DioExceptionType.sendTimeout ||
+        error.type == DioExceptionType.connectionError ||
+        status == 408 ||
+        status == 429 ||
+        status >= 500;
+    if (!transient) return false;
+    await Future<void>.delayed(Duration(milliseconds: 350 * (attempts + 1)));
+    request.extra['retryCount'] = attempts + 1;
+    try {
+      final retry = await dio.fetch<dynamic>(request);
+      handler.resolve(retry);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   bool get hasAuthToken {
     final header = dio.options.headers['Authorization'];
@@ -5203,7 +5243,8 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen>
+    with WidgetsBindingObserver {
   VideoPlayerController? controller;
   Timer? saveTimer;
   Timer? controlsTimer;
@@ -5236,6 +5277,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool leavingPlayer = false;
   String? lastWatchRoomFrom;
   int lastWatchSyncSentAt = 0;
+  List<String> activePlayableUrls = const [];
+  int activePlayableUrlIndex = 0;
+  bool recoveringPlayback = false;
+  int runtimeRecoveryAttempts = 0;
+  Duration? lastGoodPosition;
   static const brightnessChannel = MethodChannel('live.cineviet/brightness');
 
   bool get isWatchTogether =>
@@ -5251,6 +5297,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     currentServer = widget.server;
     currentEpisode = widget.episode;
     currentServerIndex = widget.serverIndex;
@@ -5295,17 +5342,24 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return urls;
   }
 
-  Future<void> _init() async {
+  Future<void> _init({int startUrlIndex = 0, Duration? startAt}) async {
     Object? lastError;
     setState(() => error = null);
     saveTimer?.cancel();
+    controller?.removeListener(_handlePlayerTick);
     await controller?.dispose();
     controller = null;
-    for (final url in _playableUrls(currentEpisode.playUrl)) {
+    activePlayableUrls = _playableUrls(currentEpisode.playUrl);
+    for (
+      var index = startUrlIndex.clamp(0, activePlayableUrls.length).toInt();
+      index < activePlayableUrls.length;
+      index++
+    ) {
+      final url = activePlayableUrls[index];
       try {
         final next = VideoPlayerController.networkUrl(Uri.parse(url));
         controller = next;
-        await next.initialize();
+        await next.initialize().timeout(const Duration(seconds: 18));
         await next.setPlaybackSpeed(playbackSpeed);
         await next.setVolume(appVolume);
         if (isWatchTogether && !isWatchHost && watchRoomState != null) {
@@ -5315,7 +5369,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
           if (target > Duration.zero) await next.seekTo(target);
         }
         final resume = widget.resume;
-        if (!isWatchTogether && resume != null && resume.inSeconds > 3) {
+        final recoveryPosition = startAt ?? lastGoodPosition;
+        if (!isWatchTogether &&
+            recoveryPosition != null &&
+            recoveryPosition.inSeconds > 3) {
+          await next.seekTo(recoveryPosition);
+        } else if (!isWatchTogether && resume != null && resume.inSeconds > 3) {
           await next.seekTo(resume);
         }
         if (isWatchTogether && !isWatchHost && watchRoomState != null) {
@@ -5327,19 +5386,62 @@ class _PlayerScreenState extends State<PlayerScreen> {
         } else {
           await next.play();
         }
-        next.addListener(_maybeAutoNext);
+        activePlayableUrlIndex = index;
+        recoveringPlayback = false;
+        next.addListener(_handlePlayerTick);
         saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
         _scheduleControlsHide();
         if (mounted) setState(() {});
         return;
       } catch (e) {
         lastError = e;
+        controller?.removeListener(_handlePlayerTick);
         await controller?.dispose();
         controller = null;
       }
     }
     debugPrint('CineViet player error: $lastError');
-    if (mounted) setState(() => error = 'Không mở được nguồn phát này');
+    if (mounted) {
+      setState(
+        () => error =
+            'Không mở được nguồn phát này. Hãy thử nguồn hoặc tập khác.',
+      );
+    }
+  }
+
+  void _handlePlayerTick() {
+    final c = controller;
+    if (c == null || !c.value.isInitialized) return;
+    lastGoodPosition = c.value.position;
+    if (c.value.hasError) {
+      unawaited(_recoverPlayback(c.value.errorDescription));
+      return;
+    }
+    _maybeAutoNext();
+  }
+
+  Future<void> _recoverPlayback(String? reason) async {
+    if (recoveringPlayback || leavingPlayer || !mounted) return;
+    recoveringPlayback = true;
+    runtimeRecoveryAttempts += 1;
+    final position = controller?.value.position ?? lastGoodPosition;
+    debugPrint(
+      'CineViet player runtime error: ${reason ?? 'unknown'} '
+      '(attempt $runtimeRecoveryAttempts)',
+    );
+    if (runtimeRecoveryAttempts <= 3 &&
+        activePlayableUrlIndex + 1 < activePlayableUrls.length) {
+      await _init(startUrlIndex: activePlayableUrlIndex + 1, startAt: position);
+      if (controller != null) return;
+    }
+    if (mounted) {
+      setState(() {
+        error =
+            'Nguồn phát bị lỗi trên thiết bị này. Hãy thử nguồn hoặc tập khác.';
+      });
+      _showControls();
+    }
+    recoveringPlayback = false;
   }
 
   Future<void> _save() async {
@@ -5417,7 +5519,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _maybeAutoNext() {
     final c = controller;
-    if (!autoNextEpisode || c == null || !c.value.isInitialized) return;
+    if (!autoNextEpisode ||
+        c == null ||
+        !c.value.isInitialized ||
+        c.value.hasError) {
+      return;
+    }
     final duration = c.value.duration;
     if (duration.inSeconds <= 20) return;
     final remaining = duration - c.value.position;
@@ -5709,6 +5816,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _seekBy(Duration(seconds: details.localPosition.dx < width / 2 ? -10 : 10));
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.detached) {
+      unawaited(_save());
+      return;
+    }
+    if (state == AppLifecycleState.resumed) {
+      unawaited(WakelockPlus.enable());
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+      unawaited(_syncDeviceLevels());
+      _scheduleControlsHide();
+    }
+  }
+
   int get _currentEpisodeIndex {
     final items = currentServer.items;
     final byUrl = items.indexWhere(
@@ -5730,7 +5853,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
       currentEpisode = episode;
       currentServerIndex = serverIndex < 0 ? currentServerIndex : serverIndex;
       controls = true;
+      error = null;
     });
+    runtimeRecoveryAttempts = 0;
+    lastGoodPosition = null;
     await _init();
   }
 
@@ -5835,12 +5961,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
     controlsTimer?.cancel();
     levelApplyTimer?.cancel();
     saveTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
     if (isWatchTogether && !leavingPlayer) {
       widget.repo.closeWatchRoom(forceDelete: isWatchHost);
     }
     focusNode.dispose();
     watchChatController.dispose();
-    controller?.removeListener(_maybeAutoNext);
+    controller?.removeListener(_handlePlayerTick);
     controller?.dispose();
     WakelockPlus.disable();
     if (supportsTouchLevels) {
