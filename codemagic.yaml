@@ -1,0 +1,83 @@
+workflows:
+  android-v2-release:
+    name: CineViet v2 Android Release
+    max_build_duration: 60
+    instance_type: linux_x2
+    environment:
+      flutter: stable
+    scripts:
+      - name: Flutter clean/get
+        script: |
+          flutter clean
+          flutter pub get
+      - name: Build mobile/tablet APKs by ABI
+        script: flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi --dart-define=APP_VARIANT=mobile --build-name=2.0.0 --build-number=9200
+      - name: Build Android TV universal APK
+        script: flutter build apk --release --dart-define=APP_VARIANT=tv --dart-define=APP_IS_TV=true --build-name=2.0.0 --build-number=9200
+      - name: Collect APK artifacts
+        script: |
+          mkdir -p build/app/outputs/cineviet-v2-release
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk build/app/outputs/cineviet-v2-release/CineViet-v2-Mobile-Tablet-arm64-v8a-2.0.0+9200.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk build/app/outputs/cineviet-v2-release/CineViet-v2-Mobile-Tablet-armeabi-v7a-2.0.0+9200.apk
+          cp build/app/outputs/flutter-apk/app-release.apk build/app/outputs/cineviet-v2-release/CineViet-v2-Android-TV-universal-2.0.0+9200.apk
+    artifacts:
+      - build/app/outputs/cineviet-v2-release/*.apk
+
+  ios-v2-release:
+    name: CineViet v2 iOS Release
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - app_store_connect
+      vars:
+        BUNDLE_ID: "live.cineviet.cinevietios"
+    scripts:
+      - name: Flutter clean/get
+        script: |
+          flutter clean
+          flutter pub get
+      - name: Install pods
+        script: |
+          cd ios
+          pod install --repo-update
+          cd ..
+      - name: Build unsigned iOS app
+        script: flutter build ios --release --no-codesign --dart-define=APP_VARIANT=ios --build-name=2.0.0 --build-number=9200
+      - name: Package unsigned IPA
+        script: |
+          rm -rf build/ios/unsigned_ipa
+          mkdir -p build/ios/unsigned_ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/unsigned_ipa/Payload/
+          cd build/ios/unsigned_ipa
+          zip -yr CineViet-v2-unsigned-2.0.0+9200.ipa Payload
+    artifacts:
+      - build/ios/unsigned_ipa/CineViet-v2-unsigned-2.0.0+9200.ipa
+      - build/ios/iphoneos/Runner.app
+      - /tmp/xcodebuild_logs/*.log
+
+  windows-v2-release:
+    name: CineViet v2 Windows Release
+    max_build_duration: 60
+    instance_type: windows_x2
+    environment:
+      flutter: stable
+      vars:
+        WINDOWS_ZIP_NAME: "CineViet-v2-Windows-2.0.0+9200.zip"
+    scripts:
+      - name: Enable Windows desktop
+        script: flutter config --enable-windows-desktop
+      - name: Flutter clean/get
+        script: |
+          flutter clean
+          flutter pub get
+      - name: Build Windows release
+        script: flutter build windows --release --dart-define=APP_VARIANT=windows --build-name=2.0.0 --build-number=9200
+      - name: Package Windows portable zip
+        script: powershell -NoProfile -ExecutionPolicy Bypass -Command "Copy-Item scripts\register_windows_protocol.ps1 build\windows\x64\runner\Release\Register-CineViet-Google-Login.ps1 -Force; New-Item -ItemType Directory -Force build\windows\package | Out-Null; Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath build\windows\package\$env:WINDOWS_ZIP_NAME -Force"
+    artifacts:
+      - build/windows/package/CineViet-v2-Windows-2.0.0+9200.zip
+      - build/windows/x64/runner/Release/**
