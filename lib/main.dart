@@ -986,6 +986,61 @@ class MovieRepository {
     } catch (_) {}
   }
 
+  Future<void> reportPlaybackEvent({
+    required Movie movie,
+    required EpisodeServer server,
+    required EpisodeItem episode,
+    required String eventType,
+    String errorCode = '',
+    String errorMessage = '',
+    String sourceType = '',
+    String sessionId = '',
+  }) async {
+    try {
+      await api.dio.post(
+        '/app/playback-event',
+        data: {
+          'movie_id': movie.id,
+          'episode': episodeNumber(episode.name),
+          'server_name': server.displayName,
+          'source_type': sourceType,
+          'event_type': eventType,
+          'error_code': errorCode,
+          'error_message': errorMessage,
+          'session_id': sessionId,
+        },
+      );
+    } catch (_) {}
+  }
+
+  Future<void> reportWatch({
+    required Movie movie,
+    required EpisodeServer server,
+    required EpisodeItem episode,
+    required String message,
+  }) async {
+    if (!api.hasAuthToken) {
+      await reportPlaybackEvent(
+        movie: movie,
+        server: server,
+        episode: episode,
+        eventType: 'user_report',
+        errorCode: 'manual_report_guest',
+        errorMessage: message,
+      );
+      return;
+    }
+    await api.dio.post(
+      '/user/report-watch',
+      data: {
+        'movie_id': movie.id,
+        'episode': episodeNumber(episode.name),
+        'report_type': 'video_error',
+        'message': message,
+      },
+    );
+  }
+
   Future<void> deleteHistoryMovie(int movieId) async {
     if (movieId <= 0) return;
     await api.dio.delete('/history/$movieId');
@@ -5280,8 +5335,13 @@ class _PlayerScreenState extends State<PlayerScreen>
   List<String> activePlayableUrls = const [];
   int activePlayableUrlIndex = 0;
   bool recoveringPlayback = false;
+  bool reportingPlaybackIssue = false;
   int runtimeRecoveryAttempts = 0;
   Duration? lastGoodPosition;
+  String? playbackNotice;
+  String? lastPlaybackError;
+  late final String playbackSessionId =
+      '${DateTime.now().microsecondsSinceEpoch}-${math.Random().nextInt(999999)}';
   static const brightnessChannel = MethodChannel('live.cineviet/brightness');
 
   bool get isWatchTogether =>
@@ -5342,9 +5402,49 @@ class _PlayerScreenState extends State<PlayerScreen>
     return urls;
   }
 
+  String _sourceType(String url) {
+    final parsed = Uri.tryParse(url);
+    if (parsed == null) return 'unknown';
+    if (parsed.path.toLowerCase().contains('.m3u8')) return 'm3u8';
+    if (parsed.path.contains('/api/stream')) return 'proxy';
+    if (parsed.host.contains('phimapi.com')) return 'embed';
+    return parsed.host.isEmpty ? 'unknown' : parsed.host;
+  }
+
+  void _trackPlaybackEvent(
+    String eventType, {
+    String errorCode = '',
+    String errorMessage = '',
+  }) {
+    final url = activePlayableUrls.isNotEmpty
+        ? activePlayableUrls[activePlayableUrlIndex
+              .clamp(0, activePlayableUrls.length - 1)
+              .toInt()]
+        : currentEpisode.playUrl;
+    unawaited(
+      widget.repo.reportPlaybackEvent(
+        movie: widget.movie,
+        server: currentServer,
+        episode: currentEpisode,
+        eventType: eventType,
+        errorCode: errorCode,
+        errorMessage: errorMessage,
+        sourceType: _sourceType(url),
+        sessionId: playbackSessionId,
+      ),
+    );
+  }
+
   Future<void> _init({int startUrlIndex = 0, Duration? startAt}) async {
     Object? lastError;
-    setState(() => error = null);
+    if (mounted) {
+      setState(() {
+        error = null;
+        playbackNotice = startUrlIndex > 0
+            ? 'Đang thử nguồn dự phòng...'
+            : 'Đang tải nguồn phát...';
+      });
+    }
     saveTimer?.cancel();
     controller?.removeListener(_handlePlayerTick);
     await controller?.dispose();
@@ -5356,6 +5456,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       index++
     ) {
       final url = activePlayableUrls[index];
+      activePlayableUrlIndex = index;
       try {
         final next = VideoPlayerController.networkUrl(Uri.parse(url));
         controller = next;
@@ -5386,15 +5487,21 @@ class _PlayerScreenState extends State<PlayerScreen>
         } else {
           await next.play();
         }
-        activePlayableUrlIndex = index;
         recoveringPlayback = false;
         next.addListener(_handlePlayerTick);
         saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
         _scheduleControlsHide();
+        _trackPlaybackEvent('playback_start');
+        playbackNotice = null;
         if (mounted) setState(() {});
         return;
       } catch (e) {
         lastError = e;
+        _trackPlaybackEvent(
+          'init_error',
+          errorCode: e.runtimeType.toString(),
+          errorMessage: '$e',
+        );
         controller?.removeListener(_handlePlayerTick);
         await controller?.dispose();
         controller = null;
@@ -5402,10 +5509,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     debugPrint('CineViet player error: $lastError');
     if (mounted) {
-      setState(
-        () => error =
-            'Không mở được nguồn phát này. Hãy thử nguồn hoặc tập khác.',
-      );
+      setState(() {
+        playbackNotice = null;
+        lastPlaybackError = '$lastError';
+        error = 'Không mở được nguồn phát này. Hãy thử nguồn hoặc tập khác.';
+      });
     }
   }
 
@@ -5425,17 +5533,29 @@ class _PlayerScreenState extends State<PlayerScreen>
     recoveringPlayback = true;
     runtimeRecoveryAttempts += 1;
     final position = controller?.value.position ?? lastGoodPosition;
+    final message = reason ?? 'unknown';
+    lastPlaybackError = message;
+    _trackPlaybackEvent(
+      'runtime_error',
+      errorCode: 'video_player_runtime_error',
+      errorMessage: message,
+    );
     debugPrint(
-      'CineViet player runtime error: ${reason ?? 'unknown'} '
+      'CineViet player runtime error: $message '
       '(attempt $runtimeRecoveryAttempts)',
     );
     if (runtimeRecoveryAttempts <= 3 &&
         activePlayableUrlIndex + 1 < activePlayableUrls.length) {
+      if (mounted) {
+        setState(() => playbackNotice = 'Nguồn lỗi, đang thử nguồn khác...');
+      }
+      _trackPlaybackEvent('auto_recover_source');
       await _init(startUrlIndex: activePlayableUrlIndex + 1, startAt: position);
       if (controller != null) return;
     }
     if (mounted) {
       setState(() {
+        playbackNotice = null;
         error =
             'Nguồn phát bị lỗi trên thiết bị này. Hãy thử nguồn hoặc tập khác.';
       });
@@ -5726,6 +5846,48 @@ class _PlayerScreenState extends State<PlayerScreen>
     await _save();
     await _closeWatchRoomIfNeeded();
     if (mounted) Navigator.of(context).pop();
+  }
+
+  Future<void> _retryPlayback() async {
+    runtimeRecoveryAttempts = 0;
+    lastGoodPosition = null;
+    lastPlaybackError = null;
+    _trackPlaybackEvent('manual_retry');
+    await _init();
+  }
+
+  Future<void> _reportPlaybackIssue() async {
+    if (reportingPlaybackIssue) return;
+    reportingPlaybackIssue = true;
+    if (mounted) setState(() {});
+    final message = [
+      'App v2 player error',
+      'Phim: ${widget.movie.title}',
+      'Tập: ${currentEpisode.displayName}',
+      'Server: ${currentServer.displayName}',
+      if (lastPlaybackError?.isNotEmpty == true)
+        'Lỗi: ${lastPlaybackError!.trim()}',
+    ].join(' | ');
+    try {
+      await widget.repo.reportWatch(
+        movie: widget.movie,
+        server: currentServer,
+        episode: currentEpisode,
+        message: message,
+      );
+      _trackPlaybackEvent('user_report_sent');
+      if (mounted) showSnack(context, 'Đã gửi báo lỗi phim');
+    } catch (_) {
+      _trackPlaybackEvent(
+        'user_report_failed',
+        errorCode: 'report_watch_failed',
+        errorMessage: message,
+      );
+      if (mounted) showSnack(context, 'Chưa gửi được báo lỗi');
+    } finally {
+      reportingPlaybackIssue = false;
+      if (mounted) setState(() {});
+    }
   }
 
   void _onPanStart(DragStartDetails details) {
@@ -6032,11 +6194,12 @@ class _PlayerScreenState extends State<PlayerScreen>
               fit: StackFit.expand,
               children: [
                 if (error != null)
-                  Center(
-                    child: Text(
-                      error!,
-                      style: const TextStyle(color: Colors.white),
-                    ),
+                  PlayerErrorView(
+                    message: error!,
+                    reporting: reportingPlaybackIssue,
+                    onRetry: _retryPlayback,
+                    onChangeSource: _showEpisodeSheet,
+                    onReport: _reportPlaybackIssue,
                   )
                 else if (c == null || !c.value.isInitialized)
                   const Center(
@@ -6084,6 +6247,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                     gestureMode != null &&
                     gestureValue != null)
                   GestureLevelHint(mode: gestureMode!, value: gestureValue!),
+                if (playbackNotice != null && error == null)
+                  PlaybackNotice(message: playbackNotice!),
               ],
             ),
           ),
@@ -6136,6 +6301,134 @@ class _PlayerScreenState extends State<PlayerScreen>
       ),
     ),
   );
+}
+
+class PlaybackNotice extends StatelessWidget {
+  const PlaybackNotice({super.key, required this.message});
+  final String message;
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+    left: 20,
+    right: 20,
+    bottom: 28,
+    child: SafeArea(
+      child: Center(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .72),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withValues(alpha: .12)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: CvColors.accent,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Flexible(
+                  child: Text(
+                    message,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+class PlayerErrorView extends StatelessWidget {
+  const PlayerErrorView({
+    super.key,
+    required this.message,
+    required this.reporting,
+    required this.onRetry,
+    required this.onChangeSource,
+    required this.onReport,
+  });
+
+  final String message;
+  final bool reporting;
+  final VoidCallback onRetry;
+  final VoidCallback onChangeSource;
+  final VoidCallback onReport;
+
+  @override
+  Widget build(BuildContext context) {
+    final compact = MediaQuery.sizeOf(context).width < 620;
+    final actions = [
+      FilledButton.icon(
+        onPressed: onRetry,
+        icon: const Icon(Icons.refresh_rounded),
+        label: const Text('Thử lại'),
+      ),
+      OutlinedButton.icon(
+        onPressed: onChangeSource,
+        icon: const Icon(Icons.video_library_rounded),
+        label: Text(compact ? 'Nguồn' : 'Đổi nguồn'),
+      ),
+      OutlinedButton.icon(
+        onPressed: reporting ? null : onReport,
+        icon: reporting
+            ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            : const Icon(Icons.flag_rounded),
+        label: const Text('Báo lỗi'),
+      ),
+    ];
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 520),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                Icons.error_outline_rounded,
+                size: 54,
+                color: CvColors.amber,
+              ),
+              const SizedBox(height: 14),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 18,
+                ),
+              ),
+              const SizedBox(height: 18),
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 10,
+                runSpacing: 10,
+                children: actions,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class PlayerOverlay extends StatelessWidget {
@@ -7401,6 +7694,12 @@ String fmtDuration(Duration d) {
     return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
   return '$m:${s.toString().padLeft(2, '0')}';
+}
+
+int episodeNumber(String value) {
+  final match = RegExp(r'\d+').firstMatch(value);
+  if (match == null) return 1;
+  return int.tryParse(match.group(0) ?? '') ?? 1;
 }
 
 void openDetail(
