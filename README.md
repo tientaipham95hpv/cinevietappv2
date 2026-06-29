@@ -46,3 +46,5 @@ Codemagic workflows are defined in `codemagic.yaml`.
 - `windows-v2-release`: runs analyze/test, builds Windows release, and packages a portable ZIP.
 
 CI artifact names use `VERSION_NAME` and `BUILD_NUMBER`/`PROJECT_BUILD_NUMBER`, so every build has a unique versioned filename.
+Set `RELEASE_CHANNEL` to `internal`, `staging`, or `release` to mark artifact intent.
+Release channel notes, QA checklist, and release notes template live in `release/`.
