@@ -142,6 +142,30 @@ String cleanText(dynamic value) => '${value ?? ''}'.trim();
 String compactKey(String value) =>
     value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
 
+Future<Map<String, String>>? _playbackClientInfoFuture;
+
+Future<Map<String, String>> playbackClientInfo() {
+  return _playbackClientInfoFuture ??= () async {
+    final info = await PackageInfo.fromPlatform();
+    final platform = isTvBuild
+        ? 'android_tv'
+        : Platform.isAndroid
+        ? 'android'
+        : Platform.isIOS
+        ? 'ios'
+        : Platform.isWindows
+        ? 'windows'
+        : Platform.operatingSystem;
+    return {
+      'app_platform': platform,
+      'app_version': info.version,
+      'app_build': info.buildNumber,
+      'device_model': isTvBuild ? 'Android TV / TV Box' : platform,
+      'device_os': Platform.operatingSystemVersion,
+    };
+  }();
+}
+
 String get windowsOAuthBridgePath =>
     '${Directory.systemTemp.path}\\cineviet_oauth_callback.txt';
 
@@ -1030,9 +1054,12 @@ class MovieRepository {
     String errorCode = '',
     String errorMessage = '',
     String sourceType = '',
+    String sourceLabel = '',
+    String sourceMode = '',
     String sessionId = '',
   }) async {
     try {
+      final clientInfo = await playbackClientInfo();
       await api.dio.post(
         '/app/playback-event',
         data: {
@@ -1043,7 +1070,10 @@ class MovieRepository {
           'event_type': eventType,
           'error_code': errorCode,
           'error_message': errorMessage,
+          'source_label': sourceLabel,
+          'source_mode': sourceMode,
           'session_id': sessionId,
+          ...clientInfo,
         },
       );
     } catch (_) {}
@@ -5603,6 +5633,8 @@ class _PlayerScreenState extends State<PlayerScreen>
         errorCode: errorCode,
         errorMessage: errorMessage,
         sourceType: _sourceType(url),
+        sourceLabel: source?.displayName ?? selectedPlaybackSourceLabel,
+        sourceMode: selectedPlaybackSourceLabel,
         sessionId: playbackSessionId,
       ),
     );
