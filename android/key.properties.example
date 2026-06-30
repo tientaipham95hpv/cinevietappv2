@@ -2,7 +2,7 @@
 # Never commit android/key.properties or keystore files.
 
 # Path is resolved from the android/ Gradle project directory.
-storeFile=upload-keystore.jks
+storeFile=cineviet-release.jks
 storePassword=change-me
-keyAlias=upload
+keyAlias=cineviet
 keyPassword=change-me

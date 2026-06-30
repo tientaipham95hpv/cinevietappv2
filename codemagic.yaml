@@ -38,17 +38,13 @@ workflows:
               exit 1
             fi
           fi
-      - name: Build mobile/tablet AAB and APKs
+      - name: Build mobile/tablet direct APKs
         script: |
           set -euo pipefail
           CV_VERSION_NAME="${VERSION_NAME:-2.0.0}"
           CV_BUILD_NUMBER="${BUILD_NUMBER:-${PROJECT_BUILD_NUMBER:-$(date -u +%Y%m%d%H)}}"
           CV_RELEASE_CHANNEL="${RELEASE_CHANNEL:-release}"
           echo "Building CineViet ${CV_RELEASE_CHANNEL} mobile/tablet ${CV_VERSION_NAME}+${CV_BUILD_NUMBER}"
-          flutter build appbundle --release \
-            --dart-define=APP_VARIANT=mobile \
-            --build-name="${CV_VERSION_NAME}" \
-            --build-number="${CV_BUILD_NUMBER}"
           flutter build apk --release \
             --target-platform android-arm,android-arm64 \
             --split-per-abi \
@@ -75,7 +71,6 @@ workflows:
           CV_RELEASE_CHANNEL="${RELEASE_CHANNEL:-release}"
           OUT_DIR="build/app/outputs/cineviet-v2-release"
           mkdir -p "${OUT_DIR}"
-          cp build/app/outputs/bundle/release/app-release.aab "${OUT_DIR}/CineViet-v2-${CV_RELEASE_CHANNEL}-Mobile-Tablet-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.aab"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "${OUT_DIR}/CineViet-v2-${CV_RELEASE_CHANNEL}-Mobile-Tablet-arm64-v8a-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"
           cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "${OUT_DIR}/CineViet-v2-${CV_RELEASE_CHANNEL}-Mobile-Tablet-armeabi-v7a-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"
           cp build/app/outputs/flutter-apk/app-release.apk "${OUT_DIR}/CineViet-v2-${CV_RELEASE_CHANNEL}-Android-TV-universal-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"

@@ -6,7 +6,7 @@ Use `RELEASE_CHANNEL` in Codemagic to mark artifact intent. Default is `release`
 
 - `internal`: fast validation builds for the team. Bugs are expected.
 - `staging`: device-matrix QA builds before public release.
-- `release`: candidate or production builds for users.
+- `release`: candidate or production direct-install builds for users.
 
 ## Required Gates
 
@@ -31,7 +31,6 @@ Examples:
 ```text
 CineViet-v2-release-Mobile-Tablet-arm64-v8a-2.0.0+2026062915.apk
 CineViet-v2-staging-Android-TV-universal-2.0.0+2026062915.apk
-CineViet-v2-release-iOS-unsigned-2.0.0+2026062915.ipa
 CineViet-v2-internal-Windows-2.0.0+2026062915.zip
 ```
 
