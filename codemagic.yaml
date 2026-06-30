@@ -132,6 +132,9 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      ios_signing:
+        distribution_type: development
+        bundle_identifier: live.cineviet.cinevietios
       vars:
         VERSION_NAME: "2.0.0"
         RELEASE_CHANNEL: "release"
@@ -150,27 +153,26 @@ workflows:
           cd ios
           pod install --repo-update
           cd ..
-      - name: Build unsigned iOS app
+      - name: Set up iOS code signing
+        script: |
+          xcode-project use-profiles
+      - name: Build signed iOS IPA
         script: |
           set -euo pipefail
           CV_VERSION_NAME="${VERSION_NAME:-2.0.0}"
           CV_BUILD_NUMBER="${BUILD_NUMBER:-${PROJECT_BUILD_NUMBER:-$(date -u +%Y%m%d%H)}}"
-          flutter build ios --release --no-codesign \
+          flutter build ipa --release \
             --dart-define=APP_VARIANT=ios \
             --build-name="${CV_VERSION_NAME}" \
             --build-number="${CV_BUILD_NUMBER}"
-      - name: Package unsigned IPA
+      - name: Collect iOS release metadata
         script: |
           set -euo pipefail
           CV_VERSION_NAME="${VERSION_NAME:-2.0.0}"
           CV_BUILD_NUMBER="${BUILD_NUMBER:-${PROJECT_BUILD_NUMBER:-$(date -u +%Y%m%d%H)}}"
           CV_RELEASE_CHANNEL="${RELEASE_CHANNEL:-release}"
-          IPA_DIR="build/ios/unsigned_ipa"
-          rm -rf "${IPA_DIR}"
-          mkdir -p "${IPA_DIR}/Payload"
-          cp -R build/ios/iphoneos/Runner.app "${IPA_DIR}/Payload/"
-          cd "${IPA_DIR}"
-          zip -yr "CineViet-v2-${CV_RELEASE_CHANNEL}-iOS-unsigned-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.ipa" Payload
+          IPA_DIR="build/ios/ipa"
+          mkdir -p "${IPA_DIR}"
           {
             echo "app=CineViet v2"
             echo "platform=ios"
@@ -181,14 +183,17 @@ workflows:
             echo "commit=${CM_COMMIT:-$(git rev-parse --short HEAD)}"
             echo "branch=${CM_BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
             echo "built_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          } > BUILD_INFO.txt
-          cp ../../../release/QA_CHECKLIST.md QA_CHECKLIST.md
-          cp ../../../release/RELEASE_NOTES_TEMPLATE.md RELEASE_NOTES_TEMPLATE.md
-          cp ../../../release/IOS_DISTRIBUTION.md IOS_DISTRIBUTION.md
+            echo "signing=development"
+            echo "bundle_id=${BUNDLE_ID:-live.cineviet.cinevietios}"
+          } > "${IPA_DIR}/BUILD_INFO.txt"
+          cp release/QA_CHECKLIST.md "${IPA_DIR}/QA_CHECKLIST.md"
+          cp release/RELEASE_NOTES_TEMPLATE.md "${IPA_DIR}/RELEASE_NOTES_TEMPLATE.md"
+          cp release/IOS_DISTRIBUTION.md "${IPA_DIR}/IOS_DISTRIBUTION.md"
+          ls -lh "${IPA_DIR}"
     artifacts:
-      - build/ios/unsigned_ipa/*.ipa
-      - build/ios/unsigned_ipa/BUILD_INFO.txt
-      - build/ios/unsigned_ipa/*.md
+      - build/ios/ipa/*.ipa
+      - build/ios/ipa/BUILD_INFO.txt
+      - build/ios/ipa/*.md
       - build/ios/iphoneos/Runner.app
       - /tmp/xcodebuild_logs/*.log
 
