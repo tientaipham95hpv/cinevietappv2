@@ -1,4 +1,5 @@
 import java.io.FileInputStream
+import java.util.Base64
 import java.util.Properties
 
 plugins {
@@ -34,6 +35,24 @@ val hasReleaseSigning = listOf(
     releaseKeyPassword,
 ).all { !it.isNullOrBlank() }
 
+val dartDefines = (project.findProperty("dart-defines") as String?)
+    ?.split(",")
+    ?.mapNotNull { encoded ->
+        runCatching {
+            String(Base64.getDecoder().decode(encoded))
+        }.getOrNull()
+    }
+    ?: emptyList()
+
+fun dartDefineValue(name: String): String? =
+    dartDefines.firstOrNull { it.startsWith("$name=") }?.substringAfter("=")
+
+val appDisplayName = if (dartDefineValue("APP_IS_TV") == "true") {
+    "CineViet TV"
+} else {
+    "CineViet"
+}
+
 android {
     namespace = "live.cineviet.cineviet_app"
     compileSdk = flutter.compileSdkVersion
@@ -53,6 +72,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["appLabel"] = appDisplayName
     }
 
     signingConfigs {

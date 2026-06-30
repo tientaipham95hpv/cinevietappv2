@@ -97,7 +97,7 @@ class CineVietV2App extends StatelessWidget {
       ),
     );
     return MaterialApp(
-      title: 'CineViet',
+      title: isTvBuild ? 'CineViet TV' : 'CineViet',
       debugShowCheckedModeBanner: false,
       theme: theme,
       home: const AppShell(),
