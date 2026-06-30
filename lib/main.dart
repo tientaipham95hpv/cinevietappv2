@@ -5036,7 +5036,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                           cast: cast.take(30).toList(),
                         ),
                       ],
-                      if (snapshot.hasData) ...[
+                      if (snapshot.hasData && !isTvBuild) ...[
                         const SizedBox(height: 30),
                         SocialSection(repo: widget.repo, movie: movie),
                       ],
@@ -5773,7 +5773,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   WatchTogetherState? watchRoomState;
   final watchChatController = TextEditingController();
   final watchMessages = <WatchTogetherMessage>[];
-  bool watchChatVisible = true;
+  bool watchChatVisible = !isTvBuild;
   bool applyingWatchSync = false;
   bool leavingPlayer = false;
   String? lastWatchRoomFrom;
