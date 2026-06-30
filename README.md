@@ -48,3 +48,4 @@ CI artifact names use `VERSION_NAME` and `BUILD_NUMBER`/`PROJECT_BUILD_NUMBER`, 
 Set `RELEASE_CHANNEL` to `internal`, `staging`, or `release` to mark artifact intent.
 Release channel notes, QA checklist, and release notes template live in `release/`.
 Android direct APK signing setup is documented in `release/ANDROID_SIGNING.md`; copy `android/key.properties.example` to `android/key.properties` for local signed builds.
+iOS no-store distribution constraints are documented in `release/IOS_DISTRIBUTION.md`; unsigned IPA artifacts are not user-installable releases.

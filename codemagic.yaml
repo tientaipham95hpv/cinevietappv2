@@ -152,6 +152,7 @@ workflows:
           } > BUILD_INFO.txt
           cp ../../../release/QA_CHECKLIST.md QA_CHECKLIST.md
           cp ../../../release/RELEASE_NOTES_TEMPLATE.md RELEASE_NOTES_TEMPLATE.md
+          cp ../../../release/IOS_DISTRIBUTION.md IOS_DISTRIBUTION.md
     artifacts:
       - build/ios/unsigned_ipa/*.ipa
       - build/ios/unsigned_ipa/BUILD_INFO.txt
