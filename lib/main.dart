@@ -1763,34 +1763,61 @@ class RailNav extends StatelessWidget {
       (Icons.groups_rounded, 'Xem chung'),
       (Icons.person_rounded, 'Của tôi'),
     ];
-    return Container(
-      width: isTvBuild ? 112 : 96,
-      color: Colors.black,
-      padding: const EdgeInsets.symmetric(vertical: 22),
-      child: Column(
-        children: [
-          const CineLogo(size: 48),
-          const SizedBox(height: 28),
-          for (var i = 0; i < items.length; i++)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              child: FocusButton(
-                selected: i == index,
-                onPressed: () => onChanged(i),
-                child: Column(
-                  children: [
-                    Icon(items[i].$1, size: isTvBuild ? 30 : 26),
-                    const SizedBox(height: 4),
-                    Text(
-                      items[i].$2,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 11),
+    return SafeArea(
+      right: false,
+      child: Container(
+        width: isTvBuild ? 118 : 104,
+        color: Colors.black,
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        child: Column(
+          children: [
+            const CineLogo(size: 48),
+            const SizedBox(height: 22),
+            Expanded(
+              child: ListView.builder(
+                padding: EdgeInsets.zero,
+                itemCount: items.length,
+                itemBuilder: (context, i) => Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 7,
+                  ),
+                  child: FocusButton(
+                    selected: i == index,
+                    onPressed: () => onChanged(i),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      child: Column(
+                        children: [
+                          Icon(
+                            items[i].$1,
+                            size: isTvBuild ? 30 : 26,
+                            color: i == index ? CvColors.accent : CvColors.text,
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            items[i].$2,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            textAlign: TextAlign.center,
+                            textScaler: TextScaler.noScaling,
+                            style: TextStyle(
+                              color: i == index
+                                  ? CvColors.accent
+                                  : CvColors.muted,
+                              fontSize: isTvBuild ? 12 : 11,
+                              fontWeight: FontWeight.w800,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ],
+                  ),
                 ),
               ),
             ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2270,6 +2297,12 @@ class HeroBanner extends StatelessWidget {
         ? (movie.posterUrl.isNotEmpty ? movie.posterUrl : movie.backdropUrl)
         : (movie.backdropUrl.isNotEmpty ? movie.backdropUrl : movie.posterUrl);
     final height = heroBannerHeight(context);
+    final heroMeta = [
+      if (movie.releaseYear != null) '${movie.releaseYear}',
+      if (movie.quality.isNotEmpty) movie.quality,
+      if (movie.language.isNotEmpty) movie.language,
+      if (movie.episodeCurrent.isNotEmpty) movie.episodeCurrent,
+    ];
     return SizedBox(
       height: height,
       child: Stack(
@@ -2332,26 +2365,35 @@ class HeroBanner extends StatelessWidget {
                               letterSpacing: 0,
                             ),
                           ),
-                          const SizedBox(height: 12),
-                          Text(
-                            movie.metaLine,
-                            style: const TextStyle(
-                              color: CvColors.muted,
-                              fontSize: 15,
+                          if (heroMeta.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 8,
+                              children: heroMeta
+                                  .map(
+                                    (label) => InfoPill(
+                                      label,
+                                      prominent: label == movie.quality,
+                                    ),
+                                  )
+                                  .toList(),
                             ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            movie.description,
-                            maxLines: compact || tablet
-                                ? 2
-                                : (isTvBuild ? 4 : 3),
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 15.5,
-                              height: 1.42,
+                          ],
+                          if (movie.description.isNotEmpty) ...[
+                            const SizedBox(height: 16),
+                            Text(
+                              movie.description,
+                              maxLines: compact || tablet
+                                  ? 2
+                                  : (isTvBuild ? 4 : 3),
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15.5,
+                                height: 1.42,
+                              ),
                             ),
-                          ),
+                          ],
                           SizedBox(height: tablet ? 16 : 22),
                           Wrap(
                             spacing: 12,
@@ -4011,8 +4053,41 @@ class UpdateInfoScreen extends StatelessWidget {
       body: FutureBuilder<Map<String, dynamic>>(
         future: future,
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return ListView(
+              padding: pagePadding(context).copyWith(top: 24, bottom: 36),
+              children: const [
+                Panel(
+                  child: Row(
+                    children: [
+                      Icon(Icons.wifi_off_rounded, color: CvColors.amber),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'Chưa kiểm tra được cập nhật. Vui lòng thử lại sau.',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+          }
           if (!snapshot.hasData) {
-            return const LoadingPage(label: 'Đang kiểm tra cập nhật');
+            return const Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  CircularProgressIndicator(color: CvColors.accent),
+                  SizedBox(height: 14),
+                  Text(
+                    'Đang kiểm tra cập nhật',
+                    style: TextStyle(color: CvColors.muted),
+                  ),
+                ],
+              ),
+            );
           }
           final local = snapshot.data!['local'] as PackageInfo;
           final remote = snapshot.data!['remote'];
@@ -4027,10 +4102,27 @@ class UpdateInfoScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Máy này: ${local.version}+${local.buildNumber}'),
+                    const Text(
+                      'Phiên bản hiện tại',
+                      style: TextStyle(
+                        color: CvColors.muted,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${local.version}+${local.buildNumber}',
+                      style: const TextStyle(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     Text(
-                      'Latest API: ${latest.isEmpty ? 'Không có dữ liệu' : latest}',
+                      latest.isEmpty
+                          ? 'Máy chủ chưa trả về thông tin bản mới.'
+                          : 'Bản mới nhất trên máy chủ: $latest',
+                      style: const TextStyle(color: CvColors.muted),
                     ),
                     if (url.isNotEmpty) ...[
                       const SizedBox(height: 16),
