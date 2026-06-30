@@ -7151,50 +7151,82 @@ class _PlayerScreenState extends State<PlayerScreen>
       context: context,
       backgroundColor: CvColors.ink,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (_) => StatefulBuilder(
         builder: (context, setSheetState) => SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SectionTitle('Cài đặt player'),
-                const SizedBox(height: 10),
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  value: autoNextEpisode,
-                  title: const Text('Tự chuyển tập'),
-                  subtitle: const Text('Tự phát tập tiếp theo khi hết tập'),
-                  onChanged: (value) {
-                    setState(() => autoNextEpisode = value);
-                    setSheetState(() {});
-                  },
-                ),
-                const Divider(height: 24),
-                const Text(
-                  'Tốc độ phát',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final speed in speeds)
-                      ChoiceChip(
-                        label: Text(
-                          speed == 1.0 ? 'Bình thường' : _formatSpeed(speed),
-                        ),
-                        selected: playbackSpeed == speed,
-                        onSelected: (_) async {
-                          await _setPlaybackSpeed(speed);
-                          setSheetState(() {});
-                        },
-                      ),
-                  ],
-                ),
-              ],
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * .82,
+            ),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(
+                18,
+                0,
+                18,
+                24 + MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionTitle('Cài đặt player'),
+                  const SizedBox(height: 10),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    value: autoNextEpisode,
+                    title: const Text('Tự chuyển tập'),
+                    subtitle: const Text('Tự phát tập tiếp theo khi hết tập'),
+                    onChanged: (value) {
+                      setState(() => autoNextEpisode = value);
+                      setSheetState(() {});
+                    },
+                  ),
+                  const Divider(height: 24),
+                  const Text(
+                    'Tốc độ phát',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 10),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      final columns = constraints.maxWidth >= 520 ? 4 : 3;
+                      final itemWidth =
+                          (constraints.maxWidth - (columns - 1) * 8) / columns;
+                      return Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final speed in speeds)
+                            SizedBox(
+                              width: itemWidth,
+                              child: ChoiceChip(
+                                label: Center(
+                                  child: Text(
+                                    speed == 1.0 ? '1x' : _formatSpeed(speed),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                selected: playbackSpeed == speed,
+                                onSelected: (_) async {
+                                  await _setPlaybackSpeed(speed);
+                                  setSheetState(() {});
+                                },
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    playbackSpeed == 1.0
+                        ? 'Đang phát tốc độ bình thường'
+                        : 'Đang phát ${_formatSpeed(playbackSpeed)}',
+                    style: const TextStyle(color: CvColors.muted),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

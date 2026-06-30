@@ -5,13 +5,15 @@ import UIKit
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
-  private lazy var volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 1, height: 1))
+  private lazy var volumeView = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
   private weak var volumeSlider: UISlider?
+  private var originalBrightness: CGFloat?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    GeneratedPluginRegistrant.register(with: self)
     let ok = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     DispatchQueue.main.async { [weak self] in
       self?.setupPlayerControlChannel()
@@ -36,9 +38,16 @@ import UIKit
           result(Double(UIScreen.main.brightness))
         case "set":
           let value = self?.doubleArg(call.arguments, key: "value", fallback: Double(UIScreen.main.brightness)) ?? Double(UIScreen.main.brightness)
+          if self?.originalBrightness == nil {
+            self?.originalBrightness = UIScreen.main.brightness
+          }
           UIScreen.main.brightness = CGFloat(max(0.0, min(1.0, value)))
           result(Double(UIScreen.main.brightness))
         case "reset":
+          if let original = self?.originalBrightness {
+            UIScreen.main.brightness = original
+            self?.originalBrightness = nil
+          }
           result(Double(UIScreen.main.brightness))
         case "getVolume":
           result(Double(AVAudioSession.sharedInstance().outputVolume))
@@ -73,6 +82,10 @@ import UIKit
     }
     volumeSlider?.value = clamped
     volumeSlider?.sendActions(for: .valueChanged)
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+      self?.volumeSlider?.value = clamped
+      self?.volumeSlider?.sendActions(for: .valueChanged)
+    }
   }
 
   private func ensureVolumeControlReady() {
@@ -83,9 +96,10 @@ import UIKit
     } catch {
     }
     if volumeView.superview == nil {
-      volumeView.alpha = 0.01
-      volumeView.isUserInteractionEnabled = false
+      volumeView.alpha = 0.001
+      volumeView.isUserInteractionEnabled = true
       controller.view.addSubview(volumeView)
+      controller.view.sendSubviewToBack(volumeView)
       volumeSlider = volumeView.subviews.compactMap { $0 as? UISlider }.first
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
         self?.volumeSlider = self?.volumeView.subviews.compactMap { $0 as? UISlider }.first
