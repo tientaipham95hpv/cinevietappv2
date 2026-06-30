@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -3385,14 +3386,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
               },
             ),
             ProfileTile(
-              icon: Icons.tv_rounded,
-              title: 'Đăng nhập TV',
+              icon: isTvBuild
+                  ? Icons.tv_rounded
+                  : Icons.qr_code_scanner_rounded,
+              title: isTvBuild ? 'Đăng nhập TV' : 'Quét QR đăng nhập TV',
               subtitle: '',
               onTap: () async {
                 if (!context.mounted) return;
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => TvPairingScreen(repo: widget.repo),
+                    builder: (_) => isTvBuild
+                        ? TvPairingScreen(repo: widget.repo)
+                        : MobileTvPairingScreen(repo: widget.repo),
                   ),
                 );
               },
@@ -4226,6 +4231,9 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (!isTvBuild) {
+      return MobileTvPairingScreen(repo: widget.repo);
+    }
     final timeLeft = session?.expiresAt == null
         ? session?.expiresIn ?? 0
         : session!.expiresAt!
@@ -4326,6 +4334,268 @@ class _TvPairingScreenState extends State<TvPairingScreen> {
           ),
         ],
       ),
+    );
+  }
+}
+
+class MobileTvPairingScreen extends StatefulWidget {
+  const MobileTvPairingScreen({super.key, required this.repo});
+  final MovieRepository repo;
+
+  @override
+  State<MobileTvPairingScreen> createState() => _MobileTvPairingScreenState();
+}
+
+class _MobileTvPairingScreenState extends State<MobileTvPairingScreen> {
+  final codeController = TextEditingController();
+  MobileScannerController? scannerController;
+  bool scanning = false;
+  bool busy = false;
+  String? error;
+
+  bool get canScanQr =>
+      !kIsWeb && (Platform.isAndroid || Platform.isIOS) && !isTvBuild;
+
+  @override
+  void initState() {
+    super.initState();
+    if (canScanQr) {
+      scannerController = MobileScannerController();
+      scanning = true;
+    }
+  }
+
+  @override
+  void dispose() {
+    codeController.dispose();
+    scannerController?.dispose();
+    super.dispose();
+  }
+
+  String _codeFromQr(String raw) {
+    final value = raw.trim();
+    if (RegExp(r'^\d{6}$').hasMatch(value)) return value;
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is Map && decoded['type'] == 'cineviet_tv_pairing') {
+        final code = cleanText(decoded['code']);
+        if (RegExp(r'^\d{6}$').hasMatch(code)) return code;
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  void _onQrDetect(BarcodeCapture capture) {
+    if (busy) return;
+    final raw = capture.barcodes
+        .map((barcode) => barcode.rawValue ?? '')
+        .firstWhere((value) => value.trim().isNotEmpty, orElse: () => '');
+    if (raw.isEmpty) return;
+    final code = _codeFromQr(raw);
+    if (code.isEmpty) {
+      setState(() => error = 'QR này không phải mã đăng nhập TV CineViet.');
+      return;
+    }
+    scannerController?.stop();
+    unawaited(_approve(code));
+  }
+
+  Future<void> _approve(String code) async {
+    if (busy) return;
+    if (!await requireLogin(context, 'Xác nhận TV')) return;
+    setState(() {
+      busy = true;
+      error = null;
+    });
+    try {
+      await widget.repo.approveTvCode(code);
+      if (!mounted) return;
+      showSnack(context, 'Đã xác nhận. TV sẽ tự đăng nhập sau vài giây.');
+      Navigator.of(context).maybePop();
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        error = 'Không xác nhận được mã TV. Mã có thể sai hoặc đã hết hạn.';
+      });
+      if (scanning) scannerController?.start();
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  void _submitManualCode() {
+    final code = codeController.text.replaceAll(RegExp(r'\D'), '').trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(code)) {
+      setState(() => error = 'Nhập đúng mã TV 6 số.');
+      return;
+    }
+    unawaited(_approve(code));
+  }
+
+  void _toggleMode() {
+    if (!canScanQr) return;
+    setState(() {
+      scanning = !scanning;
+      error = null;
+    });
+    if (scanning) {
+      scannerController?.start();
+    } else {
+      scannerController?.stop();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final showScanner = scanning && scannerController != null;
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Đăng nhập TV'),
+        actions: [
+          if (canScanQr)
+            IconButton(
+              tooltip: showScanner ? 'Nhập mã' : 'Quét QR',
+              onPressed: busy ? null : _toggleMode,
+              icon: Icon(
+                showScanner
+                    ? Icons.keyboard_rounded
+                    : Icons.qr_code_scanner_rounded,
+              ),
+            ),
+        ],
+      ),
+      body: SafeArea(
+        child: showScanner ? _buildScanner() : _buildManualInput(),
+      ),
+    );
+  }
+
+  Widget _buildScanner() {
+    return Column(
+      children: [
+        Expanded(
+          child: Stack(
+            children: [
+              MobileScanner(
+                controller: scannerController,
+                onDetect: _onQrDetect,
+              ),
+              Center(
+                child: Container(
+                  width: 240,
+                  height: 240,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: CvColors.accent, width: 3),
+                  ),
+                ),
+              ),
+              if (busy)
+                Container(
+                  color: Colors.black54,
+                  child: const Center(
+                    child: CircularProgressIndicator(color: CvColors.accent),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: pagePadding(context).copyWith(top: 16, bottom: 20),
+          child: Panel(
+            child: Column(
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.qr_code_scanner_rounded, color: CvColors.accent),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Quét QR trên màn hình Android TV',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ],
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 10),
+                  Text(error!, style: const TextStyle(color: CvColors.danger)),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildManualInput() {
+    return ListView(
+      padding: pagePadding(context).copyWith(top: 36, bottom: 36),
+      children: [
+        Panel(
+          child: Column(
+            children: [
+              const Icon(Icons.tv_rounded, size: 70, color: CvColors.accent),
+              const SizedBox(height: 16),
+              const Text(
+                'Nhập mã TV',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 28, fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 10),
+              const Text(
+                'Nhập mã 6 số đang hiển thị trên Android TV để đăng nhập TV bằng tài khoản này.',
+                textAlign: TextAlign.center,
+                style: TextStyle(color: CvColors.muted),
+              ),
+              const SizedBox(height: 22),
+              TextField(
+                controller: codeController,
+                keyboardType: TextInputType.number,
+                textInputAction: TextInputAction.done,
+                textAlign: TextAlign.center,
+                maxLength: 6,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onSubmitted: (_) => _submitManualCode(),
+                style: const TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 8,
+                ),
+                decoration: const InputDecoration(
+                  hintText: '000000',
+                  counterText: '',
+                ),
+              ),
+              if (error != null) ...[
+                const SizedBox(height: 12),
+                Text(error!, style: const TextStyle(color: CvColors.danger)),
+              ],
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                onPressed: busy ? null : _submitManualCode,
+                icon: busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.verified_rounded),
+                label: const Text('Xác nhận TV'),
+              ),
+              if (canScanQr) ...[
+                const SizedBox(height: 10),
+                TextButton.icon(
+                  onPressed: busy ? null : _toggleMode,
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
+                  label: const Text('Quét QR thay vì nhập mã'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
