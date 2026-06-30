@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -156,12 +157,66 @@ Future<Map<String, String>> playbackClientInfo() {
         : Platform.isWindows
         ? 'windows'
         : Platform.operatingSystem;
+    var deviceModel = isTvBuild ? 'Android TV / TV Box' : platform;
+    var deviceOs = Platform.operatingSystemVersion;
+    try {
+      final plugin = DeviceInfoPlugin();
+      if (Platform.isAndroid) {
+        final data = (await plugin.androidInfo).data;
+        final manufacturer = cleanText(data['manufacturer']);
+        final model = cleanText(data['model']);
+        final brand = cleanText(data['brand']);
+        final version = data['version'] is Map
+            ? Map<String, dynamic>.from(data['version'] as Map)
+            : const <String, dynamic>{};
+        deviceModel = [
+          if (manufacturer.isNotEmpty) manufacturer,
+          if (model.isNotEmpty &&
+              model.toLowerCase() != manufacturer.toLowerCase())
+            model,
+        ].join(' ');
+        if (deviceModel.isEmpty) deviceModel = brand.isEmpty ? platform : brand;
+        deviceOs = [
+          'Android ${cleanText(version['release']).isEmpty ? '' : cleanText(version['release'])}'
+              .trim(),
+          if (cleanText(version['sdkInt']).isNotEmpty)
+            'SDK ${cleanText(version['sdkInt'])}',
+          if (cleanText(version['incremental']).isNotEmpty)
+            cleanText(version['incremental']),
+        ].where((e) => e.trim().isNotEmpty).join(' • ');
+      } else if (Platform.isIOS) {
+        final data = (await plugin.iosInfo).data;
+        final utsname = data['utsname'] is Map
+            ? Map<String, dynamic>.from(data['utsname'] as Map)
+            : const <String, dynamic>{};
+        deviceModel = cleanText(utsname['machine']).isNotEmpty
+            ? cleanText(utsname['machine'])
+            : cleanText(data['model']);
+        deviceOs =
+            '${cleanText(data['systemName']).isEmpty ? 'iOS' : cleanText(data['systemName'])} ${cleanText(data['systemVersion'])}'
+                .trim();
+      } else if (Platform.isWindows) {
+        final data = (await plugin.windowsInfo).data;
+        deviceModel = cleanText(data['computerName']).isEmpty
+            ? 'Windows PC'
+            : cleanText(data['computerName']);
+        deviceOs = [
+          cleanText(data['productName']).isEmpty
+              ? 'Windows'
+              : cleanText(data['productName']),
+          if (cleanText(data['displayVersion']).isNotEmpty)
+            cleanText(data['displayVersion']),
+          if (cleanText(data['buildNumber']).isNotEmpty)
+            'build ${cleanText(data['buildNumber'])}',
+        ].join(' • ');
+      }
+    } catch (_) {}
     return {
       'app_platform': platform,
       'app_version': info.version,
       'app_build': info.buildNumber,
-      'device_model': isTvBuild ? 'Android TV / TV Box' : platform,
-      'device_os': Platform.operatingSystemVersion,
+      'device_model': deviceModel,
+      'device_os': deviceOs,
     };
   }();
 }
@@ -5655,6 +5710,15 @@ class _PlayerScreenState extends State<PlayerScreen>
     await controller?.dispose();
     controller = null;
     activePlayableUrls = _playbackUrlCandidates();
+    if (activePlayableUrls.isEmpty) {
+      lastError = 'source_empty';
+      _trackPlaybackEvent(
+        'source_empty',
+        errorCode: 'no_playable_source',
+        errorMessage:
+            'No playable URL for ${currentServer.displayName} / ${currentEpisode.displayName}',
+      );
+    }
     for (
       var index = startUrlIndex.clamp(0, activePlayableUrls.length).toInt();
       index < activePlayableUrls.length;
@@ -5664,7 +5728,17 @@ class _PlayerScreenState extends State<PlayerScreen>
       final url = candidate.url;
       activePlayableUrlIndex = index;
       try {
-        final next = VideoPlayerController.networkUrl(Uri.parse(url));
+        final parsed = Uri.tryParse(url);
+        if (parsed == null || !parsed.hasScheme) {
+          lastError = 'Invalid playback URL';
+          _trackPlaybackEvent(
+            'invalid_url',
+            errorCode: 'invalid_playback_url',
+            errorMessage: url.length > 300 ? url.substring(0, 300) : url,
+          );
+          continue;
+        }
+        final next = VideoPlayerController.networkUrl(parsed);
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));
         await next.setPlaybackSpeed(playbackSpeed);
@@ -5704,6 +5778,16 @@ class _PlayerScreenState extends State<PlayerScreen>
         playbackNotice = null;
         if (mounted) setState(() {});
         return;
+      } on TimeoutException catch (e) {
+        lastError = e;
+        _trackPlaybackEvent(
+          'init_timeout',
+          errorCode: 'player_init_timeout',
+          errorMessage: e.message ?? '$e',
+        );
+        controller?.removeListener(_handlePlayerTick);
+        await controller?.dispose();
+        controller = null;
       } catch (e) {
         lastError = e;
         _trackPlaybackEvent(
@@ -5717,6 +5801,11 @@ class _PlayerScreenState extends State<PlayerScreen>
       }
     }
     debugPrint('CineViet player error: $lastError');
+    _trackPlaybackEvent(
+      startUrlIndex > 0 || startAt != null ? 'recover_failed' : 'init_failed',
+      errorCode: lastError.runtimeType.toString(),
+      errorMessage: '$lastError',
+    );
     if (mounted) {
       setState(() {
         playbackNotice = null;
@@ -5763,6 +5852,11 @@ class _PlayerScreenState extends State<PlayerScreen>
       if (controller != null) return;
     }
     if (mounted) {
+      _trackPlaybackEvent(
+        'recover_failed',
+        errorCode: 'source_recovery_exhausted',
+        errorMessage: message,
+      );
       setState(() {
         playbackNotice = null;
         error =
