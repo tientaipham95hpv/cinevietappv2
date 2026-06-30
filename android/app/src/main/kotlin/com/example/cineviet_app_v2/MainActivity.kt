@@ -15,7 +15,7 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, brightnessChannel).setMethodCallHandler { call, result ->
             when (call.method) {
-                "get" -> result.success(currentAppliedBrightness())
+                "get" -> result.success(currentBrightness())
                 "set" -> {
                     val value = (call.argument<Double>("value") ?: 0.5).coerceIn(0.0, 1.0)
                     applyBrightness(value)

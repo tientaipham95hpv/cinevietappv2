@@ -6073,8 +6073,6 @@ class _PlayerScreenState extends State<PlayerScreen>
   double screenBrightness = 1.0;
   Offset? dragStart;
   Duration? dragStartPosition;
-  double? dragStartBrightness;
-  double? dragStartVolume;
   Duration? pendingSeekPosition;
   String? dragMode;
   String? gestureMode;
@@ -6389,7 +6387,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));
         await next.setPlaybackSpeed(playbackSpeed);
-        await next.setVolume(supportsTouchLevels ? 1.0 : appVolume);
+        await next.setVolume(appVolume);
         if (isWatchTogether && !isWatchHost && watchRoomState != null) {
           final target = Duration(
             milliseconds: (watchRoomState!.currentTime * 1000).round(),
@@ -6558,8 +6556,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       controls = !controlsLocked;
       dragStart = null;
       dragStartPosition = null;
-      dragStartBrightness = null;
-      dragStartVolume = null;
       pendingSeekPosition = null;
       dragMode = null;
       gestureMode = null;
@@ -6629,7 +6625,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       final volume = await brightnessChannel.invokeMethod<double>('getVolume');
       if (volume != null && mounted) {
         appVolume = volume.clamp(0.0, 1.0);
-        await controller?.setVolume(1.0);
         setState(() {});
       }
     } catch (_) {}
@@ -6652,7 +6647,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       final actual = await brightnessChannel.invokeMethod<double>('setVolume', {
         'value': next,
       });
-      await controller?.setVolume(1.0);
       return actual?.clamp(0.0, 1.0);
     } catch (_) {}
     try {
@@ -6690,12 +6684,18 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
 
     if (volume != null) {
+      try {
+        await controller?.setVolume(volume);
+      } catch (_) {}
       final actual = await _setVolume(volume);
       if (settle && mounted && actual != null) {
         setState(() {
           appVolume = actual;
           if (gestureMode == 'volume') gestureValue = actual;
         });
+        try {
+          await controller?.setVolume(actual);
+        } catch (_) {}
       }
     }
   }
@@ -6843,8 +6843,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     final c = controller;
     dragStart = details.localPosition;
     dragStartPosition = c?.value.position;
-    dragStartBrightness = screenBrightness;
-    dragStartVolume = appVolume;
     dragMode = null;
     pendingSeekPosition = null;
   }
@@ -6857,7 +6855,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     final size = MediaQuery.sizeOf(context);
     final dx = details.localPosition.dx - start.dx;
     final dy = details.localPosition.dy - start.dy;
-    dragMode ??= dx.abs() > 16 || dy.abs() > 16
+    dragMode ??= dx.abs() > 18 || dy.abs() > 18
         ? (dx.abs() > dy.abs() ? 'seek' : 'level')
         : null;
     if (dragMode == null) return;
@@ -6876,10 +6874,9 @@ class _PlayerScreenState extends State<PlayerScreen>
       });
       return;
     }
-    final change = -dy / size.height * 1.25;
+    final change = -dy / size.height * 1.35;
     if (start.dx < size.width / 2) {
-      final base = dragStartBrightness ?? screenBrightness;
-      final next = (base + change).clamp(0.0, 1.0);
+      final next = (screenBrightness + change).clamp(0.0, 1.0);
       setState(() {
         screenBrightness = next;
         gestureMode = 'brightness';
@@ -6888,16 +6885,19 @@ class _PlayerScreenState extends State<PlayerScreen>
       pendingBrightness = next;
       _scheduleLevelApply();
     } else {
-      final base = dragStartVolume ?? appVolume;
-      final next = (base + change).clamp(0.0, 1.0);
+      final next = (appVolume + change).clamp(0.0, 1.0);
       setState(() {
         appVolume = next;
         gestureMode = 'volume';
         gestureValue = next;
       });
+      try {
+        c.setVolume(next);
+      } catch (_) {}
       pendingVolume = next;
       _scheduleLevelApply();
     }
+    dragStart = details.localPosition;
   }
 
   void _onPanEnd(DragEndDetails details) {
@@ -6906,14 +6906,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (dragMode == 'seek' && target != null) {
       controller?.seekTo(target);
       _emitWatchSync(force: true);
-    } else if (dragMode == 'level') {
-      unawaited(_applyPendingLevels(settle: true));
     }
+    unawaited(_applyPendingLevels(settle: true));
     setState(() {
       dragStart = null;
       dragStartPosition = null;
-      dragStartBrightness = null;
-      dragStartVolume = null;
       pendingSeekPosition = null;
       dragMode = null;
       gestureMode = null;

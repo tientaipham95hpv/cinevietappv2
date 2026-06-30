@@ -4,32 +4,32 @@ import MediaPlayer
 import UIKit
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
-  private lazy var volumeView = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
+@objc class AppDelegate: FlutterAppDelegate {
+  private lazy var volumeView = MPVolumeView(frame: CGRect(x: -1000, y: -1000, width: 1, height: 1))
   private weak var volumeSlider: UISlider?
-  private var originalBrightness: CGFloat?
 
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    GeneratedPluginRegistrant.register(with: self)
     let ok = super.application(application, didFinishLaunchingWithOptions: launchOptions)
+
     DispatchQueue.main.async { [weak self] in
       self?.setupPlayerControlChannel()
     }
-    return ok
-  }
 
-  func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
-    GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    return ok
   }
 
   private func setupPlayerControlChannel() {
     guard let controller = window?.rootViewController as? FlutterViewController else { return }
+
     let channel = FlutterMethodChannel(
       name: "live.cineviet/brightness",
       binaryMessenger: controller.binaryMessenger
     )
+
     channel.setMethodCallHandler { [weak self] call, result in
       DispatchQueue.main.async {
         switch call.method {
@@ -37,26 +37,17 @@ import UIKit
           result(Double(UIScreen.main.brightness))
         case "set":
           let value = self?.doubleArg(call.arguments, key: "value", fallback: Double(UIScreen.main.brightness)) ?? Double(UIScreen.main.brightness)
-          if self?.originalBrightness == nil {
-            self?.originalBrightness = UIScreen.main.brightness
-          }
           UIScreen.main.brightness = CGFloat(max(0.0, min(1.0, value)))
           result(Double(UIScreen.main.brightness))
         case "reset":
-          if let original = self?.originalBrightness {
-            UIScreen.main.brightness = original
-            self?.originalBrightness = nil
-          }
+          // iOS has no per-window brightness override, so return the current system brightness.
           result(Double(UIScreen.main.brightness))
         case "getVolume":
           result(Double(AVAudioSession.sharedInstance().outputVolume))
         case "setVolume":
           let value = self?.doubleArg(call.arguments, key: "value", fallback: 1.0) ?? 1.0
-          let clamped = min(max(value, 0.0), 1.0)
-          self?.setSystemVolume(clamped)
-          DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            result(Double(AVAudioSession.sharedInstance().outputVolume))
-          }
+          self?.setSystemVolume(value)
+          result(Double(AVAudioSession.sharedInstance().outputVolume))
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -83,25 +74,22 @@ import UIKit
     }
     volumeSlider?.value = clamped
     volumeSlider?.sendActions(for: .valueChanged)
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-      self?.volumeSlider?.value = clamped
-      self?.volumeSlider?.sendActions(for: .valueChanged)
-    }
   }
 
   private func ensureVolumeControlReady() {
     guard let controller = window?.rootViewController as? FlutterViewController else { return }
+
     do {
       try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [])
       try AVAudioSession.sharedInstance().setActive(true)
     } catch {
+      // Không để audio-session lỗi làm crash app.
     }
+
     if volumeView.superview == nil {
-      volumeView.alpha = 0.001
-      volumeView.isUserInteractionEnabled = true
-      volumeView.showsVolumeSlider = true
+      volumeView.alpha = 0.01
+      volumeView.isUserInteractionEnabled = false
       controller.view.addSubview(volumeView)
-      controller.view.sendSubviewToBack(volumeView)
       volumeSlider = volumeView.subviews.compactMap { $0 as? UISlider }.first
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
         self?.volumeSlider = self?.volumeView.subviews.compactMap { $0 as? UISlider }.first
