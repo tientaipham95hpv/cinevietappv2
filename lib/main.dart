@@ -6073,6 +6073,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   double screenBrightness = 1.0;
   Offset? dragStart;
   Duration? dragStartPosition;
+  double? dragStartBrightness;
+  double? dragStartVolume;
   Duration? pendingSeekPosition;
   String? dragMode;
   String? gestureMode;
@@ -6556,6 +6558,8 @@ class _PlayerScreenState extends State<PlayerScreen>
       controls = !controlsLocked;
       dragStart = null;
       dragStartPosition = null;
+      dragStartBrightness = null;
+      dragStartVolume = null;
       pendingSeekPosition = null;
       dragMode = null;
       gestureMode = null;
@@ -6659,7 +6663,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _scheduleLevelApply() {
     if (levelApplyTimer?.isActive ?? false) return;
     levelApplyTimer = Timer(
-      const Duration(milliseconds: 70),
+      const Duration(milliseconds: 45),
       _applyPendingLevels,
     );
   }
@@ -6843,6 +6847,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     final c = controller;
     dragStart = details.localPosition;
     dragStartPosition = c?.value.position;
+    dragStartBrightness = screenBrightness;
+    dragStartVolume = appVolume;
     dragMode = null;
     pendingSeekPosition = null;
   }
@@ -6874,9 +6880,10 @@ class _PlayerScreenState extends State<PlayerScreen>
       });
       return;
     }
-    final change = -dy / size.height * 1.35;
+    final change = -dy / size.height * 1.08;
     if (start.dx < size.width / 2) {
-      final next = (screenBrightness + change).clamp(0.0, 1.0);
+      final base = dragStartBrightness ?? screenBrightness;
+      final next = (base + change).clamp(0.0, 1.0);
       setState(() {
         screenBrightness = next;
         gestureMode = 'brightness';
@@ -6885,7 +6892,8 @@ class _PlayerScreenState extends State<PlayerScreen>
       pendingBrightness = next;
       _scheduleLevelApply();
     } else {
-      final next = (appVolume + change).clamp(0.0, 1.0);
+      final base = dragStartVolume ?? appVolume;
+      final next = (base + change).clamp(0.0, 1.0);
       setState(() {
         appVolume = next;
         gestureMode = 'volume';
@@ -6897,7 +6905,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       pendingVolume = next;
       _scheduleLevelApply();
     }
-    dragStart = details.localPosition;
   }
 
   void _onPanEnd(DragEndDetails details) {
@@ -6911,6 +6918,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     setState(() {
       dragStart = null;
       dragStartPosition = null;
+      dragStartBrightness = null;
+      dragStartVolume = null;
       pendingSeekPosition = null;
       dragMode = null;
       gestureMode = null;
