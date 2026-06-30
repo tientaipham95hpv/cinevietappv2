@@ -48,3 +48,4 @@ Codemagic workflows are defined in `codemagic.yaml`.
 CI artifact names use `VERSION_NAME` and `BUILD_NUMBER`/`PROJECT_BUILD_NUMBER`, so every build has a unique versioned filename.
 Set `RELEASE_CHANNEL` to `internal`, `staging`, or `release` to mark artifact intent.
 Release channel notes, QA checklist, and release notes template live in `release/`.
+Android signing setup is documented in `release/ANDROID_SIGNING.md`; copy `android/key.properties.example` to `android/key.properties` for local signed builds.

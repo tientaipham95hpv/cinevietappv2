@@ -1,0 +1,8 @@
+# Copy this file to android/key.properties for local signed release builds.
+# Never commit android/key.properties or keystore files.
+
+# Path is resolved from the android/ Gradle project directory.
+storeFile=upload-keystore.jks
+storePassword=change-me
+keyAlias=upload
+keyPassword=change-me

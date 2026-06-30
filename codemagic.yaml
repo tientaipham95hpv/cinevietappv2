@@ -17,6 +17,27 @@ workflows:
         script: |
           flutter analyze
           flutter test
+      - name: Prepare Android signing
+        script: |
+          set -euo pipefail
+          HAS_SIGNING="false"
+          if [ -f android/key.properties ]; then
+            HAS_SIGNING="true"
+            echo "Android signing: android/key.properties found."
+          elif [ -n "${CM_KEYSTORE_PATH:-}" ] && [ -n "${CM_KEYSTORE_PASSWORD:-}" ] && [ -n "${CM_KEY_ALIAS:-}" ] && [ -n "${CM_KEY_PASSWORD:-}" ]; then
+            HAS_SIGNING="true"
+            echo "Android signing: Codemagic CM_* signing variables found."
+          elif [ -n "${ANDROID_KEYSTORE_PATH:-}" ] && [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ] && [ -n "${ANDROID_KEY_PASSWORD:-}" ]; then
+            HAS_SIGNING="true"
+            echo "Android signing: ANDROID_* signing variables found."
+          fi
+          if [ "${HAS_SIGNING}" != "true" ]; then
+            echo "Android signing: not configured; Gradle will fall back to debug signing."
+            if [ "${REQUIRE_ANDROID_SIGNING:-false}" = "true" ]; then
+              echo "REQUIRE_ANDROID_SIGNING=true, failing build because signing secrets are missing."
+              exit 1
+            fi
+          fi
       - name: Build mobile/tablet AAB and APKs
         script: |
           set -euo pipefail
@@ -71,6 +92,7 @@ workflows:
           } > "${OUT_DIR}/BUILD_INFO.txt"
           cp release/QA_CHECKLIST.md "${OUT_DIR}/QA_CHECKLIST.md"
           cp release/RELEASE_NOTES_TEMPLATE.md "${OUT_DIR}/RELEASE_NOTES_TEMPLATE.md"
+          cp release/ANDROID_SIGNING.md "${OUT_DIR}/ANDROID_SIGNING.md"
           ls -lh "${OUT_DIR}"
     artifacts:
       - build/app/outputs/cineviet-v2-release/*
