@@ -26,6 +26,9 @@ const isTvBuild = bool.fromEnvironment('APP_IS_TV');
 const googleServerClientId =
     '186784861581-5l7skrrke87pmf669l6ach0brbra4v76.apps.googleusercontent.com';
 
+bool get supportsTvQrScan =>
+    !kIsWeb && !isTvBuild && (Platform.isAndroid || Platform.isIOS);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   FlutterError.onError = (details) {
@@ -3388,8 +3391,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ProfileTile(
               icon: isTvBuild
                   ? Icons.tv_rounded
-                  : Icons.qr_code_scanner_rounded,
-              title: isTvBuild ? 'Đăng nhập TV' : 'Quét QR đăng nhập TV',
+                  : supportsTvQrScan
+                  ? Icons.qr_code_scanner_rounded
+                  : Icons.pin_rounded,
+              title: isTvBuild
+                  ? 'Đăng nhập TV'
+                  : supportsTvQrScan
+                  ? 'Quét QR đăng nhập TV'
+                  : 'Nhập mã đăng nhập TV',
               subtitle: '',
               onTap: () async {
                 if (!context.mounted) return;
@@ -4353,8 +4362,7 @@ class _MobileTvPairingScreenState extends State<MobileTvPairingScreen> {
   bool busy = false;
   String? error;
 
-  bool get canScanQr =>
-      !kIsWeb && (Platform.isAndroid || Platform.isIOS) && !isTvBuild;
+  bool get canScanQr => supportsTvQrScan;
 
   @override
   void initState() {
@@ -4402,7 +4410,10 @@ class _MobileTvPairingScreenState extends State<MobileTvPairingScreen> {
 
   Future<void> _approve(String code) async {
     if (busy) return;
-    if (!await requireLogin(context, 'Xác nhận TV')) return;
+    if (!await requireLogin(context, 'Xác nhận TV')) {
+      if (scanning) scannerController?.start();
+      return;
+    }
     setState(() {
       busy = true;
       error = null;
