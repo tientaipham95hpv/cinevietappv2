@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -24,6 +25,9 @@ const siteBase = 'https://cineviet.live';
 const isTvBuild = bool.fromEnvironment('APP_IS_TV');
 const googleServerClientId =
     '186784861581-5l7skrrke87pmf669l6ach0brbra4v76.apps.googleusercontent.com';
+
+bool get supportsTvQrScan =>
+    !kIsWeb && !isTvBuild && (Platform.isAndroid || Platform.isIOS);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -3419,8 +3423,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 },
               ),
               ProfileTile(
-                icon: Icons.pin_rounded,
-                title: 'Nhập mã đăng nhập TV',
+                icon: supportsTvQrScan
+                    ? Icons.qr_code_scanner_rounded
+                    : Icons.pin_rounded,
+                title: supportsTvQrScan
+                    ? 'Quét QR đăng nhập TV'
+                    : 'Nhập mã đăng nhập TV',
                 subtitle: '',
                 onTap: () async {
                   if (!context.mounted) return;
@@ -4378,18 +4386,61 @@ class MobileTvPairingScreen extends StatefulWidget {
 
 class _MobileTvPairingScreenState extends State<MobileTvPairingScreen> {
   final codeController = TextEditingController();
+  MobileScannerController? scannerController;
+  bool scanning = false;
   bool busy = false;
   String? error;
+
+  bool get canScanQr => supportsTvQrScan;
+
+  @override
+  void initState() {
+    super.initState();
+    if (canScanQr) {
+      scannerController = MobileScannerController();
+      scanning = true;
+    }
+  }
 
   @override
   void dispose() {
     codeController.dispose();
+    scannerController?.dispose();
     super.dispose();
+  }
+
+  String _codeFromQr(String raw) {
+    final value = raw.trim();
+    if (RegExp(r'^\d{6}$').hasMatch(value)) return value;
+    try {
+      final decoded = jsonDecode(value);
+      if (decoded is Map && decoded['type'] == 'cineviet_tv_pairing') {
+        final code = cleanText(decoded['code']);
+        if (RegExp(r'^\d{6}$').hasMatch(code)) return code;
+      }
+    } catch (_) {}
+    return '';
+  }
+
+  void _onQrDetect(BarcodeCapture capture) {
+    if (busy) return;
+    final raw = capture.barcodes
+        .map((barcode) => barcode.rawValue ?? '')
+        .firstWhere((value) => value.trim().isNotEmpty, orElse: () => '');
+    if (raw.isEmpty) return;
+    final code = _codeFromQr(raw);
+    if (code.isEmpty) {
+      setState(() => error = 'QR này không phải mã đăng nhập TV CineViet.');
+      return;
+    }
+    scannerController?.stop();
+    unawaited(_approve(code));
   }
 
   Future<void> _approve(String code) async {
     if (busy) return;
     if (!await requireLogin(context, 'Xác nhận TV')) {
+      if (scanning) scannerController?.start();
       return;
     }
     setState(() {
@@ -4406,6 +4457,7 @@ class _MobileTvPairingScreenState extends State<MobileTvPairingScreen> {
       setState(() {
         error = 'Không xác nhận được mã TV. Mã có thể sai hoặc đã hết hạn.';
       });
+      if (scanning) scannerController?.start();
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -4420,11 +4472,100 @@ class _MobileTvPairingScreenState extends State<MobileTvPairingScreen> {
     unawaited(_approve(code));
   }
 
+  void _toggleMode() {
+    if (!canScanQr) return;
+    setState(() {
+      scanning = !scanning;
+      error = null;
+    });
+    if (scanning) {
+      scannerController?.start();
+    } else {
+      scannerController?.stop();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final showScanner = scanning && scannerController != null;
     return Scaffold(
-      appBar: AppBar(title: const Text('Đăng nhập TV')),
-      body: SafeArea(child: _buildManualInput()),
+      appBar: AppBar(
+        title: const Text('Đăng nhập TV'),
+        actions: [
+          if (canScanQr)
+            IconButton(
+              tooltip: showScanner ? 'Nhập mã' : 'Quét QR',
+              onPressed: busy ? null : _toggleMode,
+              icon: Icon(
+                showScanner
+                    ? Icons.keyboard_rounded
+                    : Icons.qr_code_scanner_rounded,
+              ),
+            ),
+        ],
+      ),
+      body: SafeArea(
+        child: showScanner ? _buildScanner() : _buildManualInput(),
+      ),
+    );
+  }
+
+  Widget _buildScanner() {
+    return Column(
+      children: [
+        Expanded(
+          child: Stack(
+            children: [
+              MobileScanner(
+                controller: scannerController,
+                onDetect: _onQrDetect,
+              ),
+              Center(
+                child: Container(
+                  width: 240,
+                  height: 240,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: CvColors.accent, width: 3),
+                  ),
+                ),
+              ),
+              if (busy)
+                Container(
+                  color: Colors.black54,
+                  child: const Center(
+                    child: CircularProgressIndicator(color: CvColors.accent),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: pagePadding(context).copyWith(top: 16, bottom: 20),
+          child: Panel(
+            child: Column(
+              children: [
+                const Row(
+                  children: [
+                    Icon(Icons.qr_code_scanner_rounded, color: CvColors.accent),
+                    SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Quét QR trên màn hình Android TV',
+                        style: TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ],
+                ),
+                if (error != null) ...[
+                  const SizedBox(height: 10),
+                  Text(error!, style: const TextStyle(color: CvColors.danger)),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -4483,6 +4624,14 @@ class _MobileTvPairingScreenState extends State<MobileTvPairingScreen> {
                     : const Icon(Icons.verified_rounded),
                 label: const Text('Xác nhận TV'),
               ),
+              if (canScanQr) ...[
+                const SizedBox(height: 10),
+                TextButton.icon(
+                  onPressed: busy ? null : _toggleMode,
+                  icon: const Icon(Icons.qr_code_scanner_rounded),
+                  label: const Text('Quét QR thay vì nhập mã'),
+                ),
+              ],
             ],
           ),
         ),
