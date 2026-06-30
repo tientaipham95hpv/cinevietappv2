@@ -28,7 +28,12 @@ workflows:
             echo "Android signing: android/key.properties found."
           elif [ -n "${CM_KEYSTORE_B64:-}" ] && [ -n "${CM_KEYSTORE_PASSWORD:-}" ] && [ -n "${CM_KEY_ALIAS:-}" ] && [ -n "${CM_KEY_PASSWORD:-}" ]; then
             KEYSTORE_PATH="${CM_BUILD_DIR:-$PWD}/android/cineviet-release.jks"
-            printf '%s' "${CM_KEYSTORE_B64}" | base64 --decode > "${KEYSTORE_PATH}"
+            KEYSTORE_B64="$(printf '%s' "${CM_KEYSTORE_B64}" | tr -d '\r\n\t ' | sed -e 's/^CM_KEYSTORE_B64=//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+            if ! printf '%s' "${KEYSTORE_B64}" | base64 --decode > "${KEYSTORE_PATH}"; then
+              echo "Android signing: CM_KEYSTORE_B64 is not valid base64. Paste only the raw value from CM_KEYSTORE_B64.txt."
+              rm -f "${KEYSTORE_PATH}"
+              exit 1
+            fi
             chmod 600 "${KEYSTORE_PATH}"
             echo "CM_KEYSTORE_PATH=${KEYSTORE_PATH}" >> "${CM_ENV}"
             HAS_SIGNING="true"
