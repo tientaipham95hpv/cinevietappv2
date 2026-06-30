@@ -17,8 +17,8 @@ workflows:
           flutter pub get
       - name: Analyze and test
         script: |
-          flutter analyze
-          flutter test
+          timeout 8m flutter analyze --no-pub
+          timeout 5m flutter test --no-pub
       - name: Prepare Android signing
         script: |
           set -euo pipefail
