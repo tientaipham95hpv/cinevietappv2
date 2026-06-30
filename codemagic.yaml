@@ -34,6 +34,24 @@ workflows:
               rm -f "${KEYSTORE_PATH}"
               exit 1
             fi
+            if ! keytool -list -keystore "${KEYSTORE_PATH}" -storepass "${CM_KEYSTORE_PASSWORD}" -alias "${CM_KEY_ALIAS}" >/dev/null; then
+              echo "Android signing: decoded keystore cannot be opened with CM_KEYSTORE_PASSWORD and CM_KEY_ALIAS."
+              echo "Check CM_KEYSTORE_PASSWORD, CM_KEY_ALIAS, and CM_KEY_PASSWORD in the cineviet_android_signing group."
+              rm -f "${KEYSTORE_PATH}"
+              exit 1
+            fi
+            SIGNING_CHECK_DIR="$(mktemp -d)"
+            mkdir -p "${SIGNING_CHECK_DIR}/payload"
+            printf 'cineviet signing check\n' > "${SIGNING_CHECK_DIR}/payload/check.txt"
+            jar --create --file "${SIGNING_CHECK_DIR}/unsigned.jar" -C "${SIGNING_CHECK_DIR}/payload" .
+            if ! jarsigner -keystore "${KEYSTORE_PATH}" -storepass "${CM_KEYSTORE_PASSWORD}" -keypass "${CM_KEY_PASSWORD}" -signedjar "${SIGNING_CHECK_DIR}/signed.jar" "${SIGNING_CHECK_DIR}/unsigned.jar" "${CM_KEY_ALIAS}" >/dev/null; then
+              echo "Android signing: decoded keystore is valid, but CM_KEY_PASSWORD cannot sign with alias CM_KEY_ALIAS."
+              echo "Check CM_KEY_PASSWORD for alias ${CM_KEY_ALIAS} in the cineviet_android_signing group."
+              rm -rf "${SIGNING_CHECK_DIR}"
+              rm -f "${KEYSTORE_PATH}"
+              exit 1
+            fi
+            rm -rf "${SIGNING_CHECK_DIR}"
             chmod 600 "${KEYSTORE_PATH}"
             echo "CM_KEYSTORE_PATH=${KEYSTORE_PATH}" >> "${CM_ENV}"
             HAS_SIGNING="true"
