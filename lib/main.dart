@@ -1684,18 +1684,42 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     if (!ready) return const SplashScreen();
-    final screens = [
-      HomeScreen(repo: repo),
-      BrowseScreen(repo: repo, embedded: true),
-      WatchTogetherScreen(repo: repo),
-      ProfileScreen(repo: repo),
+    final destinations = [
+      AppDestination(
+        icon: Icons.home_rounded,
+        label: 'Trang chủ',
+        screen: HomeScreen(repo: repo),
+      ),
+      AppDestination(
+        icon: Icons.search_rounded,
+        label: isTvBuild ? 'Tìm kiếm' : 'Tìm',
+        screen: BrowseScreen(repo: repo, embedded: true),
+      ),
+      if (!isTvBuild)
+        AppDestination(
+          icon: Icons.groups_rounded,
+          label: 'Xem chung',
+          screen: WatchTogetherScreen(repo: repo),
+          requiresLogin: true,
+        ),
+      AppDestination(
+        icon: Icons.person_rounded,
+        label: 'Của tôi',
+        screen: ProfileScreen(repo: repo),
+      ),
     ];
+    if (index >= destinations.length) index = destinations.length - 1;
     final wide = MediaQuery.sizeOf(context).width >= 900 || isTvBuild;
     return Scaffold(
       body: Row(
         children: [
-          if (wide) RailNav(index: index, onChanged: (value) => setTab(value)),
-          Expanded(child: screens[index]),
+          if (wide)
+            RailNav(
+              index: index,
+              items: destinations,
+              onChanged: (value) => setTab(value, destinations),
+            ),
+          Expanded(child: destinations[index].screen),
         ],
       ),
       bottomNavigationBar: wide
@@ -1704,34 +1728,41 @@ class _AppShellState extends State<AppShell> {
               selectedIndex: index,
               backgroundColor: CvColors.ink,
               indicatorColor: CvColors.accent.withValues(alpha: .22),
-              destinations: const [
-                NavigationDestination(
-                  icon: Icon(Icons.home_rounded),
-                  label: 'Trang chủ',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.search_rounded),
-                  label: 'Tìm',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.groups_rounded),
-                  label: 'Xem chung',
-                ),
-                NavigationDestination(
-                  icon: Icon(Icons.person_rounded),
-                  label: 'Của tôi',
-                ),
+              destinations: [
+                for (final item in destinations)
+                  NavigationDestination(
+                    icon: Icon(item.icon),
+                    label: item.label,
+                  ),
               ],
-              onDestinationSelected: (value) => setTab(value),
+              onDestinationSelected: (value) => setTab(value, destinations),
             ),
     );
   }
 
-  Future<void> setTab(int value) async {
-    if (value == 2 && !await requireLogin(context, 'Xem chung')) return;
+  Future<void> setTab(int value, List<AppDestination> destinations) async {
+    final destination = destinations[value];
+    if (destination.requiresLogin &&
+        !await requireLogin(context, destination.label)) {
+      return;
+    }
     if (!mounted) return;
     setState(() => index = value);
   }
+}
+
+class AppDestination {
+  const AppDestination({
+    required this.icon,
+    required this.label,
+    required this.screen,
+    this.requiresLogin = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final Widget screen;
+  final bool requiresLogin;
 }
 
 class SplashScreen extends StatelessWidget {
@@ -1755,18 +1786,18 @@ class SplashScreen extends StatelessWidget {
 }
 
 class RailNav extends StatelessWidget {
-  const RailNav({super.key, required this.index, required this.onChanged});
+  const RailNav({
+    super.key,
+    required this.index,
+    required this.items,
+    required this.onChanged,
+  });
   final int index;
+  final List<AppDestination> items;
   final ValueChanged<int> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      (Icons.home_rounded, 'Trang chủ'),
-      (Icons.search_rounded, 'Tìm kiếm'),
-      (Icons.groups_rounded, 'Xem chung'),
-      (Icons.person_rounded, 'Của tôi'),
-    ];
     return SafeArea(
       right: false,
       child: Container(
@@ -1794,13 +1825,13 @@ class RailNav extends StatelessWidget {
                       child: Column(
                         children: [
                           Icon(
-                            items[i].$1,
+                            items[i].icon,
                             size: isTvBuild ? 30 : 26,
                             color: i == index ? CvColors.accent : CvColors.text,
                           ),
                           const SizedBox(height: 5),
                           Text(
-                            items[i].$2,
+                            items[i].label,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             textAlign: TextAlign.center,
@@ -3360,74 +3391,72 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
             if (user != null) AccountPanel(user: user, onLogout: logout),
             const SizedBox(height: 22),
-            ProfileTile(
-              icon: Icons.favorite_rounded,
-              title: 'Danh sách yêu thích',
-              subtitle: '',
-              onTap: () async {
-                if (!await requireLogin(context, 'Danh sách yêu thích')) return;
-                if (!context.mounted) return;
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => FavoritesScreen(repo: widget.repo),
-                  ),
-                );
-              },
-            ),
-            ProfileTile(
-              icon: Icons.playlist_play_rounded,
-              title: 'Playlist của tôi',
-              subtitle: '',
-              onTap: () async {
-                if (!await requireLogin(context, 'Playlist')) return;
-                if (!context.mounted) return;
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => PlaylistsScreen(repo: widget.repo),
-                  ),
-                );
-              },
-            ),
-            ProfileTile(
-              icon: isTvBuild
-                  ? Icons.tv_rounded
-                  : supportsTvQrScan
-                  ? Icons.qr_code_scanner_rounded
-                  : Icons.pin_rounded,
-              title: isTvBuild
-                  ? 'Đăng nhập TV'
-                  : supportsTvQrScan
-                  ? 'Quét QR đăng nhập TV'
-                  : 'Nhập mã đăng nhập TV',
-              subtitle: '',
-              onTap: () async {
-                if (!context.mounted) return;
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => isTvBuild
-                        ? TvPairingScreen(repo: widget.repo)
-                        : MobileTvPairingScreen(repo: widget.repo),
-                  ),
-                );
-              },
-            ),
-            ProfileTile(
-              icon: Icons.system_update_alt_rounded,
-              title: 'Kiểm tra cập nhật',
-              subtitle: '',
-              onTap: () => Navigator.of(
-                context,
-              ).push(MaterialPageRoute(builder: (_) => UpdateInfoScreen())),
-            ),
-            ProfileTile(
-              icon: Icons.language_rounded,
-              title: 'Mở cineviet.live',
-              subtitle: siteBase,
-              onTap: () => launchUrl(
-                Uri.parse(siteBase),
-                mode: LaunchMode.externalApplication,
+            if (!isTvBuild) ...[
+              ProfileTile(
+                icon: Icons.favorite_rounded,
+                title: 'Danh sách yêu thích',
+                subtitle: '',
+                onTap: () async {
+                  if (!await requireLogin(context, 'Danh sách yêu thích')) {
+                    return;
+                  }
+                  if (!context.mounted) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => FavoritesScreen(repo: widget.repo),
+                    ),
+                  );
+                },
               ),
-            ),
+              ProfileTile(
+                icon: Icons.playlist_play_rounded,
+                title: 'Playlist của tôi',
+                subtitle: '',
+                onTap: () async {
+                  if (!await requireLogin(context, 'Playlist')) return;
+                  if (!context.mounted) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PlaylistsScreen(repo: widget.repo),
+                    ),
+                  );
+                },
+              ),
+              ProfileTile(
+                icon: supportsTvQrScan
+                    ? Icons.qr_code_scanner_rounded
+                    : Icons.pin_rounded,
+                title: supportsTvQrScan
+                    ? 'Quét QR đăng nhập TV'
+                    : 'Nhập mã đăng nhập TV',
+                subtitle: '',
+                onTap: () async {
+                  if (!context.mounted) return;
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => MobileTvPairingScreen(repo: widget.repo),
+                    ),
+                  );
+                },
+              ),
+              ProfileTile(
+                icon: Icons.system_update_alt_rounded,
+                title: 'Kiểm tra cập nhật',
+                subtitle: '',
+                onTap: () => Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => UpdateInfoScreen())),
+              ),
+              ProfileTile(
+                icon: Icons.language_rounded,
+                title: 'Mở cineviet.live',
+                subtitle: siteBase,
+                onTap: () => launchUrl(
+                  Uri.parse(siteBase),
+                  mode: LaunchMode.externalApplication,
+                ),
+              ),
+            ],
           ],
         );
       },

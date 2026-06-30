@@ -91,6 +91,7 @@ workflows:
           CV_RELEASE_CHANNEL="${RELEASE_CHANNEL:-release}"
           echo "Building CineViet ${CV_RELEASE_CHANNEL} Android TV ${CV_VERSION_NAME}+${CV_BUILD_NUMBER}"
           flutter build apk --release \
+            --target-platform android-arm,android-arm64 \
             --dart-define=APP_VARIANT=tv \
             --dart-define=APP_IS_TV=true \
             --build-name="${CV_VERSION_NAME}" \
