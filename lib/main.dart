@@ -5749,6 +5749,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   Timer? saveTimer;
   Timer? controlsTimer;
   Timer? levelApplyTimer;
+  Timer? deviceLevelSyncTimer;
   final focusNode = FocusNode();
   late EpisodeServer currentServer;
   late EpisodeItem currentEpisode;
@@ -5812,6 +5813,16 @@ class _PlayerScreenState extends State<PlayerScreen>
     watchMessages.addAll(widget.watchTogetherState?.messages ?? const []);
     WakelockPlus.enable();
     _syncDeviceLevels();
+    deviceLevelSyncTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+      if (!mounted ||
+          controlsLocked ||
+          dragMode != null ||
+          pendingBrightness != null ||
+          pendingVolume != null) {
+        return;
+      }
+      unawaited(_syncDeviceLevels());
+    });
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.landscapeLeft,
@@ -6066,7 +6077,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));
         await next.setPlaybackSpeed(playbackSpeed);
-        await next.setVolume(appVolume);
+        await next.setVolume(supportsTouchLevels ? 1.0 : appVolume);
         if (isWatchTogether && !isWatchHost && watchRoomState != null) {
           final target = Duration(
             milliseconds: (watchRoomState!.currentTime * 1000).round(),
@@ -6304,7 +6315,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       final volume = await brightnessChannel.invokeMethod<double>('getVolume');
       if (volume != null && mounted) {
         appVolume = volume.clamp(0.0, 1.0);
-        await controller?.setVolume(appVolume);
+        await controller?.setVolume(1.0);
         setState(() {});
       }
     } catch (_) {}
@@ -6324,13 +6335,15 @@ class _PlayerScreenState extends State<PlayerScreen>
   Future<double?> _setVolume(double value) async {
     final next = value.clamp(0.0, 1.0);
     try {
-      await controller?.setVolume(next);
-    } catch (_) {}
-    try {
       final actual = await brightnessChannel.invokeMethod<double>('setVolume', {
         'value': next,
       });
+      await controller?.setVolume(1.0);
       return actual?.clamp(0.0, 1.0);
+    } catch (_) {}
+    try {
+      await controller?.setVolume(next);
+      return next;
     } catch (_) {}
     return null;
   }
@@ -6363,18 +6376,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
 
     if (volume != null) {
-      try {
-        await controller?.setVolume(volume);
-      } catch (_) {}
       final actual = await _setVolume(volume);
       if (settle && mounted && actual != null) {
         setState(() {
           appVolume = actual;
           if (gestureMode == 'volume') gestureValue = actual;
         });
-        try {
-          await controller?.setVolume(actual);
-        } catch (_) {}
       }
     }
   }
@@ -6570,9 +6577,6 @@ class _PlayerScreenState extends State<PlayerScreen>
         gestureMode = 'volume';
         gestureValue = next;
       });
-      try {
-        c.setVolume(next);
-      } catch (_) {}
       pendingVolume = next;
       _scheduleLevelApply();
     }
@@ -6894,6 +6898,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     _save();
     controlsTimer?.cancel();
     levelApplyTimer?.cancel();
+    deviceLevelSyncTimer?.cancel();
     saveTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     if (isWatchTogether && !leavingPlayer) {

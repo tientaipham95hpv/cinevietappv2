@@ -44,8 +44,9 @@ import UIKit
           result(Double(AVAudioSession.sharedInstance().outputVolume))
         case "setVolume":
           let value = self?.doubleArg(call.arguments, key: "value", fallback: 1.0) ?? 1.0
-          self?.setSystemVolume(value)
-          result(Double(AVAudioSession.sharedInstance().outputVolume))
+          let clamped = min(max(value, 0.0), 1.0)
+          self?.setSystemVolume(clamped)
+          result(Double(clamped))
         default:
           result(FlutterMethodNotImplemented)
         }
