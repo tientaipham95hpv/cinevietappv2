@@ -46,7 +46,8 @@ flutter build apk --release --dart-define=APP_VARIANT=tv --dart-define=APP_IS_TV
 ## Codemagic Secrets
 
 Preferred direct-distribution setup: store the keystore as a base64 secret.
-Add these environment variables in Codemagic:
+Add these environment variables in Codemagic under the
+`cineviet_android_signing` variable group:
 
 - `CM_KEYSTORE_B64`: base64 content of `cineviet-release.jks`
 - `CM_KEYSTORE_PASSWORD`: keystore password
