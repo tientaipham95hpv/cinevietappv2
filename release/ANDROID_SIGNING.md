@@ -45,8 +45,18 @@ flutter build apk --release --dart-define=APP_VARIANT=tv --dart-define=APP_IS_TV
 
 ## Codemagic Secrets
 
-Upload the keystore as a secure file or provide an absolute path exposed by
-Codemagic. Add these environment variables in Codemagic:
+Preferred direct-distribution setup: store the keystore as a base64 secret.
+Add these environment variables in Codemagic:
+
+- `CM_KEYSTORE_B64`: base64 content of `cineviet-release.jks`
+- `CM_KEYSTORE_PASSWORD`: keystore password
+- `CM_KEY_ALIAS`: key alias
+- `CM_KEY_PASSWORD`: key password
+
+The workflow decodes `CM_KEYSTORE_B64` into a temporary keystore file and
+exports `CM_KEYSTORE_PATH` for Gradle.
+
+Alternative secure-file setup:
 
 - `CM_KEYSTORE_PATH`: path to the uploaded keystore file
 - `CM_KEYSTORE_PASSWORD`: keystore password

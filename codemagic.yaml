@@ -24,6 +24,13 @@ workflows:
           if [ -f android/key.properties ]; then
             HAS_SIGNING="true"
             echo "Android signing: android/key.properties found."
+          elif [ -n "${CM_KEYSTORE_B64:-}" ] && [ -n "${CM_KEYSTORE_PASSWORD:-}" ] && [ -n "${CM_KEY_ALIAS:-}" ] && [ -n "${CM_KEY_PASSWORD:-}" ]; then
+            KEYSTORE_PATH="${CM_BUILD_DIR:-$PWD}/android/cineviet-release.jks"
+            printf '%s' "${CM_KEYSTORE_B64}" | base64 --decode > "${KEYSTORE_PATH}"
+            chmod 600 "${KEYSTORE_PATH}"
+            echo "CM_KEYSTORE_PATH=${KEYSTORE_PATH}" >> "${CM_ENV}"
+            HAS_SIGNING="true"
+            echo "Android signing: Codemagic base64 keystore decoded."
           elif [ -n "${CM_KEYSTORE_PATH:-}" ] && [ -n "${CM_KEYSTORE_PASSWORD:-}" ] && [ -n "${CM_KEY_ALIAS:-}" ] && [ -n "${CM_KEY_PASSWORD:-}" ]; then
             HAS_SIGNING="true"
             echo "Android signing: Codemagic CM_* signing variables found."
