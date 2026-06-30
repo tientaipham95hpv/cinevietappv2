@@ -140,8 +140,36 @@ double? asDouble(dynamic value) {
 
 String cleanText(dynamic value) => '${value ?? ''}'.trim();
 
+bool isUnknownLabel(String value) {
+  final lower = value.toLowerCase().trim();
+  final key = compactKey(value);
+  return key.isEmpty ||
+      key == 'null' ||
+      key == 'na' ||
+      key == 'n/a' ||
+      key == 'unknown' ||
+      key == 'dangcapnhat' ||
+      key == 'dangupload' ||
+      key == 'updating' ||
+      lower == 'đang cập nhật' ||
+      lower == 'đang upload' ||
+      lower == 'không rõ';
+}
+
 String compactKey(String value) =>
     value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '');
+
+List<T> uniqueBy<T>(Iterable<T> items, String Function(T item) keyOf) {
+  final seen = <String>{};
+  final result = <T>[];
+  for (final item in items) {
+    final key = compactKey(keyOf(item));
+    if (key.isEmpty || seen.contains(key)) continue;
+    seen.add(key);
+    result.add(item);
+  }
+  return result;
+}
 
 Future<Map<String, String>>? _playbackClientInfoFuture;
 
@@ -769,6 +797,20 @@ class MoviePerson {
     }
     return MoviePerson(name: cleanText(value));
   }
+}
+
+List<MoviePerson> cleanPeople(
+  Iterable<MoviePerson> people, {
+  Set<String> exclude = const {},
+}) {
+  final excluded = exclude.map(compactKey).where((e) => e.isNotEmpty).toSet();
+  return uniqueBy(
+    people.where((person) {
+      final key = compactKey(person.name);
+      return !isUnknownLabel(person.name) && !excluded.contains(key);
+    }),
+    (person) => person.name,
+  );
 }
 
 class MovieComment {
@@ -4628,6 +4670,27 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               : servers[serverIndex.clamp(0, servers.length - 1)];
           final detailWidth = MediaQuery.sizeOf(context).width;
           final usePortraitHero = detailWidth < 600 && !isTvBuild;
+          final titleSize = isTvBuild
+              ? 46.0
+              : detailWidth < 390
+              ? 30.0
+              : detailWidth < 700
+              ? 34.0
+              : 42.0;
+          final directors = cleanPeople(movie.directors);
+          final cast = cleanPeople(
+            movie.cast,
+            exclude: directors.map((person) => person.name).toSet(),
+          );
+          final metaChips = [
+            if (movie.releaseYear != null) '${movie.releaseYear}',
+            if (movie.quality.isNotEmpty) movie.quality,
+            if (movie.language.isNotEmpty) movie.language,
+            if (movie.country.isNotEmpty) movie.country,
+            if (movie.episodeCurrent.isNotEmpty) movie.episodeCurrent,
+            if (movie.duration != null && movie.duration! > 0)
+              '${movie.duration} phút',
+          ];
           return CustomScrollView(
             slivers: [
               SliverAppBar(
@@ -4673,17 +4736,43 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                               children: [
                                 Text(
                                   movie.title,
-                                  style: const TextStyle(
-                                    fontSize: 38,
+                                  style: TextStyle(
+                                    fontSize: titleSize,
                                     height: 1.04,
                                     fontWeight: FontWeight.w900,
                                   ),
+                                  maxLines: 3,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                const SizedBox(height: 10),
-                                Text(
-                                  movie.metaLine,
-                                  style: const TextStyle(color: CvColors.muted),
-                                ),
+                                if (movie.titleEn.isNotEmpty &&
+                                    movie.titleEn != movie.title) ...[
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    movie.titleEn,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: CvColors.muted,
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                                if (metaChips.isNotEmpty) ...[
+                                  const SizedBox(height: 12),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: metaChips
+                                        .map(
+                                          (label) => InfoPill(
+                                            label,
+                                            prominent: label == movie.quality,
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                ],
                                 const SizedBox(height: 16),
                                 Wrap(
                                   spacing: 10,
@@ -4821,14 +4910,16 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                           movie.description,
                           style: const TextStyle(fontSize: 16, height: 1.48),
                         ),
-                      const SizedBox(height: 18),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: movie.genres
-                            .map((e) => GenreChip(label: e))
-                            .toList(),
-                      ),
+                      if (movie.genres.isNotEmpty) ...[
+                        const SizedBox(height: 18),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: movie.genres
+                              .map((e) => GenreChip(label: e))
+                              .toList(),
+                        ),
+                      ],
                       const SizedBox(height: 28),
                       if (!snapshot.hasData)
                         const LinearProgressIndicator(color: CvColors.accent),
@@ -4845,22 +4936,12 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                         const EmptyState(
                           'Phim này chưa có nguồn phát trong API',
                         ),
-                      if (movie.cast.isNotEmpty) ...[
+                      if (directors.isNotEmpty || cast.isNotEmpty) ...[
                         const SizedBox(height: 30),
-                        PeopleSection(
-                          title: 'Diễn viên',
-                          icon: Icons.groups_rounded,
+                        CrewSection(
                           repo: widget.repo,
-                          people: movie.cast.take(24).toList(),
-                        ),
-                      ],
-                      if (movie.directors.isNotEmpty) ...[
-                        const SizedBox(height: 30),
-                        PeopleSection(
-                          title: 'Đạo diễn',
-                          icon: Icons.movie_creation_rounded,
-                          repo: widget.repo,
-                          people: movie.directors,
+                          directors: directors,
+                          cast: cast.take(30).toList(),
                         ),
                       ],
                       if (snapshot.hasData) ...[
@@ -5033,19 +5114,17 @@ class EpisodeGrid extends StatelessWidget {
   }
 }
 
-class PeopleSection extends StatelessWidget {
-  const PeopleSection({
+class CrewSection extends StatelessWidget {
+  const CrewSection({
     super.key,
-    required this.title,
-    required this.icon,
     required this.repo,
-    required this.people,
+    required this.directors,
+    required this.cast,
   });
 
-  final String title;
-  final IconData icon;
   final MovieRepository repo;
-  final List<MoviePerson> people;
+  final List<MoviePerson> directors;
+  final List<MoviePerson> cast;
 
   void openPerson(BuildContext context, MoviePerson person) {
     Navigator.of(context).push(
@@ -5057,71 +5136,224 @@ class PeopleSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (people.isEmpty) return const SizedBox.shrink();
-    final itemWidth = isTvBuild ? 178.0 : 132.0;
-    final itemHeight = isTvBuild ? 174.0 : 150.0;
+    if (directors.isEmpty && cast.isEmpty) return const SizedBox.shrink();
+    final compact = MediaQuery.sizeOf(context).width < 520;
+    final itemWidth = isTvBuild
+        ? 176.0
+        : compact
+        ? 118.0
+        : 132.0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(icon, color: CvColors.accent),
+            const Icon(Icons.theater_comedy_rounded, color: CvColors.accent),
             const SizedBox(width: 8),
-            SectionTitle(title),
+            const SectionTitle('Ê-kíp & diễn viên'),
           ],
         ),
         const SizedBox(height: 12),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            for (final person in people)
-              SizedBox(
-                width: itemWidth,
-                height: itemHeight,
-                child: FocusButton(
-                  onPressed: () => openPerson(context, person),
-                  child: Panel(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        CircleAvatar(
-                          radius: isTvBuild ? 38 : 30,
-                          backgroundColor: CvColors.panel2,
-                          backgroundImage: person.avatarUrl.isNotEmpty
-                              ? CachedNetworkImageProvider(person.avatarUrl)
-                              : null,
-                          child: person.avatarUrl.isEmpty
-                              ? Text(
-                                  person.name.isEmpty
-                                      ? '?'
-                                      : person.name.substring(0, 1),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w900,
-                                    color: CvColors.accent,
-                                  ),
-                                )
-                              : null,
-                        ),
-                        const SizedBox(height: 10),
-                        SizedBox(
-                          height: 34,
-                          child: Text(
-                            person.name,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+        if (directors.isNotEmpty) ...[
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final person in directors.take(4))
+                PersonRolePill(
+                  person: person,
+                  role: 'Đạo diễn',
+                  icon: Icons.movie_creation_rounded,
+                  onTap: () => openPerson(context, person),
+                ),
+            ],
+          ),
+          if (cast.isNotEmpty) const SizedBox(height: 18),
+        ],
+        if (cast.isNotEmpty) ...[
+          Row(
+            children: const [
+              Icon(Icons.groups_rounded, size: 18, color: CvColors.muted),
+              SizedBox(width: 7),
+              Text(
+                'Diễn viên',
+                style: TextStyle(
+                  color: CvColors.muted,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            height: isTvBuild ? 174 : 154,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: cast.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (context, index) => PersonCard(
+                person: cast[index],
+                width: itemWidth,
+                onTap: () => openPerson(context, cast[index]),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class PersonRolePill extends StatelessWidget {
+  const PersonRolePill({
+    super.key,
+    required this.person,
+    required this.role,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final MoviePerson person;
+  final String role;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => FocusButton(
+    onPressed: onTap,
+    child: Container(
+      constraints: const BoxConstraints(maxWidth: 360),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: CvColors.panel,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: CvColors.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PersonAvatar(person: person, radius: 20),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(icon, size: 14, color: CvColors.accent),
+                    const SizedBox(width: 5),
+                    Text(
+                      role,
+                      style: const TextStyle(
+                        color: CvColors.accent,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  person.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w900),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: CvColors.soft,
+            size: 20,
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+class PersonCard extends StatelessWidget {
+  const PersonCard({
+    super.key,
+    required this.person,
+    required this.width,
+    required this.onTap,
+  });
+
+  final MoviePerson person;
+  final double width;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: width,
+    child: FocusButton(
+      onPressed: onTap,
+      child: Container(
+        height: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: CvColors.panel,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: CvColors.border),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            PersonAvatar(person: person, radius: isTvBuild ? 38 : 30),
+            const SizedBox(height: 10),
+            SizedBox(
+              height: 36,
+              child: Text(
+                person.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                textScaler: TextScaler.noScaling,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  height: 1.15,
+                ),
+              ),
+            ),
           ],
         ),
-      ],
+      ),
+    ),
+  );
+}
+
+class PersonAvatar extends StatelessWidget {
+  const PersonAvatar({super.key, required this.person, required this.radius});
+
+  final MoviePerson person;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = person.name.characters.isEmpty
+        ? '?'
+        : person.name.characters.first.toUpperCase();
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: CvColors.panel2,
+      backgroundImage: person.avatarUrl.isNotEmpty
+          ? CachedNetworkImageProvider(person.avatarUrl)
+          : null,
+      child: person.avatarUrl.isEmpty
+          ? Text(
+              initial,
+              style: TextStyle(
+                fontSize: radius * .68,
+                fontWeight: FontWeight.w900,
+                color: CvColors.accent,
+              ),
+            )
+          : null,
     );
   }
 }
@@ -7964,6 +8196,36 @@ class MetaPill extends StatelessWidget {
     child: Text(
       label,
       style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+    ),
+  );
+}
+
+class InfoPill extends StatelessWidget {
+  const InfoPill(this.label, {super.key, this.prominent = false});
+  final String label;
+  final bool prominent;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+    decoration: BoxDecoration(
+      color: prominent
+          ? CvColors.accent.withValues(alpha: .92)
+          : Colors.black.withValues(alpha: .62),
+      borderRadius: BorderRadius.circular(6),
+      border: prominent
+          ? null
+          : Border.all(color: Colors.white.withValues(alpha: .12)),
+    ),
+    child: Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: prominent ? CvColors.black : CvColors.text,
+        fontSize: 12,
+        fontWeight: FontWeight.w900,
+      ),
     ),
   );
 }
