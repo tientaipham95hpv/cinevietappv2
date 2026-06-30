@@ -55,7 +55,9 @@ import UIKit
           let value = self?.doubleArg(call.arguments, key: "value", fallback: 1.0) ?? 1.0
           let clamped = min(max(value, 0.0), 1.0)
           self?.setSystemVolume(clamped)
-          result(Double(clamped))
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            result(Double(AVAudioSession.sharedInstance().outputVolume))
+          }
         default:
           result(FlutterMethodNotImplemented)
         }
@@ -98,6 +100,7 @@ import UIKit
     if volumeView.superview == nil {
       volumeView.alpha = 0.001
       volumeView.isUserInteractionEnabled = true
+      volumeView.showsVolumeSlider = true
       controller.view.addSubview(volumeView)
       controller.view.sendSubviewToBack(volumeView)
       volumeSlider = volumeView.subviews.compactMap { $0 as? UISlider }.first

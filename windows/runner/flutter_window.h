@@ -26,6 +26,9 @@ class FlutterWindow : public Win32Window {
 
  private:
   void RegisterPlayerControlChannel();
+  double GetSystemBrightness();
+  double SetSystemBrightness(double value);
+  void ResetSystemBrightness();
   double GetSystemVolume();
   double SetSystemVolume(double value);
 
@@ -38,6 +41,8 @@ class FlutterWindow : public Win32Window {
       player_control_channel_;
 
   double brightness_level_ = 1.0;
+  double original_brightness_level_ = 1.0;
+  bool has_original_brightness_level_ = false;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

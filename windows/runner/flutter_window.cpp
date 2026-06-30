@@ -4,9 +4,12 @@
 #include <flutter/encodable_value.h>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
+#include <highlevelmonitorconfigurationapi.h>
 #include <mmdeviceapi.h>
 #include <optional>
+#include <physicalmonitorenumerationapi.h>
 #include <variant>
+#include <vector>
 
 #include "flutter/generated_plugin_registrant.h"
 
@@ -81,19 +84,19 @@ void FlutterWindow::RegisterPlayerControlChannel() {
                  result) {
         const auto* args = std::get_if<flutter::EncodableMap>(call.arguments());
         if (call.method_name() == "get") {
-          result->Success(flutter::EncodableValue(brightness_level_));
+          result->Success(flutter::EncodableValue(GetSystemBrightness()));
           return;
         }
         if (call.method_name() == "set") {
-          brightness_level_ =
-              ClampLevel(args ? ReadDoubleArg(*args, "value", brightness_level_)
-                              : brightness_level_);
-          result->Success(flutter::EncodableValue(brightness_level_));
+          const double next = ClampLevel(
+              args ? ReadDoubleArg(*args, "value", brightness_level_)
+                   : brightness_level_);
+          result->Success(flutter::EncodableValue(SetSystemBrightness(next)));
           return;
         }
         if (call.method_name() == "reset") {
-          brightness_level_ = 1.0;
-          result->Success(flutter::EncodableValue(brightness_level_));
+          ResetSystemBrightness();
+          result->Success(flutter::EncodableValue(GetSystemBrightness()));
           return;
         }
         if (call.method_name() == "getVolume") {
@@ -112,6 +115,84 @@ void FlutterWindow::RegisterPlayerControlChannel() {
         }
         result->NotImplemented();
       });
+}
+
+double FlutterWindow::GetSystemBrightness() {
+  HMONITOR monitor = MonitorFromWindow(GetHandle(), MONITOR_DEFAULTTONEAREST);
+  DWORD monitor_count = 0;
+  if (monitor == nullptr ||
+      !GetNumberOfPhysicalMonitorsFromHMONITOR(monitor, &monitor_count) ||
+      monitor_count == 0) {
+    return brightness_level_;
+  }
+
+  std::vector<PHYSICAL_MONITOR> monitors(monitor_count);
+  if (!GetPhysicalMonitorsFromHMONITOR(monitor, monitor_count,
+                                       monitors.data())) {
+    return brightness_level_;
+  }
+
+  DWORD minimum = 0;
+  DWORD current = 0;
+  DWORD maximum = 100;
+  const BOOL ok =
+      GetMonitorBrightness(monitors[0].hPhysicalMonitor, &minimum, &current,
+                           &maximum);
+  DestroyPhysicalMonitors(monitor_count, monitors.data());
+
+  if (!ok || maximum <= minimum) {
+    return brightness_level_;
+  }
+
+  brightness_level_ = ClampLevel(static_cast<double>(current - minimum) /
+                                 static_cast<double>(maximum - minimum));
+  return brightness_level_;
+}
+
+double FlutterWindow::SetSystemBrightness(double value) {
+  const double clamped = ClampLevel(value);
+  HMONITOR monitor = MonitorFromWindow(GetHandle(), MONITOR_DEFAULTTONEAREST);
+  DWORD monitor_count = 0;
+  if (monitor == nullptr ||
+      !GetNumberOfPhysicalMonitorsFromHMONITOR(monitor, &monitor_count) ||
+      monitor_count == 0) {
+    return brightness_level_;
+  }
+
+  std::vector<PHYSICAL_MONITOR> monitors(monitor_count);
+  if (!GetPhysicalMonitorsFromHMONITOR(monitor, monitor_count,
+                                       monitors.data())) {
+    return brightness_level_;
+  }
+
+  DWORD minimum = 0;
+  DWORD current = 0;
+  DWORD maximum = 100;
+  BOOL ok = GetMonitorBrightness(monitors[0].hPhysicalMonitor, &minimum,
+                                 &current, &maximum);
+  if (ok && maximum > minimum) {
+    if (!has_original_brightness_level_) {
+      original_brightness_level_ =
+          ClampLevel(static_cast<double>(current - minimum) /
+                     static_cast<double>(maximum - minimum));
+      has_original_brightness_level_ = true;
+    }
+    const DWORD target = minimum + static_cast<DWORD>(
+                                       clamped * (maximum - minimum) + 0.5);
+    ok = SetMonitorBrightness(monitors[0].hPhysicalMonitor, target);
+  }
+  DestroyPhysicalMonitors(monitor_count, monitors.data());
+
+  brightness_level_ = ok ? GetSystemBrightness() : brightness_level_;
+  return brightness_level_;
+}
+
+void FlutterWindow::ResetSystemBrightness() {
+  if (!has_original_brightness_level_) {
+    return;
+  }
+  SetSystemBrightness(original_brightness_level_);
+  has_original_brightness_level_ = false;
 }
 
 double FlutterWindow::GetSystemVolume() {
