@@ -2,6 +2,7 @@ package live.cineviet.cineviet_app
 
 import android.content.Context
 import android.media.AudioManager
+import android.os.Build
 import android.provider.Settings
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -33,10 +34,7 @@ class MainActivity : FlutterActivity() {
                 "getVolume" -> result.success(currentMusicVolume())
                 "setVolume" -> {
                     val value = (call.argument<Double>("value") ?: 1.0).coerceIn(0.0, 1.0)
-                    val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-                    val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
-                    val target = Math.round((value * max).toFloat()).coerceIn(0, max)
-                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, target, 0)
+                    applyMusicVolume(value)
                     result.success(currentMusicVolume())
                 }
                 else -> result.notImplemented()
@@ -61,7 +59,7 @@ class MainActivity : FlutterActivity() {
 
     private fun applyBrightness(value: Double) {
         val params = window.attributes
-        params.screenBrightness = value.toFloat().coerceIn(0f, 1f)
+        params.screenBrightness = value.toFloat().coerceIn(0.01f, 1f)
         window.attributes = params
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
@@ -85,5 +83,19 @@ class MainActivity : FlutterActivity() {
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val current = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
         return current.toDouble() / max.toDouble()
+    }
+
+    private fun applyMusicVolume(value: Double) {
+        val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
+        val target = Math.round((value * max).toFloat()).coerceIn(0, max)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && target > 0) {
+            audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+        }
+        audio.setStreamVolume(
+            AudioManager.STREAM_MUSIC,
+            target,
+            AudioManager.FLAG_REMOVE_SOUND_AND_VIBRATE,
+        )
     }
 }
