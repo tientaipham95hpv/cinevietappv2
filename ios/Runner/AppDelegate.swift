@@ -13,7 +13,6 @@ import UIKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
-    GeneratedPluginRegistrant.register(with: self)
     let ok = super.application(application, didFinishLaunchingWithOptions: launchOptions)
     DispatchQueue.main.async { [weak self] in
       self?.setupPlayerControlChannel()
