@@ -7270,13 +7270,25 @@ class _PlayerScreenState extends State<PlayerScreen>
     await widget.repo.closeWatchRoom(forceDelete: isWatchHost);
   }
 
-  Future<void> _leavePlayer() async {
+  void _stopPlaybackNow() {
+    final c = controller;
+    if (c == null) return;
+    try {
+      c.pause();
+    } catch (_) {}
+    try {
+      c.setVolume(0);
+    } catch (_) {}
+  }
+
+  Future<void> _exitPlayer() async {
     if (leavingPlayer) return;
     leavingPlayer = true;
+    _stopPlaybackNow();
     if (mounted) setState(() {});
     await _save();
-    await _closeWatchRoomIfNeeded();
-    if (mounted) Navigator.of(context).pop();
+    if (isWatchTogether) await _closeWatchRoomIfNeeded();
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   Future<void> _retryPlayback() async {
@@ -7744,6 +7756,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   @override
   void dispose() {
+    _stopPlaybackNow();
     _save();
     controlsTimer?.cancel();
     levelApplyTimer?.cancel();
@@ -7771,13 +7784,14 @@ class _PlayerScreenState extends State<PlayerScreen>
   Widget build(BuildContext context) {
     final c = controller;
     return PopScope(
-      canPop: !isWatchTogether || leavingPlayer,
+      canPop: leavingPlayer,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) {
+          _stopPlaybackNow();
           _save();
           return;
         }
-        _leavePlayer();
+        _exitPlayer();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -7815,11 +7829,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               if (key == LogicalKeyboardKey.keyE) _showEpisodeSheet();
               if (key == LogicalKeyboardKey.keyS) _showSourceSheet();
               if (key == LogicalKeyboardKey.escape) {
-                if (isWatchTogether) {
-                  _leavePlayer();
-                } else {
-                  Navigator.of(context).maybePop();
-                }
+                _exitPlayer();
               }
             }
             if (isWindowsDesktop) {
@@ -7891,7 +7901,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                       onSources: _showSourceSheet,
                       onSettings: _showSettingsSheet,
                       onFit: _cycleFitMode,
-                      onBack: isWatchTogether ? _leavePlayer : null,
+                      onBack: _exitPlayer,
                     ),
                   if (supportsTouchLevels && controls && !controlsLocked)
                     _buildLockButton(locked: false),
