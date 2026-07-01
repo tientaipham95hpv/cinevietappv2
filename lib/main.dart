@@ -7899,6 +7899,15 @@ class _PlayerScreenState extends State<PlayerScreen>
                     _buildLockButton(locked: true),
                   if (isWatchTogether) _buildWatchTogetherChatPanel(),
                   if (!controlsLocked &&
+                      dragMode == 'seek' &&
+                      pendingSeekPosition != null &&
+                      c != null &&
+                      c.value.isInitialized)
+                    SeekPreviewBar(
+                      position: pendingSeekPosition!,
+                      duration: c.value.duration,
+                    ),
+                  if (!controlsLocked &&
                       gestureMode != null &&
                       gestureValue != null)
                     GestureLevelHint(mode: gestureMode!, value: gestureValue!),
@@ -8542,6 +8551,88 @@ class WatchChatToggleButton extends StatelessWidget {
       ),
     ),
   );
+}
+
+class SeekPreviewBar extends StatelessWidget {
+  const SeekPreviewBar({
+    super.key,
+    required this.position,
+    required this.duration,
+  });
+
+  final Duration position;
+  final Duration duration;
+
+  @override
+  Widget build(BuildContext context) {
+    final totalMs = duration.inMilliseconds;
+    final progress = totalMs <= 0
+        ? 0.0
+        : (position.inMilliseconds / totalMs).clamp(0.0, 1.0);
+    return Positioned(
+      left: 28,
+      right: 28,
+      bottom: 26,
+      child: SafeArea(
+        minimum: const EdgeInsets.only(bottom: 12),
+        child: IgnorePointer(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: BackdropFilter(
+              filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(14, 11, 14, 12),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: .58),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: .10),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          fmtDuration(position),
+                          style: const TextStyle(
+                            fontFeatures: [FontFeature.tabularFigures()],
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          fmtDuration(duration),
+                          style: const TextStyle(
+                            color: CvColors.muted,
+                            fontFeatures: [FontFeature.tabularFigures()],
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 9),
+                    SizedBox(
+                      height: 5,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(999),
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          color: CvColors.accent,
+                          backgroundColor: Colors.white.withValues(alpha: .20),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class GestureLevelHint extends StatelessWidget {
