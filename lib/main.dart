@@ -6523,7 +6523,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool get supportsTouchLevels =>
       !isTvBuild &&
       (Platform.isAndroid || Platform.isIOS || Platform.isWindows);
-  bool get usesPlayerVolume => Platform.isIOS || Platform.isWindows;
+  bool get usesPlayerVolume =>
+      Platform.isAndroid || Platform.isIOS || Platform.isWindows;
   bool get usesWindowsBrightnessOverlay => false;
 
   @override
@@ -7059,11 +7060,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     return null;
   }
 
-  Future<double?> _setVolume(double value) async {
+  Future<double?> _setVolume(double value, {bool showSystemUi = false}) async {
     final next = value.clamp(0.0, 1.0);
     try {
       final actual = await brightnessChannel.invokeMethod<double>('setVolume', {
         'value': next,
+        'showUi': showSystemUi,
       });
       return actual?.clamp(0.0, 1.0);
     } catch (_) {}
@@ -7098,7 +7100,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
 
     if (volume != null) {
-      final actual = await _setVolume(volume);
+      final actual = await _setVolume(volume, showSystemUi: settle);
       try {
         await controller?.setVolume(usesPlayerVolume ? volume : 1.0);
       } catch (_) {}

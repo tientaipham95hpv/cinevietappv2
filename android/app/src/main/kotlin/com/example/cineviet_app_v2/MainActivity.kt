@@ -40,7 +40,8 @@ class MainActivity : FlutterActivity() {
                 "getVolume" -> result.success(currentMusicVolume())
                 "setVolume" -> {
                     val value = (call.argument<Double>("value") ?: 1.0).coerceIn(0.0, 1.0)
-                    applyMusicVolume(value)
+                    val showUi = call.argument<Boolean>("showUi") ?: false
+                    applyMusicVolume(value, showUi)
                     result.success(currentMusicVolume())
                 }
                 else -> result.notImplemented()
@@ -91,17 +92,22 @@ class MainActivity : FlutterActivity() {
         return current.toDouble() / max.toDouble()
     }
 
-    private fun applyMusicVolume(value: Double) {
+    private fun applyMusicVolume(value: Double, showUi: Boolean) {
         val audio = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC).coerceAtLeast(1)
         val target = Math.round((value * max).toFloat()).coerceIn(0, max)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && target > 0) {
             audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
         }
+        val flags = if (showUi) {
+            AudioManager.FLAG_SHOW_UI
+        } else {
+            AudioManager.FLAG_REMOVE_SOUND_AND_VIBRATE
+        }
         audio.setStreamVolume(
             AudioManager.STREAM_MUSIC,
             target,
-            AudioManager.FLAG_REMOVE_SOUND_AND_VIBRATE,
+            flags,
         )
     }
 }
