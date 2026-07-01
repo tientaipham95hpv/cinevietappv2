@@ -6525,7 +6525,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       (Platform.isAndroid || Platform.isIOS || Platform.isWindows);
   bool get usesPlayerVolume =>
       Platform.isAndroid || Platform.isIOS || Platform.isWindows;
-  bool get usesWindowsBrightnessOverlay => false;
+  bool get usesWindowsBrightnessOverlay => supportsTouchLevels;
 
   @override
   void initState() {
@@ -7346,6 +7346,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     } else {
       final base = dragStartVolume ?? appVolume;
       final next = (base + change).clamp(0.0, 1.0);
+      unawaited(controller?.setVolume(next) ?? Future<void>.value());
       setState(() {
         appVolume = next;
         gestureMode = 'volume';
@@ -7830,7 +7831,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     IgnorePointer(
                       child: ColoredBox(
                         color: Colors.black.withValues(
-                          alpha: ((1 - screenBrightness) * .82).clamp(.0, .82),
+                          alpha: ((1 - screenBrightness) * .58).clamp(.0, .58),
                         ),
                       ),
                     ),
