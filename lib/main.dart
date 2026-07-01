@@ -6470,6 +6470,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   Timer? controlsTimer;
   Timer? levelApplyTimer;
   Timer? deviceLevelSyncTimer;
+  Timer? gestureHintTimer;
   final focusNode = FocusNode();
   late EpisodeServer currentServer;
   late EpisodeItem currentEpisode;
@@ -6979,6 +6980,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       pendingVolume = null;
     });
     levelApplyTimer?.cancel();
+    gestureHintTimer?.cancel();
     if (controlsLocked) {
       controlsTimer?.cancel();
     } else {
@@ -7281,6 +7283,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _onPanStart(DragStartDetails details) {
     if (!supportsTouchLevels || controlsLocked) return;
+    gestureHintTimer?.cancel();
     final c = controller;
     dragStart = details.localPosition;
     dragStartPosition = c?.value.position;
@@ -7303,8 +7306,12 @@ class _PlayerScreenState extends State<PlayerScreen>
       final vertical = dy.abs();
       if (vertical > 12 && vertical >= horizontal * .72) {
         dragMode = 'level';
+        controls = false;
+        HapticFeedback.selectionClick();
       } else if (horizontal > 20 && horizontal > vertical * 1.15) {
         dragMode = 'seek';
+        controls = false;
+        HapticFeedback.selectionClick();
       }
     }
     if (dragMode == null) return;
@@ -7349,6 +7356,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   void _onPanEnd(DragEndDetails details) {
     if (!supportsTouchLevels || controlsLocked) return;
+    final finishedMode = dragMode;
     final target = pendingSeekPosition;
     if (dragMode == 'seek' && target != null) {
       controller?.seekTo(target);
@@ -7362,10 +7370,16 @@ class _PlayerScreenState extends State<PlayerScreen>
       dragStartVolume = null;
       pendingSeekPosition = null;
       dragMode = null;
-      gestureMode = null;
-      gestureValue = null;
     });
-    _showControls();
+    gestureHintTimer?.cancel();
+    gestureHintTimer = Timer(const Duration(milliseconds: 620), () {
+      if (!mounted) return;
+      setState(() {
+        gestureMode = null;
+        gestureValue = null;
+      });
+    });
+    if (finishedMode == 'seek') _showControls();
   }
 
   void _onDoubleTapDown(TapDownDetails details) {
@@ -7695,6 +7709,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     _save();
     controlsTimer?.cancel();
     levelApplyTimer?.cancel();
+    gestureHintTimer?.cancel();
     deviceLevelSyncTimer?.cancel();
     saveTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
@@ -8507,34 +8522,89 @@ class GestureLevelHint extends StatelessWidget {
         : mode == 'forward'
         ? Icons.forward_10_rounded
         : Icons.replay_10_rounded;
-    final label = isBrightness
-        ? 'Độ sáng'
-        : isVolume
-        ? 'Âm lượng'
-        : 'Tua';
-    return Center(
-      child: Material(
-        color: Colors.black.withValues(alpha: .72),
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: Colors.white, size: 34),
-              const SizedBox(height: 8),
-              Text(label, style: const TextStyle(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 10),
-              SizedBox(
-                width: 160,
-                child: LinearProgressIndicator(
-                  value: value.clamp(0.0, 1.0),
-                  color: CvColors.accent,
-                  backgroundColor: Colors.white24,
+    if (isBrightness || isVolume) {
+      return IgnorePointer(
+        child: Align(
+          alignment: isBrightness
+              ? Alignment.centerLeft
+              : Alignment.centerRight,
+          child: SafeArea(
+            minimum: const EdgeInsets.symmetric(horizontal: 28),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(999),
+              child: BackdropFilter(
+                filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                child: Container(
+                  width: 54,
+                  height: 164,
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .58),
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(
+                      color: Colors.white.withValues(alpha: .12),
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(icon, color: Colors.white, size: 25),
+                      const SizedBox(height: 14),
+                      _VerticalLevelBar(value: value),
+                    ],
+                  ),
                 ),
               ),
-            ],
+            ),
           ),
+        ),
+      );
+    }
+    return Center(
+      child: IgnorePointer(
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: BackdropFilter(
+            filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: .58),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: Colors.white.withValues(alpha: .12)),
+              ),
+              child: Icon(icon, color: Colors.white, size: 34),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VerticalLevelBar extends StatelessWidget {
+  const _VerticalLevelBar({required this.value});
+  final double value;
+
+  @override
+  Widget build(BuildContext context) {
+    final clamped = value.clamp(0.0, 1.0);
+    return Container(
+      width: 6,
+      height: 92,
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: .22),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      alignment: Alignment.bottomCenter,
+      child: FractionallySizedBox(
+        heightFactor: clamped,
+        alignment: Alignment.bottomCenter,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: CvColors.accent,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: const SizedBox(width: 6),
         ),
       ),
     );
