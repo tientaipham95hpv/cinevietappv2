@@ -2778,8 +2778,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     if (largeControls)
                       Text(
                         isTvBuild
-                            ? 'D-pad để lọc, OK để chọn'
-                            : 'Gõ để tìm, Enter để chạy',
+                            ? 'Tìm nhanh phim, bộ sưu tập và thể loại'
+                            : 'Tìm nhanh phim, diễn viên và thể loại',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: .54),
                           fontWeight: FontWeight.w700,
