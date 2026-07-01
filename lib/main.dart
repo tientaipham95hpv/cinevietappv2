@@ -151,6 +151,37 @@ double? asDouble(dynamic value) {
 
 String cleanText(dynamic value) => '${value ?? ''}'.trim();
 
+Map<String, dynamic> cleanMap(dynamic value) =>
+    value is Map ? Map<String, dynamic>.from(value) : const <String, dynamic>{};
+
+String userAvatarUrlFrom(Map<String, dynamic> user) {
+  final nested = [
+    cleanMap(user['user']),
+    cleanMap(user['author']),
+    cleanMap(user['profile']),
+    cleanMap(user['account']),
+  ].where((map) => map.isNotEmpty);
+  final maps = [user, ...nested];
+  for (final map in maps) {
+    final avatar = cleanText(
+      map['avatar'] ??
+          map['avatarUrl'] ??
+          map['avatar_url'] ??
+          map['photo'] ??
+          map['photoUrl'] ??
+          map['photo_url'] ??
+          map['picture'] ??
+          map['image'] ??
+          map['profilePicture'] ??
+          map['profile_picture'] ??
+          map['profile_photo_url'],
+    );
+    final url = imageUrl(avatar);
+    if (url.isNotEmpty) return url;
+  }
+  return '';
+}
+
 bool isUnknownLabel(String value) {
   final lower = value.toLowerCase().trim();
   final key = compactKey(value);
@@ -830,6 +861,7 @@ class MovieComment {
     required this.content,
     required this.userName,
     required this.createdAt,
+    this.userAvatar = '',
     this.likes = 0,
     this.isSpoiler = false,
   });
@@ -837,22 +869,35 @@ class MovieComment {
   final int id;
   final String content;
   final String userName;
+  final String userAvatar;
   final String createdAt;
   final int likes;
   final bool isSpoiler;
 
-  factory MovieComment.fromJson(Map<String, dynamic> json) => MovieComment(
-    id: asInt(json['id']) ?? 0,
-    content: cleanText(json['content']),
-    userName:
-        cleanText(json['user_name'] ?? json['userName'] ?? json['name']).isEmpty
-        ? 'CineViet'
-        : cleanText(json['user_name'] ?? json['userName'] ?? json['name']),
-    createdAt: cleanText(json['created_at'] ?? json['createdAt']),
-    likes: asInt(json['likes'] ?? json['like_count'] ?? json['likeCount']) ?? 0,
-    isSpoiler:
-        json['is_spoiler'] == true || (asInt(json['is_spoiler']) ?? 0) == 1,
-  );
+  factory MovieComment.fromJson(Map<String, dynamic> json) {
+    final nestedUser = cleanMap(json['user']).isNotEmpty
+        ? cleanMap(json['user'])
+        : cleanMap(json['author']);
+    final userName = cleanText(
+      json['user_name'] ??
+          json['userName'] ??
+          json['name'] ??
+          nestedUser['name'] ??
+          nestedUser['displayName'] ??
+          nestedUser['email'],
+    );
+    return MovieComment(
+      id: asInt(json['id']) ?? 0,
+      content: cleanText(json['content']),
+      userName: userName.isEmpty ? 'CineViet' : userName,
+      userAvatar: userAvatarUrlFrom({...json, ...nestedUser}),
+      createdAt: cleanText(json['created_at'] ?? json['createdAt']),
+      likes:
+          asInt(json['likes'] ?? json['like_count'] ?? json['likeCount']) ?? 0,
+      isSpoiler:
+          json['is_spoiler'] == true || (asInt(json['is_spoiler']) ?? 0) == 1,
+    );
+  }
 }
 
 class RatingStats {
@@ -3942,14 +3987,11 @@ class AccountPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final name = cleanText(user['name'] ?? user['email']);
+    final avatar = userAvatarUrlFrom(user);
     return Panel(
       child: Row(
         children: [
-          const CircleAvatar(
-            radius: 26,
-            backgroundColor: CvColors.accent,
-            child: Icon(Icons.person_rounded),
-          ),
+          UserAvatar(name: name, avatarUrl: avatar, radius: 26),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -3976,6 +4018,43 @@ class AccountPanel extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class UserAvatar extends StatelessWidget {
+  const UserAvatar({
+    super.key,
+    required this.name,
+    required this.avatarUrl,
+    this.radius = 22,
+  });
+
+  final String name;
+  final String avatarUrl;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = name.characters.isEmpty
+        ? ''
+        : name.characters.first.toUpperCase();
+    return CircleAvatar(
+      radius: radius,
+      backgroundColor: CvColors.panel2,
+      backgroundImage: avatarUrl.isNotEmpty
+          ? CachedNetworkImageProvider(avatarUrl)
+          : null,
+      child: avatarUrl.isEmpty
+          ? Text(
+              initial.isEmpty ? 'C' : initial,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: radius * .78,
+                fontWeight: FontWeight.w900,
+              ),
+            )
+          : null,
     );
   }
 }
@@ -6357,9 +6436,10 @@ class _SocialSectionState extends State<SocialSection> {
                       for (final item in rows.take(12))
                         ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: const CircleAvatar(
-                            backgroundColor: CvColors.panel2,
-                            child: Icon(Icons.person_rounded),
+                          leading: UserAvatar(
+                            name: item.userName,
+                            avatarUrl: item.userAvatar,
+                            radius: 21,
                           ),
                           title: Text(
                             item.userName,
