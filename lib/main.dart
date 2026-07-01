@@ -2434,40 +2434,62 @@ class HeroBanner extends StatelessWidget {
                             spacing: 12,
                             runSpacing: 12,
                             children: [
-                              FilledButton.icon(
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: Colors.white,
-                                  foregroundColor: Colors.black,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 20,
-                                    vertical: 14,
+                              if (isTvBuild) ...[
+                                TvActionButton(
+                                  icon: Icons.play_arrow_rounded,
+                                  label: 'Xem ngay',
+                                  primary: true,
+                                  onPressed: () => openDetail(
+                                    context,
+                                    repo,
+                                    movie,
+                                    autoplay: true,
                                   ),
                                 ),
-                                onPressed: () => openDetail(
-                                  context,
-                                  repo,
-                                  movie,
-                                  autoplay: true,
+                                TvActionButton(
+                                  icon: Icons.info_outline_rounded,
+                                  label: 'Chi tiết',
+                                  onPressed: () =>
+                                      openDetail(context, repo, movie),
                                 ),
-                                icon: const Icon(Icons.play_arrow_rounded),
-                                label: const Text('Xem ngay'),
-                              ),
-                              OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: Colors.white,
-                                  side: BorderSide(
-                                    color: Colors.white.withValues(alpha: .42),
+                              ] else ...[
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: Colors.white,
+                                    foregroundColor: Colors.black,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 14,
+                                    ),
                                   ),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 14,
+                                  onPressed: () => openDetail(
+                                    context,
+                                    repo,
+                                    movie,
+                                    autoplay: true,
                                   ),
+                                  icon: const Icon(Icons.play_arrow_rounded),
+                                  label: const Text('Xem ngay'),
                                 ),
-                                onPressed: () =>
-                                    openDetail(context, repo, movie),
-                                icon: const Icon(Icons.info_outline_rounded),
-                                label: const Text('Chi tiết'),
-                              ),
+                                OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white,
+                                    side: BorderSide(
+                                      color: Colors.white.withValues(
+                                        alpha: .42,
+                                      ),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 18,
+                                      vertical: 14,
+                                    ),
+                                  ),
+                                  onPressed: () =>
+                                      openDetail(context, repo, movie),
+                                  icon: const Icon(Icons.info_outline_rounded),
+                                  label: const Text('Chi tiết'),
+                                ),
+                              ],
                             ],
                           ),
                         ],
@@ -2725,16 +2747,29 @@ class _BrowseScreenState extends State<BrowseScreen> {
   @override
   Widget build(BuildContext context) {
     final gridWidth = cardExtent(context);
+    final topPadding = isTvBuild ? 46.0 : 36.0;
     final content = CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
           child: Padding(
-            padding: pagePadding(context).copyWith(top: 36, bottom: 16),
+            padding: pagePadding(context).copyWith(top: topPadding, bottom: 16),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const PageHeading('Tìm kiếm'),
-                const SizedBox(height: 18),
+                Row(
+                  children: [
+                    const Expanded(child: PageHeading('Tìm kiếm')),
+                    if (isTvBuild)
+                      Text(
+                        'D-pad để lọc, OK để chọn',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: .54),
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                  ],
+                ),
+                SizedBox(height: isTvBuild ? 24 : 18),
                 Row(
                   children: [
                     Expanded(
@@ -2746,7 +2781,13 @@ class _BrowseScreenState extends State<BrowseScreen> {
                           hintText: 'Tên phim, diễn viên, quốc gia...',
                           prefixIcon: const Icon(Icons.search_rounded),
                           filled: true,
-                          fillColor: CvColors.panel,
+                          fillColor: isTvBuild
+                              ? Colors.white.withValues(alpha: .1)
+                              : CvColors.panel,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: isTvBuild ? 20 : 14,
+                          ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
                             borderSide: BorderSide.none,
@@ -2755,60 +2796,33 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    IconButton.filled(
-                      onPressed: runSearch,
-                      icon: const Icon(Icons.arrow_forward_rounded),
-                    ),
+                    if (isTvBuild)
+                      TvActionButton(
+                        icon: Icons.search_rounded,
+                        label: 'Tìm',
+                        primary: true,
+                        onPressed: runSearch,
+                      )
+                    else
+                      IconButton.filled(
+                        onPressed: runSearch,
+                        icon: const Icon(Icons.arrow_forward_rounded),
+                      ),
                   ],
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: isTvBuild ? 18 : 12),
                 Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                  spacing: isTvBuild ? 12 : 8,
+                  runSpacing: isTvBuild ? 12 : 8,
                   children: [
-                    ChoiceChip(
-                      label: const Text('Tất cả'),
-                      selected: type.isEmpty,
-                      onSelected: (_) => setState(() {
-                        type = '';
-                        runSearch();
-                      }),
-                    ),
-                    ChoiceChip(
-                      label: const Text('Phim lẻ'),
-                      selected: type == 'movie',
-                      onSelected: (_) => setState(() {
-                        type = 'movie';
-                        runSearch();
-                      }),
-                    ),
-                    ChoiceChip(
-                      label: const Text('Phim bộ'),
-                      selected: type == 'series',
-                      onSelected: (_) => setState(() {
-                        type = 'series';
-                        runSearch();
-                      }),
-                    ),
-                    ChoiceChip(
-                      label: const Text('Hoạt hình'),
-                      selected: type == 'anime',
-                      onSelected: (_) => setState(() {
-                        type = 'anime';
-                        runSearch();
-                      }),
-                    ),
-                    ChoiceChip(
-                      label: const Text('TV Shows'),
-                      selected: type == 'tvshows',
-                      onSelected: (_) => setState(() {
-                        type = 'tvshows';
-                        runSearch();
-                      }),
-                    ),
+                    typeFilter('Tất cả', '', Icons.apps_rounded),
+                    typeFilter('Phim lẻ', 'movie', Icons.movie_rounded),
+                    typeFilter('Phim bộ', 'series', Icons.live_tv_rounded),
+                    typeFilter('Hoạt hình', 'anime', Icons.animation_rounded),
+                    typeFilter('TV Shows', 'tvshows', Icons.tv_rounded),
                   ],
                 ),
-                const SizedBox(height: 12),
+                SizedBox(height: isTvBuild ? 18 : 12),
                 FutureBuilder<BrowseMeta>(
                   future: meta,
                   builder: (context, snapshot) {
@@ -2851,6 +2865,29 @@ class _BrowseScreenState extends State<BrowseScreen> {
     if (widget.embedded) return content;
     return Scaffold(body: content);
   }
+
+  Widget typeFilter(String label, String value, IconData icon) {
+    void select() {
+      setState(() {
+        type = value;
+      });
+      runSearch();
+    }
+
+    if (isTvBuild) {
+      return TvFilterChip(
+        label: label,
+        icon: icon,
+        selected: type == value,
+        onPressed: select,
+      );
+    }
+    return ChoiceChip(
+      label: Text(label),
+      selected: type == value,
+      onSelected: (_) => select(),
+    );
+  }
 }
 
 class FilterBar extends StatelessWidget {
@@ -2885,7 +2922,7 @@ class FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 640;
+    final compact = MediaQuery.sizeOf(context).width < 640 && !isTvBuild;
     final fields = [
       _FilterMenu(
         icon: Icons.category_rounded,
@@ -2971,17 +3008,28 @@ class _FilterMenu extends StatelessWidget {
     return DropdownButtonFormField<String>(
       initialValue: value,
       isExpanded: true,
+      style: TextStyle(
+        color: CvColors.text,
+        fontSize: isTvBuild ? 17 : 14,
+        fontWeight: isTvBuild ? FontWeight.w800 : FontWeight.w500,
+      ),
       decoration: InputDecoration(
         prefixIcon: Icon(icon),
         filled: true,
-        fillColor: CvColors.panel,
-        contentPadding: const EdgeInsets.symmetric(
+        fillColor: isTvBuild
+            ? Colors.white.withValues(alpha: .09)
+            : CvColors.panel,
+        contentPadding: EdgeInsets.symmetric(
           horizontal: 12,
-          vertical: 12,
+          vertical: isTvBuild ? 18 : 12,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: BorderSide.none,
+          borderSide: BorderSide(
+            color: isTvBuild
+                ? Colors.white.withValues(alpha: .14)
+                : Colors.transparent,
+          ),
         ),
       ),
       dropdownColor: CvColors.panel,
@@ -3137,13 +3185,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 child: Row(
                   children: [
                     const Expanded(child: PageHeading('Xem tiếp')),
-                    TextButton.icon(
-                      onPressed: () async {
-                        await _clear();
-                      },
-                      icon: const Icon(Icons.delete_outline_rounded),
-                      label: const Text('Xoá'),
-                    ),
+                    isTvBuild
+                        ? TvActionButton(
+                            icon: Icons.delete_outline_rounded,
+                            label: 'Xoá lịch sử',
+                            danger: true,
+                            onPressed: () {
+                              _clear();
+                            },
+                          )
+                        : TextButton.icon(
+                            onPressed: () async {
+                              await _clear();
+                            },
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            label: const Text('Xoá'),
+                          ),
                   ],
                 ),
               ),
@@ -3391,6 +3448,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
             if (user != null) AccountPanel(user: user, onLogout: logout),
             const SizedBox(height: 22),
+            if (isTvBuild)
+              TvProfileHub(repo: widget.repo, onRequireLogin: requireLogin),
             if (!isTvBuild) ...[
               ProfileTile(
                 icon: Icons.favorite_rounded,
@@ -3464,6 +3523,155 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
+class TvProfileHub extends StatelessWidget {
+  const TvProfileHub({
+    super.key,
+    required this.repo,
+    required this.onRequireLogin,
+  });
+
+  final MovieRepository repo;
+  final Future<bool> Function(BuildContext context, String feature)
+  onRequireLogin;
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = <TvHubAction>[
+      TvHubAction(
+        icon: Icons.history_rounded,
+        title: 'Xem tiếp',
+        subtitle: 'Lịch sử đang xem',
+        onPressed: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => HistoryScreen(repo: repo))),
+      ),
+      TvHubAction(
+        icon: Icons.favorite_rounded,
+        title: 'Yêu thích',
+        subtitle: 'Phim đã lưu',
+        onPressed: () {
+          () async {
+            if (!await onRequireLogin(context, 'Danh sách yêu thích')) return;
+            if (!context.mounted) return;
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => FavoritesScreen(repo: repo)),
+            );
+          }();
+        },
+      ),
+      TvHubAction(
+        icon: Icons.playlist_play_rounded,
+        title: 'Playlist',
+        subtitle: 'Bộ sưu tập của tôi',
+        onPressed: () {
+          () async {
+            if (!await onRequireLogin(context, 'Playlist')) return;
+            if (!context.mounted) return;
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => PlaylistsScreen(repo: repo)),
+            );
+          }();
+        },
+      ),
+      TvHubAction(
+        icon: Icons.system_update_alt_rounded,
+        title: 'Cập nhật',
+        subtitle: 'Kiểm tra bản mới',
+        onPressed: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => UpdateInfoScreen())),
+      ),
+      TvHubAction(
+        icon: Icons.language_rounded,
+        title: 'CineViet live',
+        subtitle: siteBase,
+        onPressed: () => launchUrl(
+          Uri.parse(siteBase),
+          mode: LaunchMode.externalApplication,
+        ),
+      ),
+    ];
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      itemCount: actions.length,
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 340,
+        mainAxisSpacing: 14,
+        crossAxisSpacing: 14,
+        childAspectRatio: 2.25,
+      ),
+      itemBuilder: (context, index) {
+        final action = actions[index];
+        return FocusButton(
+          onPressed: action.onPressed,
+          child: Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .08),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withValues(alpha: .12)),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    color: CvColors.accent.withValues(alpha: .18),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(action.icon, color: CvColors.accent, size: 30),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        action.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        action.subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: CvColors.muted),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right_rounded, color: CvColors.soft),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class TvHubAction {
+  const TvHubAction({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onPressed;
+}
+
 class TvLoginPanel extends StatelessWidget {
   const TvLoginPanel({super.key, required this.onOpen});
   final VoidCallback onOpen;
@@ -3488,11 +3696,19 @@ class TvLoginPanel extends StatelessWidget {
             style: TextStyle(color: CvColors.muted),
           ),
           const SizedBox(height: 22),
-          FilledButton.icon(
-            onPressed: onOpen,
-            icon: const Icon(Icons.qr_code_2_rounded),
-            label: const Text('Đăng nhập nhanh bằng mã/QR'),
-          ),
+          if (isTvBuild)
+            TvActionButton(
+              icon: Icons.qr_code_2_rounded,
+              label: 'Đăng nhập nhanh',
+              primary: true,
+              onPressed: onOpen,
+            )
+          else
+            FilledButton.icon(
+              onPressed: onOpen,
+              icon: const Icon(Icons.qr_code_2_rounded),
+              label: const Text('Đăng nhập nhanh bằng mã/QR'),
+            ),
         ],
       ),
     );
@@ -5177,10 +5393,13 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                 ],
                                 const SizedBox(height: 16),
                                 Wrap(
-                                  spacing: 10,
-                                  runSpacing: 10,
+                                  spacing: isTvBuild ? 12 : 10,
+                                  runSpacing: isTvBuild ? 12 : 10,
                                   children: [
-                                    FilledButton.icon(
+                                    detailAction(
+                                      icon: Icons.play_arrow_rounded,
+                                      label: 'Phát',
+                                      primary: true,
                                       onPressed:
                                           selectedServer == null ||
                                               selectedServer.items.isEmpty
@@ -5193,12 +5412,10 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                               selectedServer.items.first,
                                               serverIndex,
                                             ),
-                                      icon: const Icon(
-                                        Icons.play_arrow_rounded,
-                                      ),
-                                      label: const Text('Phát'),
                                     ),
-                                    OutlinedButton.icon(
+                                    detailAction(
+                                      icon: Icons.favorite_border_rounded,
+                                      label: 'Yêu thích',
                                       onPressed: () async {
                                         if (!await requireLogin(
                                           context,
@@ -5226,12 +5443,10 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                           }
                                         }
                                       },
-                                      icon: const Icon(
-                                        Icons.favorite_border_rounded,
-                                      ),
-                                      label: const Text('Yêu thích'),
                                     ),
-                                    OutlinedButton.icon(
+                                    detailAction(
+                                      icon: Icons.playlist_add_rounded,
+                                      label: 'Playlist',
                                       onPressed: () async {
                                         if (!await requireLogin(
                                           context,
@@ -5243,53 +5458,50 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                         showModalBottomSheet(
                                           context: context,
                                           backgroundColor: CvColors.ink,
-                                          showDragHandle: true,
+                                          showDragHandle: !isTvBuild,
                                           builder: (_) => AddToPlaylistSheet(
                                             repo: widget.repo,
                                             movie: movie,
                                           ),
                                         );
                                       },
-                                      icon: const Icon(
-                                        Icons.playlist_add_rounded,
+                                    ),
+                                    if (!isTvBuild)
+                                      detailAction(
+                                        icon: Icons.groups_rounded,
+                                        label: 'Xem chung',
+                                        onPressed:
+                                            selectedServer == null ||
+                                                selectedServer.items.isEmpty
+                                            ? null
+                                            : () async {
+                                                if (!await requireLogin(
+                                                  context,
+                                                  'Xem chung',
+                                                )) {
+                                                  return;
+                                                }
+                                                if (context.mounted) {
+                                                  Navigator.of(context).push(
+                                                    MaterialPageRoute(
+                                                      builder: (_) =>
+                                                          WatchTogetherScreen(
+                                                            repo: widget.repo,
+                                                            prefillMovie: movie,
+                                                            prefillServer:
+                                                                selectedServer,
+                                                            prefillEpisode:
+                                                                selectedServer
+                                                                    .items
+                                                                    .first,
+                                                            prefillServerIndex:
+                                                                serverIndex,
+                                                          ),
+                                                    ),
+                                                  );
+                                                }
+                                              },
                                       ),
-                                      label: const Text('Playlist'),
-                                    ),
-                                    OutlinedButton.icon(
-                                      onPressed:
-                                          selectedServer == null ||
-                                              selectedServer.items.isEmpty
-                                          ? null
-                                          : () async {
-                                              if (!await requireLogin(
-                                                context,
-                                                'Xem chung',
-                                              )) {
-                                                return;
-                                              }
-                                              if (context.mounted) {
-                                                Navigator.of(context).push(
-                                                  MaterialPageRoute(
-                                                    builder: (_) =>
-                                                        WatchTogetherScreen(
-                                                          repo: widget.repo,
-                                                          prefillMovie: movie,
-                                                          prefillServer:
-                                                              selectedServer,
-                                                          prefillEpisode:
-                                                              selectedServer
-                                                                  .items
-                                                                  .first,
-                                                          prefillServerIndex:
-                                                              serverIndex,
-                                                        ),
-                                                  ),
-                                                );
-                                              }
-                                            },
-                                      icon: const Icon(Icons.groups_rounded),
-                                      label: const Text('Xem chung'),
-                                    ),
                                   ],
                                 ),
                               ],
@@ -5369,6 +5581,34 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       ),
     );
   }
+
+  Widget detailAction({
+    required IconData icon,
+    required String label,
+    required VoidCallback? onPressed,
+    bool primary = false,
+  }) {
+    if (isTvBuild) {
+      return TvActionButton(
+        icon: icon,
+        label: label,
+        primary: primary,
+        onPressed: onPressed,
+      );
+    }
+    if (primary) {
+      return FilledButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon),
+        label: Text(label),
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: onPressed,
+      icon: Icon(icon),
+      label: Text(label),
+    );
+  }
 }
 
 class EpisodeSection extends StatelessWidget {
@@ -5410,12 +5650,19 @@ class EpisodeSection extends StatelessWidget {
               children: [
                 for (var i = 0; i < servers.length; i++)
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(servers[i].displayName),
-                      selected: i == selectedIndex,
-                      onSelected: (_) => onServerChanged(i),
-                    ),
+                    padding: EdgeInsets.only(right: isTvBuild ? 12 : 8),
+                    child: isTvBuild
+                        ? TvFilterChip(
+                            label: servers[i].displayName,
+                            icon: Icons.storage_rounded,
+                            selected: i == selectedIndex,
+                            onPressed: () => onServerChanged(i),
+                          )
+                        : ChoiceChip(
+                            label: Text(servers[i].displayName),
+                            selected: i == selectedIndex,
+                            onSelected: (_) => onServerChanged(i),
+                          ),
                   ),
               ],
             ),
@@ -8439,6 +8686,107 @@ class NetworkBackdrop extends StatelessWidget {
           placeholder: (_, _) => const PosterFallback(),
           errorWidget: (_, _, _) => const PosterFallback(),
         );
+}
+
+class TvActionButton extends StatelessWidget {
+  const TvActionButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.selected = false,
+    this.primary = false,
+    this.danger = false,
+    this.width,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool selected;
+  final bool primary;
+  final bool danger;
+  final double? width;
+
+  @override
+  Widget build(BuildContext context) {
+    final background = primary
+        ? Colors.white
+        : selected
+        ? CvColors.accent.withValues(alpha: .22)
+        : Colors.white.withValues(alpha: .09);
+    final foreground = primary ? Colors.black : Colors.white;
+    final border = danger
+        ? CvColors.danger.withValues(alpha: .62)
+        : selected
+        ? CvColors.accent.withValues(alpha: .78)
+        : Colors.white.withValues(alpha: .14);
+    final content = Container(
+      width: width,
+      constraints: const BoxConstraints(minHeight: 58, minWidth: 138),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+      decoration: BoxDecoration(
+        color: onPressed == null
+            ? CvColors.panel.withValues(alpha: .42)
+            : background,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        mainAxisSize: width == null ? MainAxisSize.min : MainAxisSize.max,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(icon, color: danger ? CvColors.danger : foreground, size: 25),
+          const SizedBox(width: 10),
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              textScaler: TextScaler.noScaling,
+              style: TextStyle(
+                color: foreground,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (onPressed == null) return Opacity(opacity: .48, child: content);
+    return FocusButton(
+      selected: selected,
+      onPressed: onPressed!,
+      child: content,
+    );
+  }
+}
+
+class TvFilterChip extends StatelessWidget {
+  const TvFilterChip({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+    this.icon,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onPressed;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) => TvActionButton(
+    icon: icon ?? Icons.check_rounded,
+    label: label,
+    selected: selected,
+    primary: selected,
+    onPressed: onPressed,
+    width: 166,
+  );
 }
 
 class FocusButton extends StatefulWidget {
