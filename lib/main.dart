@@ -31,6 +31,11 @@ bool get supportsTvQrScan =>
 bool get isWindowsDesktop => !kIsWeb && !isTvBuild && Platform.isWindows;
 bool get useLeanbackControls => isTvBuild || isWindowsDesktop;
 
+bool isTouchTablet(BuildContext context) {
+  final width = MediaQuery.sizeOf(context).width;
+  return !isTvBuild && !isWindowsDesktop && width >= 600;
+}
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   FlutterError.onError = (details) {
@@ -1986,6 +1991,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 Expanded(
                   child: CustomScrollView(
+                    key: const PageStorageKey('home-tv-scroll'),
                     physics: const AlwaysScrollableScrollPhysics(),
                     slivers: [
                       SliverPadding(
@@ -2055,6 +2061,7 @@ class _HomeScreenState extends State<HomeScreen> {
             );
           }
           return CustomScrollView(
+            key: const PageStorageKey('home-touch-scroll'),
             physics: const AlwaysScrollableScrollPhysics(),
             slivers: [
               SliverToBoxAdapter(
@@ -2538,6 +2545,7 @@ class MovieRow extends StatelessWidget {
           SizedBox(
             height: moviePosterCardHeight(cardWidth),
             child: ListView.separated(
+              key: PageStorageKey('movie-row-$title'),
               scrollDirection: Axis.horizontal,
               itemCount: movies.length,
               separatorBuilder: (_, _) => const SizedBox(width: 12),
@@ -2609,6 +2617,7 @@ class _WatchRowState extends State<WatchRow> {
           SizedBox(
             height: width * .68,
             child: ListView.separated(
+              key: PageStorageKey('watch-row-${widget.title}'),
               scrollDirection: Axis.horizontal,
               itemCount: visibleItems.length,
               separatorBuilder: (_, _) => const SizedBox(width: 12),
@@ -2750,8 +2759,12 @@ class _BrowseScreenState extends State<BrowseScreen> {
   Widget build(BuildContext context) {
     final gridWidth = cardExtent(context);
     final largeControls = useLeanbackControls;
+    final tablet = isTouchTablet(context);
     final topPadding = largeControls ? 46.0 : 36.0;
     final content = CustomScrollView(
+      key: PageStorageKey(
+        widget.embedded ? 'browse-embedded-scroll' : 'browse-full-scroll',
+      ),
       slivers: [
         SliverToBoxAdapter(
           child: Padding(
@@ -2828,6 +2841,21 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   ],
                 ),
                 SizedBox(height: largeControls ? 18 : 14),
+                if (tablet) ...[
+                  TabletDiscoveryStrip(
+                    selectedGenre: genre,
+                    selectedSort: sort,
+                    onGenre: (value) {
+                      genre = value;
+                      runSearch();
+                    },
+                    onSort: (value) {
+                      sort = value;
+                      runSearch();
+                    },
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 FutureBuilder<BrowseMeta>(
                   future: meta,
                   builder: (context, snapshot) {
@@ -2970,6 +2998,127 @@ class FilterBar extends StatelessWidget {
           if (i != fields.length - 1) const SizedBox(width: 10),
         ],
       ],
+    );
+  }
+}
+
+class TabletDiscoveryStrip extends StatelessWidget {
+  const TabletDiscoveryStrip({
+    super.key,
+    required this.selectedGenre,
+    required this.selectedSort,
+    required this.onGenre,
+    required this.onSort,
+  });
+
+  final String selectedGenre;
+  final String selectedSort;
+  final ValueChanged<String> onGenre;
+  final ValueChanged<String> onSort;
+
+  static const genrePicks = [
+    ('hanh-dong', 'Hành động', Icons.local_fire_department_rounded),
+    ('tinh-cam', 'Tình cảm', Icons.favorite_rounded),
+    ('kinh-di', 'Kinh dị', Icons.nightlight_round),
+    ('hoat-hinh', 'Hoạt hình', Icons.animation_rounded),
+    ('hai-huoc', 'Hài hước', Icons.sentiment_very_satisfied_rounded),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 86,
+      child: ListView.separated(
+        key: const PageStorageKey('tablet-discovery-strip'),
+        scrollDirection: Axis.horizontal,
+        itemCount: genrePicks.length + 2,
+        separatorBuilder: (_, _) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          if (index == 0) {
+            return TabletDiscoveryTile(
+              icon: Icons.auto_awesome_rounded,
+              label: 'Đề xuất',
+              selected: selectedSort == 'view_count',
+              onTap: () => onSort('view_count'),
+            );
+          }
+          if (index == 1) {
+            return TabletDiscoveryTile(
+              icon: Icons.schedule_rounded,
+              label: 'Mới cập nhật',
+              selected: selectedSort == 'created_at',
+              onTap: () => onSort('created_at'),
+            );
+          }
+          final item = genrePicks[index - 2];
+          return TabletDiscoveryTile(
+            icon: item.$3,
+            label: item.$2,
+            selected: selectedGenre == item.$1,
+            onTap: () => onGenre(selectedGenre == item.$1 ? '' : item.$1),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class TabletDiscoveryTile extends StatelessWidget {
+  const TabletDiscoveryTile({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 172,
+      child: Material(
+        color: selected
+            ? CvColors.accent.withValues(alpha: .18)
+            : Colors.white.withValues(alpha: .08),
+        borderRadius: BorderRadius.circular(8),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: selected
+                    ? CvColors.accent.withValues(alpha: .72)
+                    : Colors.white.withValues(alpha: .1),
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(icon, color: selected ? CvColors.accent : Colors.white),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    label,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w900,
+                      height: 1.1,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -3185,6 +3334,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             .where((e) => e.shouldShow)
             .toList();
         return CustomScrollView(
+          key: const PageStorageKey('history-scroll'),
           slivers: [
             SliverToBoxAdapter(
               child: Padding(
@@ -3430,6 +3580,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (context, snapshot) {
         final user = snapshot.data;
         return ListView(
+          key: const PageStorageKey('profile-scroll'),
           padding: pagePadding(context).copyWith(top: 36, bottom: 36),
           children: [
             const PageHeading('Của tôi'),
@@ -3879,6 +4030,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           final movies = snapshot.data!;
           if (movies.isEmpty) return const EmptyState('Chưa có phim yêu thích');
           return GridView.builder(
+            key: const PageStorageKey('favorites-grid'),
             padding: pagePadding(context).copyWith(top: 20, bottom: 36),
             gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: width + 28,
@@ -3966,6 +4118,7 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
         builder: (context, snapshot) {
           final playlists = snapshot.data ?? const <CinePlaylist>[];
           return ListView(
+            key: const PageStorageKey('playlists-scroll'),
             padding: pagePadding(context).copyWith(top: 20, bottom: 40),
             children: [
               Panel(
@@ -5317,6 +5470,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               '${movie.duration} phút',
           ];
           return CustomScrollView(
+            key: PageStorageKey('detail-scroll-${movie.id}'),
             slivers: [
               SliverAppBar(
                 expandedHeight: math.min(
@@ -7591,13 +7745,11 @@ class _PlayerScreenState extends State<PlayerScreen>
             if (key == LogicalKeyboardKey.keyP) {
               _playSibling(-1);
             }
-            if (isWindowsDesktop) {
+            if (!isTvBuild) {
               if (key == LogicalKeyboardKey.keyM) _toggleMute();
               if (key == LogicalKeyboardKey.keyF) _cycleFitMode();
               if (key == LogicalKeyboardKey.keyE) _showEpisodeSheet();
               if (key == LogicalKeyboardKey.keyS) _showSourceSheet();
-              if (key == LogicalKeyboardKey.arrowUp) _nudgeVolume(.08);
-              if (key == LogicalKeyboardKey.arrowDown) _nudgeVolume(-.08);
               if (key == LogicalKeyboardKey.escape) {
                 if (isWatchTogether) {
                   _leavePlayer();
@@ -7605,6 +7757,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                   Navigator.of(context).maybePop();
                 }
               }
+            }
+            if (isWindowsDesktop) {
+              if (key == LogicalKeyboardKey.arrowUp) _nudgeVolume(.08);
+              if (key == LogicalKeyboardKey.arrowDown) _nudgeVolume(-.08);
             }
           },
           child: MouseRegion(
