@@ -1,7 +1,9 @@
 package live.cineviet.cineviet_app
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -9,6 +11,7 @@ import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import kotlin.math.roundToInt
 
 class MainActivity : FlutterActivity() {
     private val brightnessChannel = "live.cineviet/brightness"
@@ -27,6 +30,11 @@ class MainActivity : FlutterActivity() {
                     val value = (call.argument<Double>("value") ?: 0.5).coerceIn(0.0, 1.0)
                     applyBrightness(value)
                     result.success(currentAppliedBrightness())
+                }
+                "canWriteSettings" -> result.success(canWriteSystemSettings())
+                "requestWriteSettings" -> {
+                    requestWriteSettings()
+                    result.success(canWriteSystemSettings())
                 }
                 "reset" -> {
                     resetBrightness()
@@ -65,10 +73,39 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun applyBrightness(value: Double) {
+        if (canWriteSystemSettings()) {
+            try {
+                Settings.System.putInt(
+                    contentResolver,
+                    Settings.System.SCREEN_BRIGHTNESS,
+                    (value.coerceIn(0.0, 1.0) * 255.0).roundToInt().coerceIn(0, 255),
+                )
+            } catch (_: Exception) {
+                // Keep the per-window fallback below.
+            }
+        }
         val params = window.attributes
         params.screenBrightness = value.toFloat().coerceIn(0.01f, 1f)
         window.attributes = params
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    }
+
+    private fun canWriteSystemSettings(): Boolean {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.System.canWrite(this)
+    }
+
+    private fun requestWriteSettings() {
+        if (canWriteSystemSettings() || Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        try {
+            val intent = Intent(
+                Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                Uri.parse("package:$packageName"),
+            )
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (_: Exception) {
+            startActivity(Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
 
     private fun resetBrightness() {

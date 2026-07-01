@@ -6507,6 +6507,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   String selectedPlaybackSourceLabel = 'Auto';
   bool recoveringPlayback = false;
   bool reportingPlaybackIssue = false;
+  bool androidBrightnessSettingsPrompted = false;
   int runtimeRecoveryAttempts = 0;
   Duration? lastGoodPosition;
   String? playbackNotice;
@@ -6995,12 +6996,34 @@ class _PlayerScreenState extends State<PlayerScreen>
     return value;
   }
 
-  Future<void> _seekBy(Duration offset) async {
+  Future<void> _seekBy(Duration offset, {bool showControls = true}) async {
     final c = controller;
     if (c == null || !c.value.isInitialized) return;
     await c.seekTo(_clampPosition(c.value.position + offset, c.value.duration));
     _emitWatchSync(force: true);
-    _showControls();
+    if (showControls) _showControls();
+  }
+
+  void _clearGestureHintSoon() {
+    gestureHintTimer?.cancel();
+    gestureHintTimer = Timer(const Duration(milliseconds: 620), () {
+      if (!mounted) return;
+      setState(() {
+        gestureMode = null;
+        gestureValue = null;
+      });
+    });
+  }
+
+  void _showSeekHint({required bool forward}) {
+    gestureHintTimer?.cancel();
+    HapticFeedback.selectionClick();
+    setState(() {
+      controls = false;
+      gestureMode = forward ? 'forward' : 'back';
+      gestureValue = 1.0;
+    });
+    _clearGestureHintSoon();
   }
 
   void _maybeAutoNext() {
@@ -7060,6 +7083,18 @@ class _PlayerScreenState extends State<PlayerScreen>
     return null;
   }
 
+  Future<void> _requestAndroidBrightnessSyncPermissionIfNeeded() async {
+    if (!Platform.isAndroid || androidBrightnessSettingsPrompted) return;
+    try {
+      final canWrite = await brightnessChannel.invokeMethod<bool>(
+        'canWriteSettings',
+      );
+      if (canWrite == true) return;
+      androidBrightnessSettingsPrompted = true;
+      await brightnessChannel.invokeMethod<bool>('requestWriteSettings');
+    } catch (_) {}
+  }
+
   Future<double?> _setVolume(double value, {bool showSystemUi = false}) async {
     final next = value.clamp(0.0, 1.0);
     try {
@@ -7090,6 +7125,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     pendingVolume = null;
 
     if (brightness != null) {
+      if (settle) {
+        unawaited(_requestAndroidBrightnessSyncPermissionIfNeeded());
+      }
       final actual = await _setBrightness(brightness);
       if (settle && mounted && actual != null) {
         setState(() {
@@ -7374,21 +7412,18 @@ class _PlayerScreenState extends State<PlayerScreen>
       pendingSeekPosition = null;
       dragMode = null;
     });
-    gestureHintTimer?.cancel();
-    gestureHintTimer = Timer(const Duration(milliseconds: 620), () {
-      if (!mounted) return;
-      setState(() {
-        gestureMode = null;
-        gestureValue = null;
-      });
-    });
+    _clearGestureHintSoon();
     if (finishedMode == 'seek') _showControls();
   }
 
   void _onDoubleTapDown(TapDownDetails details) {
     if (!supportsTouchLevels || controlsLocked) return;
     final width = MediaQuery.sizeOf(context).width;
-    _seekBy(Duration(seconds: details.localPosition.dx < width / 2 ? -10 : 10));
+    final forward = details.localPosition.dx >= width / 2;
+    _showSeekHint(forward: forward);
+    unawaited(
+      _seekBy(Duration(seconds: forward ? 10 : -10), showControls: false),
+    );
   }
 
   @override
