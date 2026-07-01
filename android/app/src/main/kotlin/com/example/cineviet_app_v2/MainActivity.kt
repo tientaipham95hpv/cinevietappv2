@@ -3,6 +3,7 @@ package live.cineviet.cineviet_app
 import android.content.Context
 import android.media.AudioManager
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
@@ -11,6 +12,11 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val brightnessChannel = "live.cineviet/brightness"
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        volumeControlStream = AudioManager.STREAM_MUSIC
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)

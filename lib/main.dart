@@ -6522,6 +6522,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool get supportsTouchLevels =>
       !isTvBuild &&
       (Platform.isAndroid || Platform.isIOS || Platform.isWindows);
+  bool get usesPlayerVolume => Platform.isIOS || Platform.isWindows;
   bool get usesWindowsBrightnessOverlay => false;
 
   @override
@@ -6799,7 +6800,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));
         await next.setPlaybackSpeed(playbackSpeed);
-        await next.setVolume(supportsTouchLevels ? 1.0 : appVolume);
+        await next.setVolume(usesPlayerVolume ? appVolume : 1.0);
         if (isWatchTogether && !isWatchHost && watchRoomState != null) {
           final target = Duration(
             milliseconds: (watchRoomState!.currentTime * 1000).round(),
@@ -7039,7 +7040,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       final volume = await brightnessChannel.invokeMethod<double>('getVolume');
       if (volume != null && mounted) {
         appVolume = volume.clamp(0.0, 1.0);
-        await controller?.setVolume(1.0);
+        await controller?.setVolume(usesPlayerVolume ? appVolume : 1.0);
         setState(() {});
       }
     } catch (_) {}
@@ -7097,15 +7098,19 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (volume != null) {
       final actual = await _setVolume(volume);
       try {
-        await controller?.setVolume(isWindowsDesktop ? volume : 1.0);
+        await controller?.setVolume(usesPlayerVolume ? volume : 1.0);
       } catch (_) {}
-      if (settle && mounted && actual != null) {
+      if (settle && mounted) {
+        final settled = (usesPlayerVolume ? volume : actual ?? volume).clamp(
+          0.0,
+          1.0,
+        );
         setState(() {
-          appVolume = actual;
-          if (gestureMode == 'volume') gestureValue = actual;
+          appVolume = settled;
+          if (gestureMode == 'volume') gestureValue = settled;
         });
         try {
-          await controller?.setVolume(isWindowsDesktop ? actual : 1.0);
+          await controller?.setVolume(usesPlayerVolume ? settled : 1.0);
         } catch (_) {}
       }
     }
@@ -7124,7 +7129,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     appVolume = next;
     pendingVolume = next;
     try {
-      await controller?.setVolume(isWindowsDesktop ? next : 1.0);
+      await controller?.setVolume(usesPlayerVolume ? next : 1.0);
     } catch (_) {}
     if (showHint && mounted) {
       setState(() {
@@ -7293,9 +7298,15 @@ class _PlayerScreenState extends State<PlayerScreen>
     final size = MediaQuery.sizeOf(context);
     final dx = details.localPosition.dx - start.dx;
     final dy = details.localPosition.dy - start.dy;
-    dragMode ??= dx.abs() > 18 || dy.abs() > 18
-        ? (dx.abs() > dy.abs() ? 'seek' : 'level')
-        : null;
+    if (dragMode == null) {
+      final horizontal = dx.abs();
+      final vertical = dy.abs();
+      if (vertical > 12 && vertical >= horizontal * .72) {
+        dragMode = 'level';
+      } else if (horizontal > 20 && horizontal > vertical * 1.15) {
+        dragMode = 'seek';
+      }
+    }
     if (dragMode == null) return;
     if (dragMode == 'seek') {
       final duration = c.value.duration;
