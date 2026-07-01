@@ -1,0 +1,151 @@
+name: CineViet Android Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: App version name
+        required: false
+        default: 2.0.0
+      release_channel:
+        description: Release channel
+        required: false
+        default: release
+      require_signing:
+        description: Fail when Android signing secrets are missing
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+  push:
+    branches:
+      - main
+      - cinevietappv2
+    paths-ignore:
+      - "README.md"
+      - "release/**"
+
+jobs:
+  android:
+    name: Android mobile/tablet and TV APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    env:
+      VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.0' }}
+      RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'release' }}
+      REQUIRE_ANDROID_SIGNING: ${{ github.event.inputs.require_signing || 'false' }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter clean/get
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Analyze and test
+        run: |
+          timeout 8m flutter analyze --no-pub
+          timeout 5m flutter test --no-pub
+
+      - name: Prepare Android signing
+        shell: bash
+        run: |
+          set -euo pipefail
+          has_signing="false"
+          if [ -f android/key.properties ]; then
+            has_signing="true"
+            echo "Android signing: android/key.properties found."
+          elif [ -n "${ANDROID_KEYSTORE_BASE64:-}" ] && [ -n "${ANDROID_KEYSTORE_PASSWORD:-}" ] && [ -n "${ANDROID_KEY_ALIAS:-}" ] && [ -n "${ANDROID_KEY_PASSWORD:-}" ]; then
+            keystore_path="${RUNNER_TEMP}/cineviet-release.jks"
+            printf '%s' "${ANDROID_KEYSTORE_BASE64}" | tr -d '\r\n\t ' | base64 --decode > "${keystore_path}"
+            keytool -list -keystore "${keystore_path}" -storepass "${ANDROID_KEYSTORE_PASSWORD}" -alias "${ANDROID_KEY_ALIAS}" >/dev/null
+            echo "ANDROID_KEYSTORE_PATH=${keystore_path}" >> "${GITHUB_ENV}"
+            has_signing="true"
+            echo "Android signing: GitHub secret keystore decoded."
+          fi
+
+          if [ "${has_signing}" != "true" ]; then
+            echo "Android signing: not configured; Gradle will fall back to debug signing."
+            if [ "${REQUIRE_ANDROID_SIGNING}" = "true" ]; then
+              echo "REQUIRE_ANDROID_SIGNING=true, failing build because signing secrets are missing."
+              exit 1
+            fi
+          fi
+
+      - name: Build mobile/tablet direct APKs
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_number="${GITHUB_RUN_NUMBER}"
+          flutter build apk --release \
+            --target-platform android-arm,android-arm64 \
+            --split-per-abi \
+            --dart-define=APP_VARIANT=mobile \
+            --build-name="${VERSION_NAME}" \
+            --build-number="${build_number}"
+
+      - name: Build Android TV APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_number="${GITHUB_RUN_NUMBER}"
+          flutter build apk --release \
+            --target-platform android-arm,android-arm64 \
+            --dart-define=APP_VARIANT=tv \
+            --dart-define=APP_IS_TV=true \
+            --build-name="${VERSION_NAME}" \
+            --build-number="${build_number}"
+
+      - name: Collect Android artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_number="${GITHUB_RUN_NUMBER}"
+          out_dir="build/app/outputs/cineviet-v2-github-release"
+          mkdir -p "${out_dir}"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "${out_dir}/CineViet-v2-${RELEASE_CHANNEL}-Mobile-Tablet-arm64-v8a-${VERSION_NAME}+${build_number}.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "${out_dir}/CineViet-v2-${RELEASE_CHANNEL}-Mobile-Tablet-armeabi-v7a-${VERSION_NAME}+${build_number}.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "${out_dir}/CineViet-v2-${RELEASE_CHANNEL}-Android-TV-universal-${VERSION_NAME}+${build_number}.apk"
+          {
+            echo "app=CineViet v2"
+            echo "platform=android"
+            echo "channel=${RELEASE_CHANNEL}"
+            echo "version=${VERSION_NAME}"
+            echo "build_number=${build_number}"
+            echo "workflow=github-actions-android"
+            echo "commit=${GITHUB_SHA}"
+            echo "branch=${GITHUB_REF_NAME}"
+            echo "built_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } > "${out_dir}/BUILD_INFO.txt"
+          cp release/QA_CHECKLIST.md "${out_dir}/QA_CHECKLIST.md"
+          cp release/RELEASE_NOTES_TEMPLATE.md "${out_dir}/RELEASE_NOTES_TEMPLATE.md"
+          cp release/ANDROID_SIGNING.md "${out_dir}/ANDROID_SIGNING.md"
+          ls -lh "${out_dir}"
+
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cineviet-v2-android-${{ env.RELEASE_CHANNEL }}-${{ env.VERSION_NAME }}-${{ github.run_number }}
+          path: build/app/outputs/cineviet-v2-github-release/*
+          if-no-files-found: error

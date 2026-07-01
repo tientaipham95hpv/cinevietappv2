@@ -1,0 +1,93 @@
+name: CineViet Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: App version name
+        required: false
+        default: 2.0.0
+      release_channel:
+        description: Release channel
+        required: false
+        default: release
+  push:
+    branches:
+      - main
+      - cinevietappv2
+    paths-ignore:
+      - "README.md"
+      - "release/**"
+
+jobs:
+  windows:
+    name: Windows ZIP release
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    env:
+      VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.0' }}
+      RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'release' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Flutter clean/get
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Analyze and test
+        run: |
+          flutter analyze --no-pub
+          flutter test --no-pub
+
+      - name: Build Windows release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          flutter build windows --release --dart-define=APP_VARIANT=windows --build-name=$env:VERSION_NAME --build-number=$env:GITHUB_RUN_NUMBER
+
+      - name: Package Windows release
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $build = $env:GITHUB_RUN_NUMBER
+          $zipName = "CineViet-v2-$($env:RELEASE_CHANNEL)-Windows-$($env:VERSION_NAME)+$build.zip"
+          $releaseDir = "build\windows\x64\runner\Release"
+          $packageDir = "build\windows\package"
+          Copy-Item scripts\register_windows_protocol.ps1 "$releaseDir\Register-CineViet-Google-Login.ps1" -Force
+          New-Item -ItemType Directory -Force $packageDir | Out-Null
+          @(
+            "app=CineViet v2"
+            "platform=windows"
+            "channel=$env:RELEASE_CHANNEL"
+            "version=$env:VERSION_NAME"
+            "build_number=$build"
+            "workflow=github-actions-windows"
+            "commit=$env:GITHUB_SHA"
+            "branch=$env:GITHUB_REF_NAME"
+            "built_at_utc=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+          ) | Set-Content "$releaseDir\BUILD_INFO.txt" -Encoding UTF8
+          Copy-Item release\QA_CHECKLIST.md "$releaseDir\QA_CHECKLIST.md" -Force
+          Copy-Item release\RELEASE_NOTES_TEMPLATE.md "$releaseDir\RELEASE_NOTES_TEMPLATE.md" -Force
+          Compress-Archive -Path "$releaseDir\*" -DestinationPath "$packageDir\$zipName" -Force
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cineviet-v2-windows-${{ env.RELEASE_CHANNEL }}-${{ env.VERSION_NAME }}-${{ github.run_number }}
+          path: |
+            build/windows/package/*.zip
+            build/windows/x64/runner/Release/BUILD_INFO.txt
+          if-no-files-found: error

@@ -1,0 +1,101 @@
+name: CineViet iOS Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: App version name
+        required: false
+        default: 2.0.0
+      release_channel:
+        description: Release channel
+        required: false
+        default: release
+  push:
+    branches:
+      - main
+      - cinevietappv2
+    paths-ignore:
+      - "README.md"
+      - "release/**"
+
+jobs:
+  ios:
+    name: iOS unsigned app check
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    env:
+      VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.0' }}
+      RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'release' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter clean/get
+        run: |
+          flutter clean
+          flutter pub get
+
+      - name: Analyze and test
+        run: |
+          flutter analyze --no-pub
+          flutter test --no-pub
+
+      - name: Install CocoaPods
+        run: |
+          cd ios
+          pod install --repo-update
+
+      - name: Build unsigned iOS app
+        run: |
+          flutter build ios --release --no-codesign \
+            --dart-define=APP_VARIANT=ios \
+            --build-name="${VERSION_NAME}" \
+            --build-number="${GITHUB_RUN_NUMBER}"
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          ipa_dir="build/ios/unsigned_ipa"
+          rm -rf "${ipa_dir}"
+          mkdir -p "${ipa_dir}/Payload"
+          cp -R build/ios/iphoneos/Runner.app "${ipa_dir}/Payload/"
+          (
+            cd "${ipa_dir}"
+            ipa_name="CineViet-v2-${RELEASE_CHANNEL}-iOS-unsigned-${VERSION_NAME}+${GITHUB_RUN_NUMBER}.ipa"
+            zip -yr "${ipa_name}" Payload
+            zip -9 "CineViet-v2-${RELEASE_CHANNEL}-iOS-unsigned-${VERSION_NAME}+${GITHUB_RUN_NUMBER}.zip" "${ipa_name}"
+            {
+              echo "app=CineViet v2"
+              echo "platform=ios"
+              echo "channel=${RELEASE_CHANNEL}"
+              echo "version=${VERSION_NAME}"
+              echo "build_number=${GITHUB_RUN_NUMBER}"
+              echo "workflow=github-actions-ios"
+              echo "commit=${GITHUB_SHA}"
+              echo "branch=${GITHUB_REF_NAME}"
+              echo "built_at_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            } > BUILD_INFO.txt
+          )
+          cp release/QA_CHECKLIST.md "${ipa_dir}/QA_CHECKLIST.md"
+          cp release/RELEASE_NOTES_TEMPLATE.md "${ipa_dir}/RELEASE_NOTES_TEMPLATE.md"
+          cp release/IOS_DISTRIBUTION.md "${ipa_dir}/IOS_DISTRIBUTION.md"
+
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cineviet-v2-ios-unsigned-${{ env.RELEASE_CHANNEL }}-${{ env.VERSION_NAME }}-${{ github.run_number }}
+          path: |
+            build/ios/unsigned_ipa/*.ipa
+            build/ios/unsigned_ipa/*.zip
+            build/ios/unsigned_ipa/BUILD_INFO.txt
+            build/ios/unsigned_ipa/*.md
+          if-no-files-found: error
