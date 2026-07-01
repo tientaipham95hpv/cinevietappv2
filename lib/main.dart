@@ -28,6 +28,8 @@ const googleServerClientId =
 
 bool get supportsTvQrScan =>
     !kIsWeb && !isTvBuild && (Platform.isAndroid || Platform.isIOS);
+bool get isWindowsDesktop => !kIsWeb && !isTvBuild && Platform.isWindows;
+bool get useLeanbackControls => isTvBuild || isWindowsDesktop;
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -2434,7 +2436,7 @@ class HeroBanner extends StatelessWidget {
                             spacing: 12,
                             runSpacing: 12,
                             children: [
-                              if (isTvBuild) ...[
+                              if (useLeanbackControls) ...[
                                 TvActionButton(
                                   icon: Icons.play_arrow_rounded,
                                   label: 'Xem ngay',
@@ -2747,7 +2749,8 @@ class _BrowseScreenState extends State<BrowseScreen> {
   @override
   Widget build(BuildContext context) {
     final gridWidth = cardExtent(context);
-    final topPadding = isTvBuild ? 46.0 : 36.0;
+    final largeControls = useLeanbackControls;
+    final topPadding = largeControls ? 46.0 : 36.0;
     final content = CustomScrollView(
       slivers: [
         SliverToBoxAdapter(
@@ -2759,9 +2762,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
                 Row(
                   children: [
                     const Expanded(child: PageHeading('Tìm kiếm')),
-                    if (isTvBuild)
+                    if (largeControls)
                       Text(
-                        'D-pad để lọc, OK để chọn',
+                        isTvBuild
+                            ? 'D-pad để lọc, OK để chọn'
+                            : 'Gõ để tìm, Enter để chạy',
                         style: TextStyle(
                           color: Colors.white.withValues(alpha: .54),
                           fontWeight: FontWeight.w700,
@@ -2769,7 +2774,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       ),
                   ],
                 ),
-                SizedBox(height: isTvBuild ? 24 : 18),
+                SizedBox(height: largeControls ? 24 : 18),
                 Row(
                   children: [
                     Expanded(
@@ -2781,12 +2786,12 @@ class _BrowseScreenState extends State<BrowseScreen> {
                           hintText: 'Tên phim, diễn viên, quốc gia...',
                           prefixIcon: const Icon(Icons.search_rounded),
                           filled: true,
-                          fillColor: isTvBuild
+                          fillColor: largeControls
                               ? Colors.white.withValues(alpha: .1)
                               : CvColors.panel,
                           contentPadding: EdgeInsets.symmetric(
                             horizontal: 14,
-                            vertical: isTvBuild ? 20 : 14,
+                            vertical: largeControls ? 20 : 16,
                           ),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(8),
@@ -2796,7 +2801,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    if (isTvBuild)
+                    if (largeControls)
                       TvActionButton(
                         icon: Icons.search_rounded,
                         label: 'Tìm',
@@ -2810,10 +2815,10 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       ),
                   ],
                 ),
-                SizedBox(height: isTvBuild ? 18 : 12),
+                SizedBox(height: largeControls ? 18 : 14),
                 Wrap(
-                  spacing: isTvBuild ? 12 : 8,
-                  runSpacing: isTvBuild ? 12 : 8,
+                  spacing: largeControls ? 12 : 8,
+                  runSpacing: largeControls ? 12 : 8,
                   children: [
                     typeFilter('Tất cả', '', Icons.apps_rounded),
                     typeFilter('Phim lẻ', 'movie', Icons.movie_rounded),
@@ -2822,7 +2827,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     typeFilter('TV Shows', 'tvshows', Icons.tv_rounded),
                   ],
                 ),
-                SizedBox(height: isTvBuild ? 18 : 12),
+                SizedBox(height: largeControls ? 18 : 14),
                 FutureBuilder<BrowseMeta>(
                   future: meta,
                   builder: (context, snapshot) {
@@ -2874,7 +2879,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
       runSearch();
     }
 
-    if (isTvBuild) {
+    if (useLeanbackControls) {
       return TvFilterChip(
         label: label,
         icon: icon,
@@ -2922,7 +2927,8 @@ class FilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final compact = MediaQuery.sizeOf(context).width < 640 && !isTvBuild;
+    final compact =
+        MediaQuery.sizeOf(context).width < 640 && !useLeanbackControls;
     final fields = [
       _FilterMenu(
         icon: Icons.category_rounded,
@@ -3005,28 +3011,29 @@ class _FilterMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final largeControls = useLeanbackControls;
     return DropdownButtonFormField<String>(
       initialValue: value,
       isExpanded: true,
       style: TextStyle(
         color: CvColors.text,
-        fontSize: isTvBuild ? 17 : 14,
-        fontWeight: isTvBuild ? FontWeight.w800 : FontWeight.w500,
+        fontSize: largeControls ? 17 : 14,
+        fontWeight: largeControls ? FontWeight.w800 : FontWeight.w500,
       ),
       decoration: InputDecoration(
         prefixIcon: Icon(icon),
         filled: true,
-        fillColor: isTvBuild
+        fillColor: largeControls
             ? Colors.white.withValues(alpha: .09)
             : CvColors.panel,
         contentPadding: EdgeInsets.symmetric(
           horizontal: 12,
-          vertical: isTvBuild ? 18 : 12,
+          vertical: largeControls ? 18 : 12,
         ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(
-            color: isTvBuild
+            color: largeControls
                 ? Colors.white.withValues(alpha: .14)
                 : Colors.transparent,
           ),
@@ -3185,7 +3192,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 child: Row(
                   children: [
                     const Expanded(child: PageHeading('Xem tiếp')),
-                    isTvBuild
+                    useLeanbackControls
                         ? TvActionButton(
                             icon: Icons.delete_outline_rounded,
                             label: 'Xoá lịch sử',
@@ -3448,9 +3455,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
             if (user != null) AccountPanel(user: user, onLogout: logout),
             const SizedBox(height: 22),
-            if (isTvBuild)
+            if (useLeanbackControls)
               TvProfileHub(repo: widget.repo, onRequireLogin: requireLogin),
-            if (!isTvBuild) ...[
+            if (!useLeanbackControls) ...[
               ProfileTile(
                 icon: Icons.favorite_rounded,
                 title: 'Danh sách yêu thích',
@@ -5393,8 +5400,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                 ],
                                 const SizedBox(height: 16),
                                 Wrap(
-                                  spacing: isTvBuild ? 12 : 10,
-                                  runSpacing: isTvBuild ? 12 : 10,
+                                  spacing: useLeanbackControls ? 12 : 10,
+                                  runSpacing: useLeanbackControls ? 12 : 10,
                                   children: [
                                     detailAction(
                                       icon: Icons.play_arrow_rounded,
@@ -5588,7 +5595,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     required VoidCallback? onPressed,
     bool primary = false,
   }) {
-    if (isTvBuild) {
+    if (useLeanbackControls) {
       return TvActionButton(
         icon: icon,
         label: label,
@@ -5650,8 +5657,10 @@ class EpisodeSection extends StatelessWidget {
               children: [
                 for (var i = 0; i < servers.length; i++)
                   Padding(
-                    padding: EdgeInsets.only(right: isTvBuild ? 12 : 8),
-                    child: isTvBuild
+                    padding: EdgeInsets.only(
+                      right: useLeanbackControls ? 12 : 8,
+                    ),
+                    child: useLeanbackControls
                         ? TvFilterChip(
                             label: servers[i].displayName,
                             icon: Icons.storage_rounded,
@@ -6934,7 +6943,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (volume != null) {
       final actual = await _setVolume(volume);
       try {
-        await controller?.setVolume(1.0);
+        await controller?.setVolume(isWindowsDesktop ? volume : 1.0);
       } catch (_) {}
       if (settle && mounted && actual != null) {
         setState(() {
@@ -6942,7 +6951,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           if (gestureMode == 'volume') gestureValue = actual;
         });
         try {
-          await controller?.setVolume(1.0);
+          await controller?.setVolume(isWindowsDesktop ? actual : 1.0);
         } catch (_) {}
       }
     }
@@ -6954,6 +6963,31 @@ class _PlayerScreenState extends State<PlayerScreen>
     c.value.isPlaying ? c.pause() : c.play();
     _emitWatchSync(force: true);
     _showControls();
+  }
+
+  Future<void> _setPlayerVolume(double value, {bool showHint = true}) async {
+    final next = value.clamp(0.0, 1.0);
+    appVolume = next;
+    pendingVolume = next;
+    try {
+      await controller?.setVolume(isWindowsDesktop ? next : 1.0);
+    } catch (_) {}
+    if (showHint && mounted) {
+      setState(() {
+        gestureMode = 'volume';
+        gestureValue = next;
+      });
+    }
+    unawaited(_applyPendingLevels(settle: true));
+    _showControls();
+  }
+
+  void _toggleMute() {
+    _setPlayerVolume(appVolume > .02 ? 0 : 1);
+  }
+
+  void _nudgeVolume(double delta) {
+    _setPlayerVolume(appVolume + delta);
   }
 
   void _bindWatchTogetherSocket() {
@@ -7533,100 +7567,125 @@ class _PlayerScreenState extends State<PlayerScreen>
           focusNode: focusNode,
           onKeyEvent: (event) {
             if (event is! KeyDownEvent || c == null) return;
-            if (event.logicalKey == LogicalKeyboardKey.select ||
-                event.logicalKey == LogicalKeyboardKey.enter ||
-                event.logicalKey == LogicalKeyboardKey.space) {
+            final key = event.logicalKey;
+            if (key == LogicalKeyboardKey.select ||
+                key == LogicalKeyboardKey.enter ||
+                key == LogicalKeyboardKey.space ||
+                key == LogicalKeyboardKey.keyK) {
               _togglePlay();
             }
-            if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+            if (key == LogicalKeyboardKey.arrowRight ||
+                key == LogicalKeyboardKey.keyL) {
               _seekBy(const Duration(seconds: 10));
             }
-            if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+            if (key == LogicalKeyboardKey.arrowLeft ||
+                key == LogicalKeyboardKey.keyJ) {
               _seekBy(const Duration(seconds: -10));
             }
-            if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+            if (key == LogicalKeyboardKey.arrowUp) {
               _showControls();
             }
-            if (event.logicalKey == LogicalKeyboardKey.keyN) {
+            if (key == LogicalKeyboardKey.keyN) {
               _playSibling(1);
             }
-            if (event.logicalKey == LogicalKeyboardKey.keyP) {
+            if (key == LogicalKeyboardKey.keyP) {
               _playSibling(-1);
             }
+            if (isWindowsDesktop) {
+              if (key == LogicalKeyboardKey.keyM) _toggleMute();
+              if (key == LogicalKeyboardKey.keyF) _cycleFitMode();
+              if (key == LogicalKeyboardKey.keyE) _showEpisodeSheet();
+              if (key == LogicalKeyboardKey.keyS) _showSourceSheet();
+              if (key == LogicalKeyboardKey.arrowUp) _nudgeVolume(.08);
+              if (key == LogicalKeyboardKey.arrowDown) _nudgeVolume(-.08);
+              if (key == LogicalKeyboardKey.escape) {
+                if (isWatchTogether) {
+                  _leavePlayer();
+                } else {
+                  Navigator.of(context).maybePop();
+                }
+              }
+            }
           },
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onPanStart: _onPanStart,
-            onPanUpdate: _onPanUpdate,
-            onPanEnd: _onPanEnd,
-            onDoubleTapDown: _onDoubleTapDown,
-            onTap: () {
-              if (controlsLocked) return;
-              setState(() => controls = !controls);
-              if (controls) _scheduleControlsHide();
-            },
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (error != null)
-                  PlayerErrorView(
-                    message: error!,
-                    reporting: reportingPlaybackIssue,
-                    onRetry: _retryPlayback,
-                    onChangeSource: _showSourceSheet,
-                    onReport: _reportPlaybackIssue,
-                  )
-                else if (c == null || !c.value.isInitialized)
-                  const Center(
-                    child: CircularProgressIndicator(color: CvColors.accent),
-                  )
-                else
-                  Center(
-                    child: _FittedVideo(controller: c, fitMode: fitMode),
-                  ),
-                if (usesWindowsBrightnessOverlay && screenBrightness < .99)
-                  IgnorePointer(
-                    child: ColoredBox(
-                      color: Colors.black.withValues(
-                        alpha: ((1 - screenBrightness) * .82).clamp(.0, .82),
+          child: MouseRegion(
+            cursor: isWindowsDesktop
+                ? SystemMouseCursors.click
+                : MouseCursor.defer,
+            onHover: isWindowsDesktop ? (_) => _showControls() : null,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onPanStart: _onPanStart,
+              onPanUpdate: _onPanUpdate,
+              onPanEnd: _onPanEnd,
+              onDoubleTapDown: _onDoubleTapDown,
+              onTap: () {
+                if (controlsLocked) return;
+                setState(() => controls = !controls);
+                if (controls) _scheduleControlsHide();
+              },
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (error != null)
+                    PlayerErrorView(
+                      message: error!,
+                      reporting: reportingPlaybackIssue,
+                      onRetry: _retryPlayback,
+                      onChangeSource: _showSourceSheet,
+                      onReport: _reportPlaybackIssue,
+                    )
+                  else if (c == null || !c.value.isInitialized)
+                    const Center(
+                      child: CircularProgressIndicator(color: CvColors.accent),
+                    )
+                  else
+                    Center(
+                      child: _FittedVideo(controller: c, fitMode: fitMode),
+                    ),
+                  if (usesWindowsBrightnessOverlay && screenBrightness < .99)
+                    IgnorePointer(
+                      child: ColoredBox(
+                        color: Colors.black.withValues(
+                          alpha: ((1 - screenBrightness) * .82).clamp(.0, .82),
+                        ),
                       ),
                     ),
-                  ),
-                if (controls && !controlsLocked)
-                  PlayerOverlay(
-                    controller: c,
-                    title: widget.movie.title,
-                    episode:
-                        '${currentServer.displayName} • ${currentEpisode.displayName}',
-                    sourceLabel: _activeSourceLabel,
-                    fitLabel: fitMode.label,
-                    canPrevious: _currentEpisodeIndex > 0,
-                    canNext:
-                        _currentEpisodeIndex >= 0 &&
-                        _currentEpisodeIndex < currentServer.items.length - 1,
-                    onPlayPause: _togglePlay,
-                    onReplay: () => _seekBy(const Duration(seconds: -10)),
-                    onForward: () => _seekBy(const Duration(seconds: 10)),
-                    onPrevious: () => _playSibling(-1),
-                    onNext: () => _playSibling(1),
-                    onEpisodes: _showEpisodeSheet,
-                    onSources: _showSourceSheet,
-                    onSettings: _showSettingsSheet,
-                    onFit: _cycleFitMode,
-                    onBack: isWatchTogether ? _leavePlayer : null,
-                  ),
-                if (supportsTouchLevels && controls && !controlsLocked)
-                  _buildLockButton(locked: false),
-                if (supportsTouchLevels && controlsLocked)
-                  _buildLockButton(locked: true),
-                if (isWatchTogether) _buildWatchTogetherChatPanel(),
-                if (!controlsLocked &&
-                    gestureMode != null &&
-                    gestureValue != null)
-                  GestureLevelHint(mode: gestureMode!, value: gestureValue!),
-                if (playbackNotice != null && error == null)
-                  PlaybackNotice(message: playbackNotice!),
-              ],
+                  if (controls && !controlsLocked)
+                    PlayerOverlay(
+                      controller: c,
+                      title: widget.movie.title,
+                      episode:
+                          '${currentServer.displayName} • ${currentEpisode.displayName}',
+                      sourceLabel: _activeSourceLabel,
+                      fitLabel: fitMode.label,
+                      canPrevious: _currentEpisodeIndex > 0,
+                      canNext:
+                          _currentEpisodeIndex >= 0 &&
+                          _currentEpisodeIndex < currentServer.items.length - 1,
+                      onPlayPause: _togglePlay,
+                      onReplay: () => _seekBy(const Duration(seconds: -10)),
+                      onForward: () => _seekBy(const Duration(seconds: 10)),
+                      onPrevious: () => _playSibling(-1),
+                      onNext: () => _playSibling(1),
+                      onEpisodes: _showEpisodeSheet,
+                      onSources: _showSourceSheet,
+                      onSettings: _showSettingsSheet,
+                      onFit: _cycleFitMode,
+                      onBack: isWatchTogether ? _leavePlayer : null,
+                    ),
+                  if (supportsTouchLevels && controls && !controlsLocked)
+                    _buildLockButton(locked: false),
+                  if (supportsTouchLevels && controlsLocked)
+                    _buildLockButton(locked: true),
+                  if (isWatchTogether) _buildWatchTogetherChatPanel(),
+                  if (!controlsLocked &&
+                      gestureMode != null &&
+                      gestureValue != null)
+                    GestureLevelHint(mode: gestureMode!, value: gestureValue!),
+                  if (playbackNotice != null && error == null)
+                    PlaybackNotice(message: playbackNotice!),
+                ],
+              ),
             ),
           ),
         ),
@@ -9228,10 +9287,35 @@ void openDetail(
   Movie movie, {
   bool autoplay = false,
 }) {
+  final page = MovieDetailScreen(
+    repo: repo,
+    initial: movie,
+    autoplay: autoplay,
+  );
+  if (isTvBuild) {
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
+    return;
+  }
   Navigator.of(context).push(
-    MaterialPageRoute(
-      builder: (_) =>
-          MovieDetailScreen(repo: repo, initial: movie, autoplay: autoplay),
+    PageRouteBuilder(
+      pageBuilder: (_, _, _) => page,
+      transitionsBuilder: (_, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, .035),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
+        );
+      },
     ),
   );
 }
