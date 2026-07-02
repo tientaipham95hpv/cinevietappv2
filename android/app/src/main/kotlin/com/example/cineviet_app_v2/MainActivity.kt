@@ -15,14 +15,32 @@ import kotlin.math.roundToInt
 
 class MainActivity : FlutterActivity() {
     private val brightnessChannel = "live.cineviet/brightness"
+    private val oauthChannel = "live.cineviet/oauth"
+    private var latestOAuthCallback: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         volumeControlStream = AudioManager.STREAM_MUSIC
+        captureOAuthCallback(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureOAuthCallback(intent)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, oauthChannel).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getLatestCallback" -> {
+                    result.success(latestOAuthCallback)
+                    latestOAuthCallback = null
+                }
+                else -> result.notImplemented()
+            }
+        }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, brightnessChannel).setMethodCallHandler { call, result ->
             when (call.method) {
                 "get" -> result.success(currentBrightness())
@@ -54,6 +72,13 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun captureOAuthCallback(intent: Intent?) {
+        val uri = intent?.data?.toString() ?: return
+        if (uri.startsWith("cineviet://auth/callback")) {
+            latestOAuthCallback = uri
         }
     }
 

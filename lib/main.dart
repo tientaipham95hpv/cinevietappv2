@@ -3465,12 +3465,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
   bool busy = false;
   Timer? oauthPollTimer;
   String? lastCallbackUrl;
+  static const oauthChannel = MethodChannel('live.cineviet/oauth');
 
   @override
   void initState() {
     super.initState();
     meFuture = _me();
-    _startWindowsOAuthPolling();
+    _startOAuthPolling();
   }
 
   Future<Map<String, dynamic>?> _me() async {
@@ -3510,9 +3511,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Future<void> loginWithGoogle() async {
     setState(() => busy = true);
     try {
-      if (!kIsWeb && Platform.isWindows) {
+      if (!kIsWeb && (Platform.isAndroid || Platform.isWindows)) {
         final bridgeFile = File(windowsOAuthBridgePath);
-        if (await bridgeFile.exists()) await bridgeFile.delete();
+        if (Platform.isWindows && await bridgeFile.exists()) {
+          await bridgeFile.delete();
+        }
         final opened = await launchUrl(
           Uri.parse('$apiBase/auth/google?desktop=1'),
           mode: LaunchMode.externalApplication,
@@ -3560,24 +3563,41 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  void _startWindowsOAuthPolling() {
-    if (kIsWeb || !Platform.isWindows) return;
+  void _startOAuthPolling() {
+    if (kIsWeb || !(Platform.isAndroid || Platform.isWindows)) return;
     oauthPollTimer = Timer.periodic(
       const Duration(milliseconds: 600),
-      (_) => _consumeWindowsOAuthCallback(),
+      (_) => _consumeOAuthCallback(),
     );
-    _consumeWindowsOAuthCallback();
+    _consumeOAuthCallback();
   }
 
-  Future<void> _consumeWindowsOAuthCallback() async {
-    final file = File(windowsOAuthBridgePath);
-    if (!await file.exists()) return;
-    final callbackUrl = (await file.readAsString()).trim();
-    try {
-      await file.delete();
-    } catch (_) {
-      await file.writeAsString('');
+  Future<String> _readOAuthCallback() async {
+    if (!kIsWeb && Platform.isAndroid) {
+      try {
+        return cleanText(
+          await oauthChannel.invokeMethod<String>('getLatestCallback'),
+        );
+      } catch (_) {
+        return '';
+      }
     }
+    if (!kIsWeb && Platform.isWindows) {
+      final file = File(windowsOAuthBridgePath);
+      if (!await file.exists()) return '';
+      final callbackUrl = (await file.readAsString()).trim();
+      try {
+        await file.delete();
+      } catch (_) {
+        await file.writeAsString('');
+      }
+      return callbackUrl;
+    }
+    return '';
+  }
+
+  Future<void> _consumeOAuthCallback() async {
+    final callbackUrl = await _readOAuthCallback();
     if (callbackUrl.isEmpty ||
         callbackUrl == lastCallbackUrl ||
         !callbackUrl.startsWith('cineviet://auth/callback')) {
