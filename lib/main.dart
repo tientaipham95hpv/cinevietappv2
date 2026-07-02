@@ -4199,29 +4199,16 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
               childAspectRatio: width / moviePosterCardHeight(width),
             ),
             itemCount: movies.length,
-            itemBuilder: (context, index) => Stack(
-              children: [
-                MoviePosterCard(
-                  movie: movies[index],
-                  width: width,
-                  onTap: () => openDetail(context, widget.repo, movies[index]),
-                ),
-                Positioned(
-                  top: 6,
-                  right: 6,
-                  child: Material(
-                    color: Colors.black.withValues(alpha: .62),
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      tooltip: 'Bỏ yêu thích',
-                      onPressed: () => remove(movies[index]),
-                      icon: const Icon(Icons.close_rounded),
-                      color: Colors.white,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+            itemBuilder: (context, index) {
+              final movie = movies[index];
+              return MoviePosterCard(
+                movie: movie,
+                width: width,
+                onTap: () => openDetail(context, widget.repo, movie),
+                onRemove: () => remove(movie),
+                removeTooltip: 'Bỏ yêu thích',
+              );
+            },
           );
         },
       ),
@@ -4398,6 +4385,11 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     }
   }
 
+  ButtonStyle get _deletePlaylistStyle => OutlinedButton.styleFrom(
+    foregroundColor: CvColors.danger,
+    side: BorderSide(color: CvColors.danger.withValues(alpha: .72)),
+  );
+
   @override
   Widget build(BuildContext context) {
     final width = cardExtent(context);
@@ -4442,6 +4434,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                             onPressed: () => deletePlaylist(detail),
                             icon: const Icon(Icons.delete_outline_rounded),
                             label: const Text('Xoá playlist'),
+                            style: _deletePlaylistStyle,
                           ),
                         ],
                       ),
@@ -4472,6 +4465,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                           onPressed: () => deletePlaylist(detail),
                           icon: const Icon(Icons.delete_outline_rounded),
                           label: const Text('Xoá playlist'),
+                          style: _deletePlaylistStyle,
                         ),
                       ],
                     ),
@@ -4485,36 +4479,18 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                       maxCrossAxisExtent: width + 28,
                       mainAxisSpacing: 18,
                       crossAxisSpacing: 14,
-                      childAspectRatio: .62,
+                      childAspectRatio: width / moviePosterCardHeight(width),
                     ),
-                    itemBuilder: (context, index) => Stack(
-                      children: [
-                        MoviePosterCard(
-                          movie: detail.movies[index],
-                          width: width,
-                          onTap: () => openDetail(
-                            context,
-                            widget.repo,
-                            detail.movies[index],
-                          ),
-                        ),
-                        Positioned(
-                          top: 6,
-                          right: 6,
-                          child: Material(
-                            color: Colors.black.withValues(alpha: .62),
-                            shape: const CircleBorder(),
-                            child: IconButton(
-                              tooltip: 'Xoá khỏi playlist',
-                              onPressed: () =>
-                                  removeMovie(detail, detail.movies[index]),
-                              icon: const Icon(Icons.close_rounded),
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
+                    itemBuilder: (context, index) {
+                      final movie = detail.movies[index];
+                      return MoviePosterCard(
+                        movie: movie,
+                        width: width,
+                        onTap: () => openDetail(context, widget.repo, movie),
+                        onRemove: () => removeMovie(detail, movie),
+                        removeTooltip: 'Xoá khỏi playlist',
+                      );
+                    },
                   ),
                 ]),
               );
@@ -9128,10 +9104,14 @@ class MoviePosterCard extends StatelessWidget {
     required this.movie,
     required this.width,
     required this.onTap,
+    this.onRemove,
+    this.removeTooltip,
   });
   final Movie movie;
   final double width;
   final VoidCallback onTap;
+  final VoidCallback? onRemove;
+  final String? removeTooltip;
 
   @override
   Widget build(BuildContext context) {
@@ -9159,6 +9139,15 @@ class MoviePosterCard extends StatelessWidget {
                           movie.quality.isEmpty ? 'HD' : movie.quality,
                         ),
                       ),
+                      if (onRemove != null)
+                        Positioned(
+                          top: 7,
+                          right: 7,
+                          child: _PosterRemoveButton(
+                            tooltip: removeTooltip ?? 'Xoá',
+                            onPressed: onRemove!,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -9195,6 +9184,37 @@ class MoviePosterCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PosterRemoveButton extends StatelessWidget {
+  const _PosterRemoveButton({required this.tooltip, required this.onPressed});
+
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: Colors.black.withValues(alpha: .58),
+    shape: CircleBorder(
+      side: BorderSide(color: Colors.white.withValues(alpha: .2)),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: InkWell(
+      onTap: onPressed,
+      customBorder: const CircleBorder(),
+      child: Tooltip(
+        message: tooltip,
+        child: SizedBox.square(
+          dimension: 34,
+          child: Icon(
+            Icons.close_rounded,
+            size: 22,
+            color: Colors.white.withValues(alpha: .94),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class ContinueCard extends StatelessWidget {
