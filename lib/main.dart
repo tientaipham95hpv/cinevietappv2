@@ -1084,6 +1084,7 @@ class MovieRepository {
   MovieRepository(this.api);
   final Api api;
   final Map<String, Movie> _cache = {};
+  Set<int>? _favoriteIdsCache;
   static io.Socket? _activeWatchRoomSocket;
   static String? _activeWatchRoomCode;
   static bool _activeWatchRoomIsHost = false;
@@ -1276,13 +1277,62 @@ class MovieRepository {
   Future<List<Movie>> favorites() async {
     try {
       final res = await api.dio.get('/user/favorites');
-      return ((res.data['movies'] as List?) ?? (res.data as List? ?? const []))
+      final data = res.data;
+      final rows = data is Map
+          ? ((data['movies'] as List?) ??
+                (data['favorites'] as List?) ??
+                const [])
+          : (data is List ? data : const []);
+      final movies = rows
           .whereType<Map>()
           .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
           .toList();
+      _favoriteIdsCache = movies
+          .map((movie) => movie.id)
+          .where((id) => id > 0)
+          .toSet();
+      return movies;
     } catch (_) {
       return const [];
     }
+  }
+
+  Future<Set<int>> favoriteIds({bool force = false}) async {
+    if (!api.hasAuthToken) {
+      _favoriteIdsCache = null;
+      return const {};
+    }
+    final cached = _favoriteIdsCache;
+    if (!force && cached != null) return cached;
+    try {
+      final res = await api.dio.get('/user/favorite-ids');
+      final data = res.data;
+      final rows = data is Map
+          ? ((data['ids'] as List?) ??
+                (data['movie_ids'] as List?) ??
+                (data['favorites'] as List?) ??
+                const [])
+          : (data is List ? data : const []);
+      final ids = rows
+          .map(
+            (value) => value is Map ? value['movie_id'] ?? value['id'] : value,
+          )
+          .map(asInt)
+          .whereType<int>()
+          .where((id) => id > 0)
+          .toSet();
+      _favoriteIdsCache = ids;
+      return ids;
+    } catch (_) {
+      final movies = await favorites();
+      return movies.map((movie) => movie.id).where((id) => id > 0).toSet();
+    }
+  }
+
+  Future<bool> isFavorite(Movie movie, {bool force = false}) async {
+    if (movie.id <= 0) return false;
+    final ids = await favoriteIds(force: force);
+    return ids.contains(movie.id);
   }
 
   Future<void> toggleFavorite(Movie movie, bool add) async {
@@ -1291,6 +1341,13 @@ class MovieRepository {
     } else {
       await api.dio.delete('/user/favorites/${movie.id}');
     }
+    final next = Set<int>.from(_favoriteIdsCache ?? const <int>{});
+    if (add) {
+      next.add(movie.id);
+    } else {
+      next.remove(movie.id);
+    }
+    _favoriteIdsCache = next;
   }
 
   Future<List<CinePlaylist>> playlists() async {
@@ -5519,11 +5576,17 @@ class MovieDetailScreen extends StatefulWidget {
 class _MovieDetailScreenState extends State<MovieDetailScreen> {
   late Future<Movie> future;
   int serverIndex = 0;
+  int? favoriteMovieId;
+  bool isFavorite = false;
+  bool favoriteBusy = false;
 
   @override
   void initState() {
     super.initState();
     future = widget.repo.detail(widget.initial.routeKey);
+    favoriteMovieId = widget.initial.id;
+    refreshFavoriteState(widget.initial);
+    future.then(refreshFavoriteState).catchError((_) {});
     if (widget.autoplay) {
       future.then((movie) {
         if (!mounted) return;
@@ -5535,6 +5598,54 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           openPlayer(context, widget.repo, movie, server, episode, 0);
         }
       });
+    }
+  }
+
+  Future<void> refreshFavoriteState(Movie movie, {bool force = false}) async {
+    if (movie.id <= 0) return;
+    favoriteMovieId = movie.id;
+    if (!Api.instance.hasAuthToken) {
+      if (mounted) {
+        setState(() {
+          isFavorite = false;
+          favoriteBusy = false;
+        });
+      }
+      return;
+    }
+    final expectedMovieId = movie.id;
+    final favorited = await widget.repo.isFavorite(movie, force: force);
+    if (!mounted || favoriteMovieId != expectedMovieId) return;
+    setState(() {
+      isFavorite = favorited;
+      favoriteBusy = false;
+    });
+  }
+
+  Future<void> toggleFavorite(Movie movie) async {
+    if (favoriteBusy) return;
+    if (!await requireLogin(context, 'Yêu thích')) return;
+    final next = !isFavorite;
+    setState(() {
+      favoriteMovieId = movie.id;
+      isFavorite = next;
+      favoriteBusy = true;
+    });
+    try {
+      await widget.repo.toggleFavorite(movie, next);
+      if (!mounted) return;
+      showSnack(context, next ? 'Đã thêm yêu thích' : 'Đã bỏ yêu thích');
+      setState(() => favoriteBusy = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        isFavorite = !next;
+        favoriteBusy = false;
+      });
+      showSnack(
+        context,
+        next ? 'Không thêm được yêu thích' : 'Không bỏ được yêu thích',
+      );
     }
   }
 
@@ -5678,35 +5789,18 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                             ),
                                     ),
                                     detailAction(
-                                      icon: Icons.favorite_border_rounded,
-                                      label: 'Yêu thích',
-                                      onPressed: () async {
-                                        if (!await requireLogin(
-                                          context,
-                                          'Yêu thích',
-                                        )) {
-                                          return;
-                                        }
-                                        try {
-                                          await widget.repo.toggleFavorite(
-                                            movie,
-                                            true,
-                                          );
-                                          if (context.mounted) {
-                                            showSnack(
-                                              context,
-                                              'Đã thêm yêu thích',
-                                            );
-                                          }
-                                        } catch (_) {
-                                          if (context.mounted) {
-                                            showSnack(
-                                              context,
-                                              'Cần đăng nhập để thêm yêu thích',
-                                            );
-                                          }
-                                        }
-                                      },
+                                      icon: isFavorite
+                                          ? Icons.favorite_rounded
+                                          : Icons.favorite_border_rounded,
+                                      label: isFavorite
+                                          ? 'Đã thích'
+                                          : 'Yêu thích',
+                                      color: isFavorite
+                                          ? Colors.redAccent
+                                          : null,
+                                      onPressed: favoriteBusy
+                                          ? null
+                                          : () => toggleFavorite(movie),
                                     ),
                                     detailAction(
                                       icon: Icons.playlist_add_rounded,
@@ -5851,12 +5945,14 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     required String label,
     required VoidCallback? onPressed,
     bool primary = false,
+    Color? color,
   }) {
     if (useLeanbackControls) {
       return TvActionButton(
         icon: icon,
         label: label,
         primary: primary,
+        selected: color != null,
         onPressed: onPressed,
       );
     }
@@ -5869,6 +5965,12 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     }
     return OutlinedButton.icon(
       onPressed: onPressed,
+      style: color == null
+          ? null
+          : OutlinedButton.styleFrom(
+              foregroundColor: color,
+              side: BorderSide(color: color.withValues(alpha: .7)),
+            ),
       icon: Icon(icon),
       label: Text(label),
     );
