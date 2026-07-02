@@ -314,16 +314,33 @@ List<String> csv(dynamic value) {
 class Api {
   Api._() {
     dio.interceptors.add(
-      InterceptorsWrapper(
+      QueuedInterceptorsWrapper(
+        onRequest: (options, handler) async {
+          final token = await _readAccessToken();
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          handler.next(options);
+        },
         onError: (error, handler) async {
           final status = error.response?.statusCode;
           final path = error.requestOptions.path;
+          final isAuthRefresh = path.contains('/auth/refresh');
+          final alreadyRetried =
+              error.requestOptions.extra['authRetried'] == true;
           if (status == 401 &&
               !path.contains('/auth/login') &&
-              !path.contains('/auth/refresh') &&
+              !isAuthRefresh &&
+              !alreadyRetried &&
               await refreshToken()) {
             try {
-              final retry = await dio.fetch<dynamic>(error.requestOptions);
+              final token = await _readAccessToken();
+              final retryOptions = error.requestOptions;
+              retryOptions.extra['authRetried'] = true;
+              if (token != null && token.isNotEmpty) {
+                retryOptions.headers['Authorization'] = 'Bearer $token';
+              }
+              final retry = await dio.fetch<dynamic>(retryOptions);
               return handler.resolve(retry);
             } catch (_) {}
           }
@@ -347,6 +364,7 @@ class Api {
     ),
   );
   bool _refreshing = false;
+  Future<bool>? _refreshFuture;
 
   Future<bool> _retryTransient(
     DioException error,
@@ -383,11 +401,20 @@ class Api {
     return header is String && header.trim().startsWith('Bearer ');
   }
 
-  Future<void> restoreToken() async {
+  Future<String?> _readAccessToken() async {
     final prefs = await SharedPreferences.getInstance();
-    final token =
-        prefs.getString('cineviet_v2_access_token') ??
+    return prefs.getString('cineviet_v2_access_token') ??
         prefs.getString('cineviet_access_token');
+  }
+
+  Future<String?> _readRefreshToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('cineviet_v2_refresh_token') ??
+        prefs.getString('cineviet_refresh_token');
+  }
+
+  Future<void> restoreToken() async {
+    final token = await _readAccessToken();
     if (token != null && token.isNotEmpty) {
       dio.options.headers['Authorization'] = 'Bearer $token';
     }
@@ -396,8 +423,10 @@ class Api {
   Future<void> saveSession(String token, String refreshToken) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('cineviet_v2_access_token', token);
+    await prefs.setString('cineviet_access_token', token);
     if (refreshToken.isNotEmpty) {
       await prefs.setString('cineviet_v2_refresh_token', refreshToken);
+      await prefs.setString('cineviet_refresh_token', refreshToken);
     }
     dio.options.headers['Authorization'] = 'Bearer $token';
   }
@@ -405,13 +434,19 @@ class Api {
   Future<void> saveToken(String token) => saveSession(token, '');
 
   Future<bool> refreshToken() async {
+    final running = _refreshFuture;
+    if (running != null) return running;
+    _refreshFuture = _refreshTokenOnce().whenComplete(() {
+      _refreshFuture = null;
+    });
+    return _refreshFuture!;
+  }
+
+  Future<bool> _refreshTokenOnce() async {
     if (_refreshing) return false;
     _refreshing = true;
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final refresh =
-          prefs.getString('cineviet_v2_refresh_token') ??
-          prefs.getString('cineviet_refresh_token');
+      final refresh = await _readRefreshToken();
       if (refresh == null || refresh.isEmpty) return false;
       final res = await dio.post(
         '/auth/refresh',
