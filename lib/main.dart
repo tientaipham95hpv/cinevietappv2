@@ -18,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
+import 'package:video_player_media_kit/video_player_media_kit.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 const apiBase = 'https://cineviet.live/api';
@@ -38,6 +39,9 @@ bool isTouchTablet(BuildContext context) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  if (!kIsWeb && Platform.isWindows) {
+    VideoPlayerMediaKit.ensureInitialized(windows: true);
+  }
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
     debugPrint('CineViet Flutter error: ${details.exceptionAsString()}');
