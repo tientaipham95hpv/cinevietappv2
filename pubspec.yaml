@@ -56,18 +56,18 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
 
-dependency_overrides:
-  mobile_scanner:
-    path: third_party/mobile_scanner
-  wakelock_plus:
-    path: third_party/wakelock_plus
-
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
   # activated in the `analysis_options.yaml` file located at the root of your
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+
+dependency_overrides:
+  mobile_scanner:
+    path: third_party/mobile_scanner
+  wakelock_plus:
+    path: third_party/wakelock_plus
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
