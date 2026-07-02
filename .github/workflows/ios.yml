@@ -11,6 +11,10 @@ on:
         description: Release channel
         required: false
         default: release
+      build_number:
+        description: App build number
+        required: false
+        default: "9204"
   push:
     branches:
       - main
@@ -28,6 +32,7 @@ jobs:
     env:
       VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.0' }}
       RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'release' }}
+      BUILD_NUMBER: ${{ github.event.inputs.build_number || '9204' }}
 
     steps:
       - name: Checkout
@@ -67,7 +72,7 @@ jobs:
           flutter build ios --release --no-codesign \
             --dart-define=APP_VARIANT=ios \
             --build-name="${VERSION_NAME}" \
-            --build-number="${GITHUB_RUN_NUMBER}"
+            --build-number="${BUILD_NUMBER}"
 
       - name: Package unsigned IPA
         run: |
@@ -78,15 +83,15 @@ jobs:
           cp -R build/ios/iphoneos/Runner.app "${ipa_dir}/Payload/"
           (
             cd "${ipa_dir}"
-            ipa_name="CineViet-v2-${RELEASE_CHANNEL}-iOS-unsigned-${VERSION_NAME}+${GITHUB_RUN_NUMBER}.ipa"
+            ipa_name="CineViet-v2-${RELEASE_CHANNEL}-iOS-unsigned-${VERSION_NAME}+${BUILD_NUMBER}.ipa"
             zip -yr "${ipa_name}" Payload
-            zip -9 "CineViet-v2-${RELEASE_CHANNEL}-iOS-unsigned-${VERSION_NAME}+${GITHUB_RUN_NUMBER}.zip" "${ipa_name}"
+            zip -9 "CineViet-v2-${RELEASE_CHANNEL}-iOS-unsigned-${VERSION_NAME}+${BUILD_NUMBER}.zip" "${ipa_name}"
             {
               echo "app=CineViet v2"
               echo "platform=ios"
               echo "channel=${RELEASE_CHANNEL}"
               echo "version=${VERSION_NAME}"
-              echo "build_number=${GITHUB_RUN_NUMBER}"
+              echo "build_number=${BUILD_NUMBER}"
               echo "workflow=github-actions-ios"
               echo "commit=${GITHUB_SHA}"
               echo "branch=${GITHUB_REF_NAME}"

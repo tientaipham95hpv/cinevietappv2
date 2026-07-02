@@ -11,6 +11,10 @@ on:
         description: Release channel
         required: false
         default: release
+      build_number:
+        description: App build number
+        required: false
+        default: "9204"
   push:
     branches:
       - main
@@ -28,6 +32,7 @@ jobs:
     env:
       VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.0' }}
       RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'release' }}
+      BUILD_NUMBER: ${{ github.event.inputs.build_number || '9204' }}
 
     steps:
       - name: Checkout
@@ -56,13 +61,13 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          flutter build windows --release --dart-define=APP_VARIANT=windows --build-name=$env:VERSION_NAME --build-number=$env:GITHUB_RUN_NUMBER
+          flutter build windows --release --dart-define=APP_VARIANT=windows --build-name=$env:VERSION_NAME --build-number=$env:BUILD_NUMBER
 
       - name: Package Windows release
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $build = $env:GITHUB_RUN_NUMBER
+          $build = $env:BUILD_NUMBER
           $zipName = "CineViet-v2-$($env:RELEASE_CHANNEL)-Windows-$($env:VERSION_NAME)+$build.zip"
           $releaseDir = "build\windows\x64\runner\Release"
           $packageDir = "build\windows\package"

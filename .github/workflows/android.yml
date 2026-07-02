@@ -11,6 +11,10 @@ on:
         description: Release channel
         required: false
         default: release
+      build_number:
+        description: App build number / version code
+        required: false
+        default: "9204"
       require_signing:
         description: Fail when Android signing secrets are missing
         required: false
@@ -36,6 +40,7 @@ jobs:
     env:
       VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.0' }}
       RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'release' }}
+      BUILD_NUMBER: ${{ github.event.inputs.build_number || '9204' }}
       REQUIRE_ANDROID_SIGNING: ${{ github.event.inputs.require_signing || 'false' }}
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -97,7 +102,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          build_number="${GITHUB_RUN_NUMBER}"
+          build_number="${BUILD_NUMBER}"
           flutter build apk --release \
             --flavor mobile \
             --target-platform android-arm,android-arm64 \
@@ -111,7 +116,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          build_number="${GITHUB_RUN_NUMBER}"
+          build_number="${BUILD_NUMBER}"
           flutter build apk --release \
             --flavor tv \
             --target-platform android-arm,android-arm64 \
@@ -124,7 +129,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          build_number="${GITHUB_RUN_NUMBER}"
+          build_number="${BUILD_NUMBER}"
           out_dir="build/app/outputs/cineviet-v2-github-release"
           mkdir -p "${out_dir}"
           cp build/app/outputs/flutter-apk/app-arm64-v8a-mobile-release.apk "${out_dir}/CineViet-v2-${RELEASE_CHANNEL}-Mobile-Tablet-arm64-v8a-${VERSION_NAME}+${build_number}.apk"
