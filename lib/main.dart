@@ -437,6 +437,28 @@ class Api {
     await prefs.remove('cineviet_refresh_token');
     dio.options.headers.remove('Authorization');
   }
+
+  Future<Map<String, dynamic>?> currentUser({bool allowRefresh = true}) async {
+    if (!hasAuthToken) await restoreToken();
+    if (!hasAuthToken && allowRefresh) await refreshToken();
+    if (!hasAuthToken) return null;
+    try {
+      final res = await dio.get('/auth/me');
+      final user = userMapFromAuthResponse(res.data);
+      if (user != null || !allowRefresh) return user;
+      if (!await refreshToken()) return null;
+      final retry = await dio.get('/auth/me');
+      return userMapFromAuthResponse(retry.data);
+    } catch (_) {
+      if (!allowRefresh || !await refreshToken()) return null;
+      try {
+        final retry = await dio.get('/auth/me');
+        return userMapFromAuthResponse(retry.data);
+      } catch (_) {
+        return null;
+      }
+    }
+  }
 }
 
 class Movie {
@@ -3541,13 +3563,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<Map<String, dynamic>?> _me() async {
-    try {
-      if (!Api.instance.hasAuthToken) return null;
-      final res = await Api.instance.dio.get('/auth/me');
-      return userMapFromAuthResponse(res.data);
-    } catch (_) {
-      return null;
-    }
+    return Api.instance.currentUser();
   }
 
   Future<void> login() async {
@@ -4651,10 +4667,20 @@ class UpdateInfoScreen extends StatelessWidget {
           }
           final local = snapshot.data!['local'] as PackageInfo;
           final remote = snapshot.data!['remote'];
-          final latest = cleanText(
+          final latestVersion = cleanText(
+            remote['latestVersion'] ??
+                remote['version'] ??
+                remote['versionName'],
+          );
+          final latestBuild = cleanText(
             remote['latestBuild'] ?? remote['build'] ?? remote['versionCode'],
           );
           final url = cleanText(remote['url'] ?? remote['downloadUrl']);
+          final updateAvailable = remote['updateAvailable'] == true;
+          final latestLabel = [
+            if (latestVersion.isNotEmpty) latestVersion,
+            if (latestBuild.isNotEmpty) '+$latestBuild',
+          ].join();
           return ListView(
             padding: pagePadding(context).copyWith(top: 24),
             children: [
@@ -4679,12 +4705,14 @@ class UpdateInfoScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      latest.isEmpty
+                      latestLabel.isEmpty
                           ? 'Máy chủ chưa trả về thông tin bản mới.'
-                          : 'Bản mới nhất trên máy chủ: $latest',
+                          : updateAvailable
+                          ? 'Có bản mới: $latestLabel'
+                          : 'Bạn đang dùng bản mới nhất: $latestLabel',
                       style: const TextStyle(color: CvColors.muted),
                     ),
-                    if (url.isNotEmpty) ...[
+                    if (url.isNotEmpty && updateAvailable) ...[
                       const SizedBox(height: 16),
                       FilledButton.icon(
                         onPressed: () => launchUrl(
@@ -9990,13 +10018,7 @@ void showSnack(BuildContext context, String message) {
 }
 
 Future<bool> isLoggedIn() async {
-  try {
-    if (!Api.instance.hasAuthToken) return false;
-    final res = await Api.instance.dio.get('/auth/me');
-    return userMapFromAuthResponse(res.data) != null;
-  } catch (_) {
-    return false;
-  }
+  return (await Api.instance.currentUser()) != null;
 }
 
 Map<String, dynamic>? userMapFromAuthResponse(dynamic data) {
