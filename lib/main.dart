@@ -716,7 +716,14 @@ class WatchItem {
   String get key => '$slug|$serverName|$episodeName';
   double get progress =>
       durationMs > 0 ? (positionMs / durationMs).clamp(0, 1) : 0;
-  bool get shouldShow => positionMs >= 3000 && progress < 0.95;
+  bool get isCompleted => progress >= 0.95;
+  int get progressPercent {
+    final percent = (progress * 100).round().clamp(0, 100);
+    if (percent <= 0 && positionMs >= 3000 && !isCompleted) return 1;
+    return percent;
+  }
+
+  bool get shouldShow => positionMs >= 3000 && !isCompleted;
 
   Map<String, dynamic> toJson() => {
     'movieId': movieId,
@@ -735,11 +742,9 @@ class WatchItem {
 
   Map<String, dynamic> toCloudJson() => {
     'movie_id': movieId,
-    'episode': episodeName.replaceAll(RegExp(r'[^0-9]'), '').isEmpty
-        ? episodeName
-        : episodeName.replaceAll(RegExp(r'[^0-9]'), ''),
-    'progress': (progress * 100).round().clamp(0, 100),
-    'completed': progress >= 0.95 ? 1 : 0,
+    'episode': episodeNumber(episodeName),
+    'progress': progressPercent,
+    'completed': isCompleted ? 1 : 0,
     'position_seconds': positionMs / 1000,
     'duration_seconds': durationMs / 1000,
     'server_index': serverIndex,
