@@ -247,7 +247,7 @@ packages:
     source: hosted
     version: "3.4.1"
   flutter_lints:
-    dependency: "direct dev"
+    dependency: "direct overridden"
     description:
       name: flutter_lints
       sha256: "3105dc8492f6183fb076ccf1f351ac3d60564bff92e20bfc4af9cc1651f4e7e1"
@@ -523,11 +523,10 @@ packages:
   mobile_scanner:
     dependency: "direct main"
     description:
-      name: mobile_scanner
-      sha256: d234581c090526676fd8fab4ada92f35c6746e3fb4f05a399665d75a399fb760
-      url: "https://pub.dev"
-    source: hosted
-    version: "5.2.3"
+      path: "third_party/mobile_scanner"
+      relative: true
+    source: path
+    version: "7.2.0"
   node_preamble:
     dependency: transitive
     description:
@@ -1136,10 +1135,9 @@ packages:
   wakelock_plus:
     dependency: "direct main"
     description:
-      name: wakelock_plus
-      sha256: "824c5bba0f800e86d32e57d3d1843c531f090005cc89d9a837933e6601093d53"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/wakelock_plus"
+      relative: true
+    source: path
     version: "1.6.1"
   wakelock_plus_platform_interface:
     dependency: transitive

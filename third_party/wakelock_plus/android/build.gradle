@@ -1,0 +1,59 @@
+plugins {
+    id 'com.android.library'
+}
+
+group 'dev.fluttercommunity.plus.wakelock'
+version '1.0-SNAPSHOT'
+
+rootProject.allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+android {
+    namespace 'dev.fluttercommunity.plus.wakelock'
+    compileSdk = flutter.compileSdkVersion
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = '17'
+    }
+    lintOptions {
+        disable 'InvalidPackage'
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+        test.java.srcDirs += 'src/test/kotlin'
+    }
+
+    defaultConfig {
+        // Use flutter.minSdkVersion once the minimum supported Flutter version is 3.35 or higher.
+        minSdkVersion flutter.minSdkVersion
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    dependencies {
+        testImplementation 'org.jetbrains.kotlin:kotlin-test'
+        testImplementation 'org.mockito:mockito-core:5.0.0'
+    }
+
+    testOptions {
+        unitTests.includeAndroidResources = true
+        unitTests.all {
+            useJUnitPlatform()
+
+            testLogging {
+                events 'passed', 'skipped', 'failed', 'standardOut', 'standardError'
+                outputs.upToDateWhen { false }
+                showStandardStreams = true
+            }
+        }
+    }
+}

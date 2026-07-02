@@ -41,11 +41,11 @@ dependencies:
   shared_preferences: ^2.5.5
   socket_io_client: ^3.1.4
   video_player: ^2.11.1
-  wakelock_plus: ^1.2.10
+  wakelock_plus: ^1.6.1
   url_launcher: ^6.3.1
   google_sign_in: ^6.2.2
   qr_flutter: ^4.1.0
-  mobile_scanner: ^5.2.3
+  mobile_scanner: ^7.2.0
   device_info_plus: ^13.2.0
   media_kit: ^1.2.6
   media_kit_video: ^2.0.1
@@ -55,6 +55,12 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+
+dependency_overrides:
+  mobile_scanner:
+    path: third_party/mobile_scanner
+  wakelock_plus:
+    path: third_party/wakelock_plus
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
