@@ -1,6 +1,6 @@
 import java.io.FileInputStream
-import java.util.Base64
 import java.util.Properties
+import com.android.build.gradle.internal.api.ApkVariantOutputImpl
 
 plugins {
     id("com.android.application")
@@ -35,24 +35,6 @@ val hasReleaseSigning = listOf(
     releaseKeyPassword,
 ).all { !it.isNullOrBlank() }
 
-val dartDefines = (project.findProperty("dart-defines") as String?)
-    ?.split(",")
-    ?.mapNotNull { encoded ->
-        runCatching {
-            String(Base64.getDecoder().decode(encoded))
-        }.getOrNull()
-    }
-    ?: emptyList()
-
-fun dartDefineValue(name: String): String? =
-    dartDefines.firstOrNull { it.startsWith("$name=") }?.substringAfter("=")
-
-val appDisplayName = if (dartDefineValue("APP_IS_TV") == "true") {
-    "CineViet TV"
-} else {
-    "CineViet"
-}
-
 android {
     namespace = "live.cineviet.cineviet_app"
     compileSdk = flutter.compileSdkVersion
@@ -72,7 +54,16 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["appLabel"] = appDisplayName
+    }
+
+    flavorDimensions += "device"
+    productFlavors {
+        create("mobile") {
+            dimension = "device"
+        }
+        create("tv") {
+            dimension = "device"
+        }
     }
 
     signingConfigs {
@@ -94,6 +85,12 @@ android {
                 logger.warn("Release signing is not configured; falling back to debug signing for this build.")
                 signingConfigs.getByName("debug")
             }
+        }
+    }
+
+    applicationVariants.all {
+        outputs.all {
+            (this as ApkVariantOutputImpl).versionCodeOverride = flutter.versionCode
         }
     }
 }
