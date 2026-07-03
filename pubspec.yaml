@@ -55,6 +55,9 @@ dependencies:
   firebase_crashlytics: ^5.2.4
   firebase_analytics:
     path: third_party/firebase_analytics
+  webview_flutter: ^4.14.0
+  webview_flutter_android: ^4.13.0
+  webview_flutter_wkwebview: ^3.26.0
 
 dev_dependencies:
   flutter_test:

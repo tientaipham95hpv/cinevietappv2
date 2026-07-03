@@ -24,6 +24,9 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_player_media_kit/video_player_media_kit.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'package:webview_flutter_android/webview_flutter_android.dart';
+import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 
 const apiBase = 'https://cineviet.live/api';
 const siteBase = 'https://cineviet.live';
@@ -768,6 +771,7 @@ class PlaybackSourceCandidate {
     required this.qualityRank,
     required this.sourceLabel,
     required this.urls,
+    this.webViewUrl,
   });
 
   final EpisodeServer server;
@@ -777,10 +781,13 @@ class PlaybackSourceCandidate {
   final int qualityRank;
   final String sourceLabel;
   final List<String> urls;
+  final String? webViewUrl;
 
   String get id =>
       '${serverIndex}_${compactKey(server.name)}_${compactKey(episode.name)}_'
       '${compactKey(episode.linkM3u8)}_${compactKey(episode.linkEmbed)}';
+
+  bool get isWebViewOnly => urls.isEmpty && webViewUrl != null;
 
   String get displayName => '$sourceLabel • $qualityLabel';
 }
@@ -6804,6 +6811,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   int lastWatchSyncSentAt = 0;
   List<PlaybackUrlCandidate> activePlayableUrls = const [];
   int activePlayableUrlIndex = 0;
+  WebViewController? webViewController;
+  String? activeWebViewUrl;
   String selectedPlaybackSourceId = 'auto';
   String selectedPlaybackSourceLabel = 'Auto';
   bool recoveringPlayback = false;
@@ -6859,6 +6868,22 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
     _bindWatchTogetherSocket();
     _init();
+  }
+
+  bool _isStreamCEmbedUrl(String raw) {
+    final parsed = Uri.tryParse(raw.trim());
+    if (parsed == null) return false;
+    final host = parsed.host.toLowerCase();
+    final path = parsed.path.toLowerCase();
+    return host.contains('streamc.xyz') && path.contains('/embed');
+  }
+
+  String? _webViewFallbackUrl(EpisodeItem episode) {
+    final embed = episode.linkEmbed.trim();
+    if (_isStreamCEmbedUrl(embed)) return embed;
+    final playUrl = episode.playUrl.trim();
+    if (_isStreamCEmbedUrl(playUrl)) return playUrl;
+    return null;
   }
 
   List<String> _playableUrls(String raw) {
@@ -6938,7 +6963,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (haystack.contains('nguồnc') ||
         haystack.contains('nguonc') ||
         haystack.contains('streamc.xyz')) {
-      score += 95;
+      score += source.isWebViewOnly ? 10 : 95;
     }
     if (haystack.contains('phimapi') ||
         haystack.contains('kkphim') ||
@@ -6973,9 +6998,12 @@ class _PlayerScreenState extends State<PlayerScreen>
       for (final episode in server.items) {
         if (!_sameEpisodeName(episode, currentEpisode)) continue;
         final urls = _playableUrls(episode.playUrl);
-        if (urls.isEmpty) continue;
+        final webViewUrl = _webViewFallbackUrl(episode);
+        if (urls.isEmpty && webViewUrl == null) continue;
         final quality = _qualityLabelFor(server, episode);
-        final sourceType = episode.linkM3u8.isNotEmpty ? 'M3U8' : 'Embed';
+        final sourceType = urls.isNotEmpty
+            ? (episode.linkM3u8.isNotEmpty ? 'M3U8' : 'Direct')
+            : 'WebView';
         sources.add(
           PlaybackSourceCandidate(
             server: server,
@@ -6985,13 +7013,15 @@ class _PlayerScreenState extends State<PlayerScreen>
             qualityRank: _qualityRank(quality),
             sourceLabel: '${server.displayName} • $sourceType',
             urls: urls,
+            webViewUrl: webViewUrl,
           ),
         );
       }
     }
     if (sources.isEmpty) {
       final urls = _playableUrls(currentEpisode.playUrl);
-      if (urls.isNotEmpty) {
+      final webViewUrl = _webViewFallbackUrl(currentEpisode);
+      if (urls.isNotEmpty || webViewUrl != null) {
         final quality = _qualityLabelFor(currentServer, currentEpisode);
         sources.add(
           PlaybackSourceCandidate(
@@ -7002,6 +7032,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             qualityRank: _qualityRank(quality),
             sourceLabel: currentServer.displayName,
             urls: urls,
+            webViewUrl: webViewUrl,
           ),
         );
       }
@@ -7022,10 +7053,10 @@ class _PlayerScreenState extends State<PlayerScreen>
     return sources;
   }
 
-  List<PlaybackUrlCandidate> _playbackUrlCandidates() {
+  List<PlaybackSourceCandidate> _selectedPlaybackSources() {
     final sources = _playbackSources();
     final filtered = selectedPlaybackSourceId == 'auto'
-        ? sources
+        ? sources.where((source) => source.urls.isNotEmpty).toList()
         : selectedPlaybackSourceId.startsWith('quality:')
         ? sources
               .where(
@@ -7039,7 +7070,13 @@ class _PlayerScreenState extends State<PlayerScreen>
                 (source) => 'source:${source.id}' == selectedPlaybackSourceId,
               )
               .toList();
-    final selected = filtered.isEmpty ? sources : filtered;
+    return filtered.isEmpty
+        ? sources.where((s) => s.urls.isNotEmpty).toList()
+        : filtered;
+  }
+
+  List<PlaybackUrlCandidate> _playbackUrlCandidates() {
+    final selected = _selectedPlaybackSources();
     final urls = <PlaybackUrlCandidate>[];
     final seen = <String>{};
     for (final source in selected) {
@@ -7053,6 +7090,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   String _sourceType(String url) {
+    if (_isStreamCEmbedUrl(url)) return 'streamc_webview';
     final parsed = Uri.tryParse(url);
     if (parsed == null) return 'unknown';
     if (parsed.path.toLowerCase().contains('.m3u8')) return 'm3u8';
@@ -7089,6 +7127,55 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  Future<void> _openWebViewSource(PlaybackSourceCandidate source) async {
+    final url = source.webViewUrl;
+    if (url == null || url.isEmpty) return;
+    late final PlatformWebViewControllerCreationParams params;
+    if (WebViewPlatform.instance is WebKitWebViewPlatform) {
+      params = WebKitWebViewControllerCreationParams(
+        allowsInlineMediaPlayback: true,
+        mediaTypesRequiringUserAction: const <PlaybackMediaTypes>{},
+      );
+    } else {
+      params = const PlatformWebViewControllerCreationParams();
+    }
+    final controller = WebViewController.fromPlatformCreationParams(params)
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.black)
+      ..setUserAgent(
+        'Mozilla/5.0 (Linux; Android 13; CineViet) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/120 Mobile Safari/537.36',
+      )
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onWebResourceError: (error) {
+            lastPlaybackError = '${error.errorCode}: ${error.description}';
+            _trackPlaybackEvent(
+              'webview_error',
+              errorCode: '${error.errorCode}',
+              errorMessage: error.description,
+            );
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(url));
+    if (controller.platform is AndroidWebViewController) {
+      await (controller.platform as AndroidWebViewController)
+          .setMediaPlaybackRequiresUserGesture(false);
+    }
+    currentServer = source.server;
+    currentEpisode = source.episode;
+    currentServerIndex = source.serverIndex;
+    activePlayableUrls = const [];
+    activePlayableUrlIndex = 0;
+    webViewController = controller;
+    activeWebViewUrl = url;
+    playbackNotice = null;
+    error = null;
+    _trackPlaybackEvent('webview_start');
+    if (mounted) setState(() {});
+  }
+
   Future<void> _init({int startUrlIndex = 0, Duration? startAt}) async {
     Object? lastError;
     if (mounted) {
@@ -7103,8 +7190,33 @@ class _PlayerScreenState extends State<PlayerScreen>
     controller?.removeListener(_handlePlayerTick);
     await controller?.dispose();
     controller = null;
+    webViewController = null;
+    activeWebViewUrl = null;
     activePlayableUrls = _playbackUrlCandidates();
     if (activePlayableUrls.isEmpty) {
+      final webViewSource = selectedPlaybackSourceId == 'auto'
+          ? null
+          : _selectedPlaybackSources().firstWhere(
+              (source) => source.webViewUrl != null,
+              orElse: () => const PlaybackSourceCandidate(
+                server: EpisodeServer(name: '', items: []),
+                episode: EpisodeItem(
+                  name: '',
+                  filename: '',
+                  linkM3u8: '',
+                  linkEmbed: '',
+                ),
+                serverIndex: -1,
+                qualityLabel: '',
+                qualityRank: 0,
+                sourceLabel: '',
+                urls: [],
+              ),
+            );
+      if (webViewSource != null && webViewSource.serverIndex >= 0) {
+        await _openWebViewSource(webViewSource);
+        return;
+      }
       lastError = 'source_empty';
       _trackPlaybackEvent(
         'source_empty',
@@ -7801,6 +7913,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   String get _activeSourceLabel {
+    if (activeWebViewUrl != null) {
+      return '$selectedPlaybackSourceLabel • WebView';
+    }
     if (activePlayableUrls.isNotEmpty) {
       final source =
           activePlayableUrls[activePlayableUrlIndex
@@ -8197,6 +8312,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                       onChangeSource: _showSourceSheet,
                       onReport: _reportPlaybackIssue,
                     )
+                  else if (activeWebViewUrl != null &&
+                      webViewController != null)
+                    WebViewWidget(controller: webViewController!)
                   else if (c == null || !c.value.isInitialized)
                     const Center(
                       child: CircularProgressIndicator(color: CvColors.accent),
