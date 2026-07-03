@@ -10,6 +10,7 @@ import 'package:dio/dio.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:media_kit/media_kit.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -44,6 +45,7 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   final telemetry = await AppTelemetry.bootstrap();
   if (!kIsWeb && Platform.isWindows) {
+    MediaKit.ensureInitialized();
     VideoPlayerMediaKit.ensureInitialized(windows: true);
   }
   FlutterError.onError = (details) {
@@ -6823,8 +6825,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool get supportsTouchLevels =>
       !isTvBuild &&
       (Platform.isAndroid || Platform.isIOS || Platform.isWindows);
-  bool get usesPlayerVolume =>
-      Platform.isAndroid || Platform.isIOS || Platform.isWindows;
+  bool get usesPlayerVolume => Platform.isAndroid || Platform.isIOS;
   bool get usesWindowsBrightnessOverlay => supportsTouchLevels;
 
   @override
