@@ -1,5 +1,6 @@
 package live.cineviet.cineviet_app
 
+import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -7,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Rational
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -16,6 +18,7 @@ import kotlin.math.roundToInt
 class MainActivity : FlutterActivity() {
     private val brightnessChannel = "live.cineviet/brightness"
     private val oauthChannel = "live.cineviet/oauth"
+    private val pipChannel = "live.cineviet/pip"
     private var latestOAuthCallback: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,6 +40,15 @@ class MainActivity : FlutterActivity() {
                 "getLatestCallback" -> {
                     result.success(latestOAuthCallback)
                     latestOAuthCallback = null
+                }
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, pipChannel).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isSupported" -> result.success(Build.VERSION.SDK_INT >= Build.VERSION_CODES.O)
+                "enter" -> {
+                    result.success(enterPictureInPicture())
                 }
                 else -> result.notImplemented()
             }
@@ -72,6 +84,18 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun enterPictureInPicture(): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        return try {
+            val params = PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9))
+                .build()
+            enterPictureInPictureMode(params)
+        } catch (_: Exception) {
+            false
         }
     }
 
