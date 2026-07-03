@@ -27,8 +27,7 @@ const isTvBuild = bool.fromEnvironment('APP_IS_TV');
 const googleServerClientId =
     '186784861581-5l7skrrke87pmf669l6ach0brbra4v76.apps.googleusercontent.com';
 
-bool get supportsTvQrScan =>
-    !kIsWeb && !isTvBuild && (Platform.isAndroid || Platform.isIOS);
+bool get supportsTvQrScan => !kIsWeb && !isTvBuild && Platform.isIOS;
 bool get isWindowsDesktop => !kIsWeb && !isTvBuild && Platform.isWindows;
 bool get useLeanbackControls => isTvBuild || isWindowsDesktop;
 
