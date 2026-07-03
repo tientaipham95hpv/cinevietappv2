@@ -236,10 +236,9 @@ packages:
   firebase_analytics:
     dependency: "direct main"
     description:
-      name: firebase_analytics
-      sha256: "1c46136d9226e7e070013582097d997248a34cf94856c7e95f4fdf346bf4a397"
-      url: "https://pub.dev"
-    source: hosted
+      path: "third_party/firebase_analytics"
+      relative: true
+    source: path
     version: "12.4.3"
   firebase_analytics_platform_interface:
     dependency: transitive
