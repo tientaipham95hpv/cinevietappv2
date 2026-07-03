@@ -1840,6 +1840,9 @@ class LocalHistory {
 class OfflineDownloadItem {
   const OfflineDownloadItem({
     required this.dir,
+    required this.movieKey,
+    required this.movieId,
+    required this.slug,
     required this.title,
     required this.episode,
     required this.server,
@@ -1850,6 +1853,9 @@ class OfflineDownloadItem {
   });
 
   final Directory dir;
+  final String movieKey;
+  final int movieId;
+  final String slug;
   final String title;
   final String episode;
   final String server;
@@ -1903,6 +1909,10 @@ class LocalOfflineDownloads {
         result.add(
           OfflineDownloadItem(
             dir: entity,
+            movieKey:
+                '${meta['slug'] ?? meta['movieId'] ?? meta['title'] ?? entity.path}',
+            movieId: int.tryParse('${meta['movieId'] ?? 0}') ?? 0,
+            slug: '${meta['slug'] ?? ''}',
             title: '${meta['title'] ?? 'CineViet'}',
             episode: '${meta['episode'] ?? ''}',
             server: '${meta['server'] ?? ''}',
@@ -1923,6 +1933,149 @@ class LocalOfflineDownloads {
   static Future<void> delete(OfflineDownloadItem item) async {
     if (await item.dir.exists()) await item.dir.delete(recursive: true);
   }
+}
+
+class OfflineDownloadTask {
+  const OfflineDownloadTask({
+    required this.id,
+    required this.movieKey,
+    required this.title,
+    required this.episode,
+    required this.server,
+    required this.progress,
+    required this.status,
+  });
+
+  final String id;
+  final String movieKey;
+  final String title;
+  final String episode;
+  final String server;
+  final double progress;
+  final String status;
+
+  OfflineDownloadTask copyWith({double? progress, String? status}) =>
+      OfflineDownloadTask(
+        id: id,
+        movieKey: movieKey,
+        title: title,
+        episode: episode,
+        server: server,
+        progress: progress ?? this.progress,
+        status: status ?? this.status,
+      );
+}
+
+class OfflineDownloadCenter {
+  static final ValueNotifier<List<OfflineDownloadTask>> tasks =
+      ValueNotifier<List<OfflineDownloadTask>>(const []);
+
+  static void upsert(OfflineDownloadTask task) {
+    final next = [...tasks.value];
+    final index = next.indexWhere((item) => item.id == task.id);
+    if (index >= 0) {
+      next[index] = task;
+    } else {
+      next.insert(0, task);
+    }
+    tasks.value = next;
+  }
+
+  static void update(String id, {double? progress, String? status}) {
+    tasks.value = [
+      for (final task in tasks.value)
+        if (task.id == id)
+          task.copyWith(progress: progress, status: status)
+        else
+          task,
+    ];
+  }
+
+  static void remove(String id) {
+    tasks.value = [
+      for (final task in tasks.value)
+        if (task.id != id) task,
+    ];
+  }
+}
+
+class OfflineMovieGroup {
+  const OfflineMovieGroup({
+    required this.key,
+    required this.title,
+    required this.items,
+    required this.tasks,
+  });
+
+  final String key;
+  final String title;
+  final List<OfflineDownloadItem> items;
+  final List<OfflineDownloadTask> tasks;
+
+  int get totalSize => items.fold(0, (sum, item) => sum + item.sizeBytes);
+  int get episodeCount => items.length + tasks.length;
+  String get sizeLabel {
+    final mb = totalSize / (1024 * 1024);
+    if (mb < 1024) return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
+    return '${(mb / 1024).toStringAsFixed(1)} GB';
+  }
+}
+
+List<OfflineMovieGroup> buildOfflineGroups(
+  List<OfflineDownloadItem> items,
+  List<OfflineDownloadTask> tasks,
+) {
+  final map =
+      <
+        String,
+        ({
+          String title,
+          List<OfflineDownloadItem> items,
+          List<OfflineDownloadTask> tasks,
+        })
+      >{};
+  void ensure(String key, String title) {
+    map.putIfAbsent(
+      key,
+      () => (
+        title: title,
+        items: <OfflineDownloadItem>[],
+        tasks: <OfflineDownloadTask>[],
+      ),
+    );
+  }
+
+  for (final item in items) {
+    ensure(item.movieKey, item.title);
+    map[item.movieKey]!.items.add(item);
+  }
+  for (final task in tasks) {
+    ensure(task.movieKey, task.title);
+    map[task.movieKey]!.tasks.add(task);
+  }
+  final groups = [
+    for (final entry in map.entries)
+      OfflineMovieGroup(
+        key: entry.key,
+        title: entry.value.title,
+        items: entry.value.items
+          ..sort((a, b) => b.downloadedAt.compareTo(a.downloadedAt)),
+        tasks: entry.value.tasks,
+      ),
+  ];
+  groups.sort((a, b) {
+    if (a.tasks.isNotEmpty != b.tasks.isNotEmpty) {
+      return a.tasks.isNotEmpty ? -1 : 1;
+    }
+    final aTime = a.items.isEmpty
+        ? DateTime.fromMillisecondsSinceEpoch(0)
+        : a.items.first.downloadedAt;
+    final bTime = b.items.isEmpty
+        ? DateTime.fromMillisecondsSinceEpoch(0)
+        : b.items.first.downloadedAt;
+    return bTime.compareTo(aTime);
+  });
+  return groups;
 }
 
 class AppShell extends StatefulWidget {
@@ -3686,11 +3839,205 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     setState(() => future = LocalOfflineDownloads.items());
   }
 
+  Future<void> deleteGroup(OfflineMovieGroup group) async {
+    for (final item in group.items) {
+      await LocalOfflineDownloads.delete(item);
+    }
+    if (!mounted) return;
+    showSnack(context, 'Đã xoá ${group.title}');
+    refresh();
+  }
+
+  void openGroup(OfflineMovieGroup group) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => DownloadsMovieScreen(group: group, onChanged: refresh),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isTvBuild) {
+      return const Center(
+        child: Text('Tải offline không hỗ trợ trên Android TV'),
+      );
+    }
+    return ValueListenableBuilder<List<OfflineDownloadTask>>(
+      valueListenable: OfflineDownloadCenter.tasks,
+      builder: (context, tasks, _) => RefreshIndicator(
+        onRefresh: () async => refresh(),
+        child: FutureBuilder<List<OfflineDownloadItem>>(
+          future: future,
+          builder: (context, snapshot) {
+            final items = snapshot.data ?? const <OfflineDownloadItem>[];
+            final groups = buildOfflineGroups(items, tasks);
+            if (snapshot.connectionState != ConnectionState.done &&
+                groups.isEmpty) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (groups.isEmpty) {
+              return ListView(
+                padding: const EdgeInsets.all(24),
+                children: const [
+                  SizedBox(height: 120),
+                  Icon(
+                    Icons.download_done_rounded,
+                    size: 64,
+                    color: CvColors.muted,
+                  ),
+                  SizedBox(height: 16),
+                  Text(
+                    'Chưa có phim tải xuống',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
+                  ),
+                  SizedBox(height: 8),
+                  Text(
+                    'Vào player trên mobile/tablet hoặc Windows rồi bấm Tải offline.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: CvColors.muted),
+                  ),
+                ],
+              );
+            }
+            final total = items.fold<int>(
+              0,
+              (sum, item) => sum + item.sizeBytes,
+            );
+            final totalMb = total / (1024 * 1024);
+            final totalLabel = totalMb < 1024
+                ? '${totalMb.toStringAsFixed(totalMb < 10 ? 1 : 0)} MB'
+                : '${(totalMb / 1024).toStringAsFixed(1)} GB';
+            return ListView.separated(
+              padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
+              itemCount: groups.length + 1,
+              separatorBuilder: (context, index) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                if (index == 0) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Tải xuống',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w900),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          '${groups.length} phim • ${items.length} tập đã tải • $totalLabel',
+                          style: const TextStyle(color: CvColors.muted),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+                final group = groups[index - 1];
+                final activeTask = group.tasks.isEmpty
+                    ? null
+                    : group.tasks.first;
+                return Card(
+                  color: CvColors.panel,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    leading: CircleAvatar(
+                      backgroundColor: activeTask == null
+                          ? CvColors.accent
+                          : CvColors.accent,
+                      child: Icon(
+                        activeTask == null
+                            ? Icons.movie_rounded
+                            : Icons.downloading_rounded,
+                        color: Colors.white,
+                      ),
+                    ),
+                    title: Text(
+                      group.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${group.episodeCount} tập${group.items.isEmpty ? '' : ' • ${group.sizeLabel}'}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        if (activeTask != null) ...[
+                          const SizedBox(height: 6),
+                          LinearProgressIndicator(
+                            value: activeTask.progress.clamp(0, 1),
+                            minHeight: 4,
+                            color: CvColors.accent,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            '${activeTask.episode} • ${activeTask.status} ${(activeTask.progress * 100).clamp(0, 99).toStringAsFixed(0)}%',
+                            style: const TextStyle(
+                              color: CvColors.muted,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    onTap: () => openGroup(group),
+                    trailing: group.items.isEmpty
+                        ? const Icon(Icons.chevron_right_rounded)
+                        : IconButton(
+                            tooltip: 'Xoá phim đã tải',
+                            icon: const Icon(Icons.delete_outline_rounded),
+                            onPressed: () => deleteGroup(group),
+                          ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class DownloadsMovieScreen extends StatefulWidget {
+  const DownloadsMovieScreen({
+    super.key,
+    required this.group,
+    required this.onChanged,
+  });
+
+  final OfflineMovieGroup group;
+  final VoidCallback onChanged;
+
+  @override
+  State<DownloadsMovieScreen> createState() => _DownloadsMovieScreenState();
+}
+
+class _DownloadsMovieScreenState extends State<DownloadsMovieScreen> {
+  late OfflineMovieGroup group = widget.group;
+
   Future<void> deleteItem(OfflineDownloadItem item) async {
     await LocalOfflineDownloads.delete(item);
+    final items = await LocalOfflineDownloads.items();
+    final tasks = OfflineDownloadCenter.tasks.value;
+    final groups = buildOfflineGroups(items, tasks);
+    final next = groups.where((entry) => entry.key == group.key).firstOrNull;
+    widget.onChanged();
     if (!mounted) return;
-    showSnack(context, 'Đã xoá ${item.title}');
-    refresh();
+    showSnack(context, 'Đã xoá ${item.displayEpisode}');
+    if (next == null || (next.items.isEmpty && next.tasks.isEmpty)) {
+      Navigator.of(context).pop();
+    } else {
+      setState(() => group = next);
+    }
   }
 
   void playItem(OfflineDownloadItem item) {
@@ -3701,112 +4048,89 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (isTvBuild) {
-      return const Center(
-        child: Text('Tải offline không hỗ trợ trên Android TV'),
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: () async => refresh(),
-      child: FutureBuilder<List<OfflineDownloadItem>>(
-        future: future,
-        builder: (context, snapshot) {
-          final items = snapshot.data ?? const <OfflineDownloadItem>[];
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (items.isEmpty) {
-            return ListView(
-              padding: const EdgeInsets.all(24),
-              children: const [
-                SizedBox(height: 120),
-                Icon(
-                  Icons.download_done_rounded,
-                  size: 64,
-                  color: CvColors.muted,
-                ),
-                SizedBox(height: 16),
-                Text(
-                  'Chưa có phim tải xuống',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Vào player trên mobile/tablet hoặc Windows rồi bấm Tải offline.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: CvColors.muted),
-                ),
-              ],
-            );
-          }
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
-            itemCount: items.length + 1,
+    return ValueListenableBuilder<List<OfflineDownloadTask>>(
+      valueListenable: OfflineDownloadCenter.tasks,
+      builder: (context, tasks, _) {
+        final currentTasks = tasks
+            .where((task) => task.movieKey == group.key)
+            .toList();
+        return Scaffold(
+          appBar: AppBar(
+            title: Text(group.title),
+            backgroundColor: CvColors.ink,
+          ),
+          body: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+            itemCount: currentTasks.length + group.items.length,
             separatorBuilder: (context, index) => const SizedBox(height: 10),
             itemBuilder: (context, index) {
-              if (index == 0) {
-                final total = items.fold<int>(
-                  0,
-                  (sum, item) => sum + item.sizeBytes,
-                );
-                final totalMb = total / (1024 * 1024);
-                final totalLabel = totalMb < 1024
-                    ? '${totalMb.toStringAsFixed(totalMb < 10 ? 1 : 0)} MB'
-                    : '${(totalMb / 1024).toStringAsFixed(1)} GB';
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Tải xuống',
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w900),
+              if (index < currentTasks.length) {
+                final task = currentTasks[index];
+                return Card(
+                  color: CvColors.panel,
+                  child: ListTile(
+                    leading: const CircleAvatar(
+                      backgroundColor: CvColors.accent,
+                      child: Icon(
+                        Icons.downloading_rounded,
+                        color: Colors.white,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${items.length} mục • $totalLabel',
-                        style: const TextStyle(color: CvColors.muted),
-                      ),
-                    ],
+                    ),
+                    title: Text(
+                      task.episode.isEmpty ? 'Đang tải' : task.episode,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          task.server.isEmpty
+                              ? task.status
+                              : '${task.server} • ${task.status}',
+                        ),
+                        const SizedBox(height: 6),
+                        LinearProgressIndicator(
+                          value: task.progress.clamp(0, 1),
+                          minHeight: 4,
+                          color: CvColors.accent,
+                        ),
+                      ],
+                    ),
                   ),
                 );
               }
-              final item = items[index - 1];
+              final item = group.items[index - currentTasks.length];
               return Card(
                 color: CvColors.panel,
                 child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
                   leading: const CircleAvatar(
                     backgroundColor: CvColors.accent,
                     child: Icon(Icons.play_arrow_rounded, color: Colors.white),
                   ),
                   title: Text(
-                    item.title,
+                    item.displayEpisode,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   subtitle: Text(
-                    '${item.displayEpisode}${item.server.isEmpty ? '' : ' • ${item.server}'} • ${item.sizeLabel}${item.segments > 0 ? ' • ${item.segments} segments' : ''}',
+                    '${item.server.isEmpty ? 'Offline' : item.server} • ${item.sizeLabel}${item.segments > 0 ? ' • ${item.segments} segments' : ''}',
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                   onTap: () => playItem(item),
                   trailing: IconButton(
-                    tooltip: 'Xoá tải xuống',
+                    tooltip: 'Xoá tập này',
                     icon: const Icon(Icons.delete_outline_rounded),
                     onPressed: () => deleteItem(item),
                   ),
                 ),
               );
             },
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -7137,6 +7461,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool get supportsOfflineFeatures =>
       !isTvBuild &&
       (Platform.isAndroid || Platform.isIOS || Platform.isWindows);
+  bool get supportsPictureInPicture => !isTvBuild && Platform.isAndroid;
 
   @override
   void initState() {
@@ -7620,12 +7945,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _enterPictureInPicture() async {
-    if (!supportsOfflineFeatures) {
-      showSnack(context, 'PiP không hỗ trợ trên Android TV.');
-      return;
-    }
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      showSnack(context, 'PiP hiện chỉ hỗ trợ Android/iOS.');
+    if (!supportsPictureInPicture) {
+      showSnack(context, 'PiP hiện chỉ hỗ trợ Android.');
       return;
     }
     final c = controller;
@@ -7684,6 +8005,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     String m3u8Url,
     Directory rootDir, {
     int depth = 0,
+    String? taskId,
   }) async {
     final dio = Dio(BaseOptions(receiveTimeout: Duration.zero));
     final episodeDir = Directory('${rootDir.path}/${_offlineSlug()}');
@@ -7730,7 +8052,15 @@ class _PlayerScreenState extends State<PlayerScreen>
         path,
         onReceiveProgress: (received, total) {
           if (!mounted || lines.isEmpty) return;
-          setState(() => offlineDownloadProgress = segmentIndex / lines.length);
+          final progress = segmentIndex / lines.length;
+          setState(() => offlineDownloadProgress = progress);
+          if (taskId != null) {
+            OfflineDownloadCenter.update(
+              taskId,
+              progress: progress,
+              status: 'Đang tải HLS',
+            );
+          }
         },
         options: Options(followRedirects: true, receiveTimeout: Duration.zero),
       );
@@ -7783,8 +8113,24 @@ class _PlayerScreenState extends State<PlayerScreen>
       final root = await getApplicationDocumentsDirectory();
       final dir = Directory('${root.path}/offline_videos');
       await dir.create(recursive: true);
+      final taskId =
+          '${DateTime.now().microsecondsSinceEpoch}-${_offlineSlug()}';
+      final movieKey = widget.movie.slug.isNotEmpty
+          ? widget.movie.slug
+          : '${widget.movie.id}';
+      OfflineDownloadCenter.upsert(
+        OfflineDownloadTask(
+          id: taskId,
+          movieKey: movieKey,
+          title: widget.movie.title,
+          episode: currentEpisode.displayName,
+          server: currentServer.displayName,
+          progress: 0,
+          status: 'Chuẩn bị tải',
+        ),
+      );
       if (hlsUrl != null) {
-        await _downloadHlsOffline(hlsUrl, dir);
+        await _downloadHlsOffline(hlsUrl, dir, taskId: taskId);
         if (!mounted) return;
         showSnack(context, 'Đã tải HLS offline: ${_offlineSlug()}');
       } else {
@@ -7796,7 +8142,13 @@ class _PlayerScreenState extends State<PlayerScreen>
           file.path,
           onReceiveProgress: (received, total) {
             if (!mounted || total <= 0) return;
-            setState(() => offlineDownloadProgress = received / total);
+            final progress = received / total;
+            setState(() => offlineDownloadProgress = progress);
+            OfflineDownloadCenter.update(
+              taskId,
+              progress: progress,
+              status: 'Đang tải',
+            );
           },
           options: Options(
             followRedirects: true,
@@ -7819,14 +8171,29 @@ class _PlayerScreenState extends State<PlayerScreen>
         if (!mounted) return;
         showSnack(context, 'Đã tải offline: ${file.path.split('/').last}');
       }
+      OfflineDownloadCenter.update(taskId, progress: 1, status: 'Hoàn tất');
+      Future.delayed(
+        const Duration(seconds: 2),
+        () => OfflineDownloadCenter.remove(taskId),
+      );
     } on StateError catch (e) {
+      if (mounted) {
+        OfflineDownloadCenter.tasks.value = OfflineDownloadCenter.tasks.value
+            .where((task) => !task.id.endsWith(_offlineSlug()))
+            .toList();
+      }
       if (!mounted) return;
       final message = e.message == 'encrypted_hls'
           ? 'Nguồn HLS có mã hoá, chưa tải offline được.'
           : 'Playlist HLS không hợp lệ hoặc rỗng.';
       showSnack(context, message);
     } catch (_) {
-      if (mounted) showSnack(context, 'Tải offline thất bại, thử nguồn khác.');
+      if (mounted) {
+        OfflineDownloadCenter.tasks.value = OfflineDownloadCenter.tasks.value
+            .where((task) => !task.id.endsWith(_offlineSlug()))
+            .toList();
+        showSnack(context, 'Tải offline thất bại, thử nguồn khác.');
+      }
     } finally {
       if (mounted) {
         setState(() {
@@ -8770,6 +9137,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                               const Duration(seconds: introSkipSeconds) &&
                           c.value.duration >
                               const Duration(seconds: introSkipSeconds + 5),
+                      showPipAction: supportsPictureInPicture,
                       showOfflineActions: supportsOfflineFeatures,
                       showDownloadProgress: downloadingOffline,
                       downloadProgress: offlineDownloadProgress,
@@ -9003,6 +9371,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.canPrevious,
     required this.canNext,
     required this.showSkipIntro,
+    required this.showPipAction,
     required this.showOfflineActions,
     required this.showDownloadProgress,
     required this.downloadProgress,
@@ -9030,6 +9399,7 @@ class PlayerOverlay extends StatelessWidget {
   final bool canPrevious;
   final bool canNext;
   final bool showSkipIntro;
+  final bool showPipAction;
   final bool showOfflineActions;
   final bool showDownloadProgress;
   final double downloadProgress;
@@ -9158,7 +9528,7 @@ class PlayerOverlay extends StatelessWidget {
                               label: 'Sau',
                               onPressed: canNext ? onNext : null,
                             ),
-                            if (showOfflineActions)
+                            if (showPipAction)
                               PlayerControlButton(
                                 icon: Icons.picture_in_picture_alt_rounded,
                                 label: 'PiP',

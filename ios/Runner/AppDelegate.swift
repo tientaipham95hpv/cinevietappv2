@@ -1,11 +1,10 @@
 import AVFoundation
-import AVKit
 import Flutter
 import MediaPlayer
 import UIKit
 
 @main
-@objc class AppDelegate: FlutterAppDelegate, AVPictureInPictureControllerDelegate {
+@objc class AppDelegate: FlutterAppDelegate {
   private lazy var volumeView: MPVolumeView = {
     let view = MPVolumeView(frame: CGRect(x: 0, y: 0, width: 1, height: 1))
     view.showsRouteButton = false
@@ -15,9 +14,6 @@ import UIKit
     return view
   }()
   private weak var volumeSlider: UISlider?
-  private var pipPlayer: AVPlayer?
-  private var pipPlayerLayer: AVPlayerLayer?
-  private var pipController: AVPictureInPictureController?
 
   override func application(
     _ application: UIApplication,
@@ -42,14 +38,9 @@ import UIKit
     )
     pipChannel.setMethodCallHandler { call, result in
       switch call.method {
-      case "isSupported":
-        if #available(iOS 14.0, *) {
-          result(AVPictureInPictureController.isPictureInPictureSupported())
-        } else {
-          result(false)
-        }
-      case "enter":
-        result(self.startPictureInPicture(arguments: call.arguments))
+      case "isSupported", "enter":
+        // iOS PiP is intentionally disabled. Android remains supported.
+        result(false)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -85,59 +76,6 @@ import UIKit
     }
   }
 
-
-  private func startPictureInPicture(arguments: Any?) -> Bool {
-    guard #available(iOS 14.0, *) else { return false }
-    guard AVPictureInPictureController.isPictureInPictureSupported() else { return false }
-    guard let args = arguments as? [String: Any],
-          let rawUrl = args["url"] as? String,
-          let url = URL(string: rawUrl),
-          let controller = window?.rootViewController as? FlutterViewController else { return false }
-
-    do {
-      try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback, options: [])
-      try AVAudioSession.sharedInstance().setActive(true)
-    } catch {
-      return false
-    }
-
-    let player = AVPlayer(url: url)
-    if let positionMs = args["positionMs"] as? NSNumber, positionMs.int64Value > 0 {
-      let seconds = Double(positionMs.int64Value) / 1000.0
-      player.seek(to: CMTime(seconds: seconds, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero)
-    }
-
-    let layer = AVPlayerLayer(player: player)
-    layer.videoGravity = .resizeAspect
-    layer.frame = CGRect(x: 0, y: 0, width: 1, height: 1)
-    layer.opacity = 0.01
-    controller.view.layer.addSublayer(layer)
-
-    guard let pip = AVPictureInPictureController(playerLayer: layer) else {
-      layer.removeFromSuperlayer()
-      return false
-    }
-    pip.delegate = self
-    if #available(iOS 14.2, *) {
-      pip.canStartPictureInPictureAutomaticallyFromInline = true
-    }
-
-    pipPlayer = player
-    pipPlayerLayer?.removeFromSuperlayer()
-    pipPlayerLayer = layer
-    pipController = pip
-    player.play()
-    pip.startPictureInPicture()
-    return true
-  }
-
-  func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-    pipPlayer?.pause()
-    pipPlayer = nil
-    pipController = nil
-    pipPlayerLayer?.removeFromSuperlayer()
-    pipPlayerLayer = nil
-  }
 
   private func doubleArg(_ arguments: Any?, key: String, fallback: Double) -> Double {
     guard let args = arguments as? [String: Any] else { return fallback }
