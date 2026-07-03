@@ -6870,8 +6870,19 @@ class _PlayerScreenState extends State<PlayerScreen>
       urls.add(text);
     }
 
-    add(raw);
     final parsed = Uri.tryParse(raw);
+    final rawPath = parsed?.path.toLowerCase() ?? '';
+    final rawHost = parsed?.host.toLowerCase() ?? '';
+    final rawLooksPlayable =
+        rawPath.contains('.m3u8') ||
+        rawPath.contains('.mp4') ||
+        rawPath.contains('.mkv') ||
+        rawPath.contains('.webm') ||
+        rawPath.contains('/api/stream');
+    final rawIsKnownEmbedOnly =
+        rawHost.contains('streamc.xyz') && rawPath.contains('/embed');
+    if (rawLooksPlayable && !rawIsKnownEmbedOnly) add(raw);
+
     final nested = parsed?.queryParameters['url'];
     if (nested != null && nested.isNotEmpty) add(Uri.decodeFull(nested));
 
