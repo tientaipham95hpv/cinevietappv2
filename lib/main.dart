@@ -6923,6 +6923,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                 '${source.episode.linkM3u8} ${source.episode.linkEmbed}'
             .toLowerCase();
     var score = 0;
+    if (haystack.contains('nguồnc') ||
+        haystack.contains('nguonc') ||
+        haystack.contains('streamc.xyz')) {
+      score += 95;
+    }
     if (haystack.contains('phimapi') ||
         haystack.contains('kkphim') ||
         haystack.contains('phim1280')) {
