@@ -14,7 +14,7 @@ on:
       build_number:
         description: App build number
         required: false
-        default: "9204"
+        default: "9207"
   push:
     branches:
       - main
@@ -32,7 +32,7 @@ jobs:
     env:
       VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.0' }}
       RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'release' }}
-      BUILD_NUMBER: ${{ github.event.inputs.build_number || '9204' }}
+      BUILD_NUMBER: ${{ github.event.inputs.build_number || '9207' }}
 
     steps:
       - name: Checkout
