@@ -51,6 +51,9 @@ dependencies:
   media_kit_video: ^2.0.1
   media_kit_libs_windows_video: ^1.0.11
   video_player_media_kit: ^2.0.0
+  firebase_core: ^4.11.0
+  firebase_crashlytics: ^5.2.4
+  firebase_analytics: ^12.4.3
 
 dev_dependencies:
   flutter_test:

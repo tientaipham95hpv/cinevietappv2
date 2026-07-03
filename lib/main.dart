@@ -7,6 +7,9 @@ import 'dart:ui' as ui;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:dio/dio.dart';
+import 'package:firebase_analytics/firebase_analytics.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -39,20 +42,66 @@ bool isTouchTablet(BuildContext context) {
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  final telemetry = await AppTelemetry.bootstrap();
   if (!kIsWeb && Platform.isWindows) {
     VideoPlayerMediaKit.ensureInitialized(windows: true);
   }
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
     debugPrint('CineViet Flutter error: ${details.exceptionAsString()}');
+    telemetry.recordFlutterFatal(details);
   };
   ui.PlatformDispatcher.instance.onError = (error, stack) {
     debugPrint('CineViet platform error: $error');
     debugPrintStack(stackTrace: stack);
+    telemetry.recordFatal(error, stack);
     return true;
   };
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   runApp(const CineVietV2App());
+}
+
+class AppTelemetry {
+  AppTelemetry._({required this.enabled, this.analytics});
+
+  final bool enabled;
+  final FirebaseAnalytics? analytics;
+
+  static Future<AppTelemetry> bootstrap() async {
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) {
+      return AppTelemetry._(enabled: false);
+    }
+    try {
+      await Firebase.initializeApp();
+      await FirebaseCrashlytics.instance.setCrashlyticsCollectionEnabled(
+        kReleaseMode,
+      );
+      await FirebaseAnalytics.instance.setAnalyticsCollectionEnabled(
+        kReleaseMode,
+      );
+      await FirebaseAnalytics.instance.logAppOpen();
+      return AppTelemetry._(
+        enabled: true,
+        analytics: FirebaseAnalytics.instance,
+      );
+    } catch (error, stack) {
+      debugPrint('CineViet telemetry disabled: $error');
+      debugPrintStack(stackTrace: stack);
+      return AppTelemetry._(enabled: false);
+    }
+  }
+
+  void recordFlutterFatal(FlutterErrorDetails details) {
+    if (!enabled) return;
+    unawaited(FirebaseCrashlytics.instance.recordFlutterFatalError(details));
+  }
+
+  void recordFatal(Object error, StackTrace stack) {
+    if (!enabled) return;
+    unawaited(
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true),
+    );
+  }
 }
 
 class CineVietV2App extends StatelessWidget {
