@@ -13,7 +13,6 @@ import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
@@ -1837,94 +1836,6 @@ class LocalHistory {
   }
 }
 
-class OfflineDownloadItem {
-  const OfflineDownloadItem({
-    required this.dir,
-    required this.title,
-    required this.episode,
-    required this.server,
-    required this.playlist,
-    required this.downloadedAt,
-    required this.sizeBytes,
-    required this.segments,
-  });
-
-  final Directory dir;
-  final String title;
-  final String episode;
-  final String server;
-  final String playlist;
-  final DateTime downloadedAt;
-  final int sizeBytes;
-  final int segments;
-
-  String get displayEpisode => episode.isEmpty ? 'Offline' : episode;
-  String get sizeLabel {
-    final mb = sizeBytes / (1024 * 1024);
-    if (mb < 1024) return '${mb.toStringAsFixed(mb < 10 ? 1 : 0)} MB';
-    return '${(mb / 1024).toStringAsFixed(1)} GB';
-  }
-}
-
-class LocalOfflineDownloads {
-  static Future<Directory> root() async {
-    final docs = await getApplicationDocumentsDirectory();
-    final dir = Directory('${docs.path}/offline_videos');
-    await dir.create(recursive: true);
-    return dir;
-  }
-
-  static Future<int> _dirSize(Directory dir) async {
-    var total = 0;
-    if (!await dir.exists()) return 0;
-    await for (final entity in dir.list(recursive: true, followLinks: false)) {
-      if (entity is File) {
-        try {
-          total += await entity.length();
-        } catch (_) {}
-      }
-    }
-    return total;
-  }
-
-  static Future<List<OfflineDownloadItem>> items() async {
-    if (isTvBuild) return const [];
-    final dir = await root();
-    final result = <OfflineDownloadItem>[];
-    await for (final entity in dir.list(followLinks: false)) {
-      if (entity is! Directory) continue;
-      final metaFile = File('${entity.path}/offline.json');
-      if (!await metaFile.exists()) continue;
-      try {
-        final meta = jsonDecode(await metaFile.readAsString());
-        if (meta is! Map) continue;
-        final playlist = '${meta['playlist'] ?? ''}';
-        if (playlist.isEmpty || !await File(playlist).exists()) continue;
-        result.add(
-          OfflineDownloadItem(
-            dir: entity,
-            title: '${meta['title'] ?? 'CineViet'}',
-            episode: '${meta['episode'] ?? ''}',
-            server: '${meta['server'] ?? ''}',
-            playlist: playlist,
-            downloadedAt:
-                DateTime.tryParse('${meta['downloadedAt'] ?? ''}') ??
-                DateTime.fromMillisecondsSinceEpoch(0),
-            sizeBytes: await _dirSize(entity),
-            segments: int.tryParse('${meta['segments'] ?? 0}') ?? 0,
-          ),
-        );
-      } catch (_) {}
-    }
-    result.sort((a, b) => b.downloadedAt.compareTo(a.downloadedAt));
-    return result;
-  }
-
-  static Future<void> delete(OfflineDownloadItem item) async {
-    if (await item.dir.exists()) await item.dir.delete(recursive: true);
-  }
-}
-
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -1965,12 +1876,6 @@ class _AppShellState extends State<AppShell> {
           label: 'Xem chung',
           screen: WatchTogetherScreen(repo: repo),
           requiresLogin: true,
-        ),
-      if (!isTvBuild)
-        AppDestination(
-          icon: Icons.download_done_rounded,
-          label: 'Tải xuống',
-          screen: const DownloadsScreen(),
         ),
       AppDestination(
         icon: Icons.person_rounded,
@@ -2089,7 +1994,6 @@ class RailNav extends StatelessWidget {
                   ),
                   child: FocusButton(
                     selected: i == index,
-                    skipTraversal: isTvBuild,
                     onPressed: () => onChanged(i),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 10),
@@ -2587,10 +2491,7 @@ double heroBannerHeight(BuildContext context) {
   final compact = size.width < 600 && !isTvBuild;
   return compact
       ? (size.height * .72).clamp(520.0, 680.0)
-      : (size.height * (isTvBuild ? .54 : .56)).clamp(
-          isTvBuild ? 330.0 : 390.0,
-          isTvBuild ? 430.0 : 690.0,
-        );
+      : (size.height * (isTvBuild ? .72 : .56)).clamp(390.0, 690.0);
 }
 
 class HeroBanner extends StatelessWidget {
@@ -3668,247 +3569,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
           ],
         );
       },
-    );
-  }
-}
-
-class DownloadsScreen extends StatefulWidget {
-  const DownloadsScreen({super.key});
-
-  @override
-  State<DownloadsScreen> createState() => _DownloadsScreenState();
-}
-
-class _DownloadsScreenState extends State<DownloadsScreen> {
-  late Future<List<OfflineDownloadItem>> future = LocalOfflineDownloads.items();
-
-  void refresh() {
-    setState(() => future = LocalOfflineDownloads.items());
-  }
-
-  Future<void> deleteItem(OfflineDownloadItem item) async {
-    await LocalOfflineDownloads.delete(item);
-    if (!mounted) return;
-    showSnack(context, 'Đã xoá ${item.title}');
-    refresh();
-  }
-
-  void playItem(OfflineDownloadItem item) {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => OfflinePlayerScreen(item: item)));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (isTvBuild) {
-      return const Center(
-        child: Text('Tải offline không hỗ trợ trên Android TV'),
-      );
-    }
-    return RefreshIndicator(
-      onRefresh: () async => refresh(),
-      child: FutureBuilder<List<OfflineDownloadItem>>(
-        future: future,
-        builder: (context, snapshot) {
-          final items = snapshot.data ?? const <OfflineDownloadItem>[];
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (items.isEmpty) {
-            return ListView(
-              padding: const EdgeInsets.all(24),
-              children: const [
-                SizedBox(height: 120),
-                Icon(
-                  Icons.download_done_rounded,
-                  size: 64,
-                  color: CvColors.muted,
-                ),
-                SizedBox(height: 16),
-                Text(
-                  'Chưa có phim tải xuống',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900),
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Vào player trên mobile/tablet hoặc Windows rồi bấm Tải offline.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: CvColors.muted),
-                ),
-              ],
-            );
-          }
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 18, 16, 28),
-            itemCount: items.length + 1,
-            separatorBuilder: (context, index) => const SizedBox(height: 10),
-            itemBuilder: (context, index) {
-              if (index == 0) {
-                final total = items.fold<int>(
-                  0,
-                  (sum, item) => sum + item.sizeBytes,
-                );
-                final totalMb = total / (1024 * 1024);
-                final totalLabel = totalMb < 1024
-                    ? '${totalMb.toStringAsFixed(totalMb < 10 ? 1 : 0)} MB'
-                    : '${(totalMb / 1024).toStringAsFixed(1)} GB';
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Tải xuống',
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w900),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${items.length} mục • $totalLabel',
-                        style: const TextStyle(color: CvColors.muted),
-                      ),
-                    ],
-                  ),
-                );
-              }
-              final item = items[index - 1];
-              return Card(
-                color: CvColors.panel,
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  leading: const CircleAvatar(
-                    backgroundColor: CvColors.accent,
-                    child: Icon(Icons.play_arrow_rounded, color: Colors.white),
-                  ),
-                  title: Text(
-                    item.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  subtitle: Text(
-                    '${item.displayEpisode}${item.server.isEmpty ? '' : ' • ${item.server}'} • ${item.sizeLabel}${item.segments > 0 ? ' • ${item.segments} segments' : ''}',
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  onTap: () => playItem(item),
-                  trailing: IconButton(
-                    tooltip: 'Xoá tải xuống',
-                    icon: const Icon(Icons.delete_outline_rounded),
-                    onPressed: () => deleteItem(item),
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-class OfflinePlayerScreen extends StatefulWidget {
-  const OfflinePlayerScreen({super.key, required this.item});
-  final OfflineDownloadItem item;
-
-  @override
-  State<OfflinePlayerScreen> createState() => _OfflinePlayerScreenState();
-}
-
-class _OfflinePlayerScreenState extends State<OfflinePlayerScreen> {
-  VideoPlayerController? controller;
-  String? error;
-
-  @override
-  void initState() {
-    super.initState();
-    unawaited(init());
-  }
-
-  Future<void> init() async {
-    try {
-      final next = VideoPlayerController.file(File(widget.item.playlist));
-      controller = next;
-      await next.initialize();
-      await next.play();
-      if (mounted) setState(() {});
-    } catch (e) {
-      if (mounted) setState(() => error = '$e');
-    }
-  }
-
-  @override
-  void dispose() {
-    controller?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = controller;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        title: Text(
-          widget.item.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-      body: Center(
-        child: error != null
-            ? Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Không phát được file offline này.\n$error',
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white),
-                ),
-              )
-            : c == null || !c.value.isInitialized
-            ? const CircularProgressIndicator(color: CvColors.accent)
-            : GestureDetector(
-                onTap: () async {
-                  if (c.value.isPlaying) {
-                    await c.pause();
-                  } else {
-                    await c.play();
-                  }
-                  if (mounted) setState(() {});
-                },
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    AspectRatio(
-                      aspectRatio: c.value.aspectRatio == 0
-                          ? 16 / 9
-                          : c.value.aspectRatio,
-                      child: VideoPlayer(c),
-                    ),
-                    if (!c.value.isPlaying)
-                      const Icon(
-                        Icons.play_circle_fill_rounded,
-                        size: 72,
-                        color: Colors.white70,
-                      ),
-                  ],
-                ),
-              ),
-      ),
-      bottomNavigationBar: c == null || !c.value.isInitialized
-          ? null
-          : SafeArea(
-              child: VideoProgressIndicator(
-                c,
-                allowScrubbing: true,
-                colors: const VideoProgressColors(playedColor: CvColors.accent),
-              ),
-            ),
     );
   }
 }
@@ -6151,104 +5811,100 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                   ),
                                 ],
                                 const SizedBox(height: 16),
-                                FocusTraversalGroup(
-                                  policy: OrderedTraversalPolicy(),
-                                  child: Wrap(
-                                    spacing: useLeanbackControls ? 12 : 10,
-                                    runSpacing: useLeanbackControls ? 12 : 10,
-                                    children: [
+                                Wrap(
+                                  spacing: useLeanbackControls ? 12 : 10,
+                                  runSpacing: useLeanbackControls ? 12 : 10,
+                                  children: [
+                                    detailAction(
+                                      icon: Icons.play_arrow_rounded,
+                                      label: 'Phát',
+                                      primary: true,
+                                      onPressed:
+                                          selectedServer == null ||
+                                              selectedServer.items.isEmpty
+                                          ? null
+                                          : () => openPlayer(
+                                              context,
+                                              widget.repo,
+                                              movie,
+                                              selectedServer,
+                                              selectedServer.items.first,
+                                              serverIndex,
+                                            ),
+                                    ),
+                                    detailAction(
+                                      icon: isFavorite
+                                          ? Icons.favorite_rounded
+                                          : Icons.favorite_border_rounded,
+                                      label: isFavorite
+                                          ? 'Đã thích'
+                                          : 'Yêu thích',
+                                      color: isFavorite
+                                          ? Colors.redAccent
+                                          : null,
+                                      onPressed: favoriteBusy
+                                          ? null
+                                          : () => toggleFavorite(movie),
+                                    ),
+                                    detailAction(
+                                      icon: Icons.playlist_add_rounded,
+                                      label: 'Playlist',
+                                      onPressed: () async {
+                                        if (!await requireLogin(
+                                          context,
+                                          'Playlist',
+                                        )) {
+                                          return;
+                                        }
+                                        if (!context.mounted) return;
+                                        showModalBottomSheet(
+                                          context: context,
+                                          backgroundColor: CvColors.ink,
+                                          showDragHandle: !isTvBuild,
+                                          builder: (_) => AddToPlaylistSheet(
+                                            repo: widget.repo,
+                                            movie: movie,
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                    if (!isTvBuild)
                                       detailAction(
-                                        icon: Icons.play_arrow_rounded,
-                                        label: 'Phát',
-                                        primary: true,
+                                        icon: Icons.groups_rounded,
+                                        label: 'Xem chung',
                                         onPressed:
                                             selectedServer == null ||
                                                 selectedServer.items.isEmpty
                                             ? null
-                                            : () => openPlayer(
-                                                context,
-                                                widget.repo,
-                                                movie,
-                                                selectedServer,
-                                                selectedServer.items.first,
-                                                serverIndex,
-                                              ),
+                                            : () async {
+                                                if (!await requireLogin(
+                                                  context,
+                                                  'Xem chung',
+                                                )) {
+                                                  return;
+                                                }
+                                                if (context.mounted) {
+                                                  Navigator.of(context).push(
+                                                    MaterialPageRoute(
+                                                      builder: (_) =>
+                                                          WatchTogetherScreen(
+                                                            repo: widget.repo,
+                                                            prefillMovie: movie,
+                                                            prefillServer:
+                                                                selectedServer,
+                                                            prefillEpisode:
+                                                                selectedServer
+                                                                    .items
+                                                                    .first,
+                                                            prefillServerIndex:
+                                                                serverIndex,
+                                                          ),
+                                                    ),
+                                                  );
+                                                }
+                                              },
                                       ),
-                                      detailAction(
-                                        icon: isFavorite
-                                            ? Icons.favorite_rounded
-                                            : Icons.favorite_border_rounded,
-                                        label: isFavorite
-                                            ? 'Đã thích'
-                                            : 'Yêu thích',
-                                        color: isFavorite
-                                            ? Colors.redAccent
-                                            : null,
-                                        onPressed: favoriteBusy
-                                            ? null
-                                            : () => toggleFavorite(movie),
-                                      ),
-                                      detailAction(
-                                        icon: Icons.playlist_add_rounded,
-                                        label: 'Playlist',
-                                        onPressed: () async {
-                                          if (!await requireLogin(
-                                            context,
-                                            'Playlist',
-                                          )) {
-                                            return;
-                                          }
-                                          if (!context.mounted) return;
-                                          showModalBottomSheet(
-                                            context: context,
-                                            backgroundColor: CvColors.ink,
-                                            showDragHandle: !isTvBuild,
-                                            builder: (_) => AddToPlaylistSheet(
-                                              repo: widget.repo,
-                                              movie: movie,
-                                            ),
-                                          );
-                                        },
-                                      ),
-                                      if (!isTvBuild)
-                                        detailAction(
-                                          icon: Icons.groups_rounded,
-                                          label: 'Xem chung',
-                                          onPressed:
-                                              selectedServer == null ||
-                                                  selectedServer.items.isEmpty
-                                              ? null
-                                              : () async {
-                                                  if (!await requireLogin(
-                                                    context,
-                                                    'Xem chung',
-                                                  )) {
-                                                    return;
-                                                  }
-                                                  if (context.mounted) {
-                                                    Navigator.of(context).push(
-                                                      MaterialPageRoute(
-                                                        builder: (_) =>
-                                                            WatchTogetherScreen(
-                                                              repo: widget.repo,
-                                                              prefillMovie:
-                                                                  movie,
-                                                              prefillServer:
-                                                                  selectedServer,
-                                                              prefillEpisode:
-                                                                  selectedServer
-                                                                      .items
-                                                                      .first,
-                                                              prefillServerIndex:
-                                                                  serverIndex,
-                                                            ),
-                                                      ),
-                                                    );
-                                                  }
-                                                },
-                                        ),
-                                    ],
-                                  ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -6398,76 +6054,70 @@ class EpisodeSection extends StatelessWidget {
         children: [
           const SectionTitle('Tập phim'),
           const SizedBox(height: 12),
-          FocusTraversalGroup(
-            policy: OrderedTraversalPolicy(),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (var i = 0; i < servers.length; i++)
-                    Padding(
-                      padding: EdgeInsets.only(
-                        right: useLeanbackControls ? 12 : 8,
-                      ),
-                      child: useLeanbackControls
-                          ? TvFilterChip(
-                              label: servers[i].displayName,
-                              icon: Icons.storage_rounded,
-                              selected: i == selectedIndex,
-                              onPressed: () => onServerChanged(i),
-                            )
-                          : ChoiceChip(
-                              label: Text(servers[i].displayName),
-                              selected: i == selectedIndex,
-                              onSelected: (_) => onServerChanged(i),
-                            ),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (var i = 0; i < servers.length; i++)
+                  Padding(
+                    padding: EdgeInsets.only(
+                      right: useLeanbackControls ? 12 : 8,
                     ),
-                ],
-              ),
+                    child: useLeanbackControls
+                        ? TvFilterChip(
+                            label: servers[i].displayName,
+                            icon: Icons.storage_rounded,
+                            selected: i == selectedIndex,
+                            onPressed: () => onServerChanged(i),
+                          )
+                        : ChoiceChip(
+                            label: Text(servers[i].displayName),
+                            selected: i == selectedIndex,
+                            onSelected: (_) => onServerChanged(i),
+                          ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
-          FocusTraversalGroup(
-            policy: ReadingOrderTraversalPolicy(),
-            child: GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: server.items.length,
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: columns,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: isTvBuild ? 2.8 : 2.35,
-              ),
-              itemBuilder: (context, index) {
-                final episode = server.items[index];
-                return FocusButton(
-                  onPressed: () => openPlayer(
-                    context,
-                    repo,
-                    movie,
-                    server,
-                    episode,
-                    selectedIndex,
-                  ),
-                  child: Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      child: Text(
-                        episode.displayName,
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: isTvBuild ? 16 : 14,
-                        ),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: server.items.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: isTvBuild ? 2.8 : 2.35,
+            ),
+            itemBuilder: (context, index) {
+              final episode = server.items[index];
+              return FocusButton(
+                onPressed: () => openPlayer(
+                  context,
+                  repo,
+                  movie,
+                  server,
+                  episode,
+                  selectedIndex,
+                ),
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      episode.displayName,
+                      textAlign: TextAlign.center,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: isTvBuild ? 16 : 14,
                       ),
                     ),
                   ),
-                );
-              },
-            ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -7071,9 +6721,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   Timer? levelApplyTimer;
   Timer? deviceLevelSyncTimer;
   Timer? gestureHintTimer;
-  final focusNode = FocusNode(debugLabel: 'player-surface');
-  final playerControlsFocusNode = FocusNode(debugLabel: 'player-controls');
-  final playerPlayPauseFocusNode = FocusNode(debugLabel: 'player-play-pause');
+  final focusNode = FocusNode();
   late EpisodeServer currentServer;
   late EpisodeItem currentEpisode;
   late int currentServerIndex;
@@ -7114,14 +6762,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   Duration? lastGoodPosition;
   String? playbackNotice;
   String? lastPlaybackError;
-  bool introSkipped = false;
-  static const int introSkipSeconds = 72;
   late final String playbackSessionId =
       '${DateTime.now().microsecondsSinceEpoch}-${math.Random().nextInt(999999)}';
   static const brightnessChannel = MethodChannel('live.cineviet/brightness');
-  static const pipChannel = MethodChannel('live.cineviet/pip');
-  bool downloadingOffline = false;
-  double offlineDownloadProgress = 0;
 
   bool get isWatchTogether =>
       (widget.watchTogetherCode ?? watchRoomState?.code ?? '').isNotEmpty;
@@ -7134,9 +6777,6 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool get usesPlayerVolume =>
       Platform.isAndroid || Platform.isIOS || Platform.isWindows;
   bool get usesWindowsBrightnessOverlay => supportsTouchLevels;
-  bool get supportsOfflineFeatures =>
-      !isTvBuild &&
-      (Platform.isAndroid || Platform.isIOS || Platform.isWindows);
 
   @override
   void initState() {
@@ -7164,14 +6804,9 @@ class _PlayerScreenState extends State<PlayerScreen>
       DeviceOrientation.landscapeLeft,
       DeviceOrientation.landscapeRight,
     ]);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      if (isTvBuild && controls && !controlsLocked) {
-        playerPlayPauseFocusNode.requestFocus();
-      } else {
-        focusNode.requestFocus();
-      }
-    });
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => focusNode.requestFocus(),
+    );
     _bindWatchTogetherSocket();
     _init();
   }
@@ -7617,234 +7252,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     await c.seekTo(_clampPosition(c.value.position + offset, c.value.duration));
     _emitWatchSync(force: true);
     if (showControls) _showControls();
-  }
-
-  Future<void> _enterPictureInPicture() async {
-    if (!supportsOfflineFeatures) {
-      showSnack(context, 'PiP không hỗ trợ trên Android TV.');
-      return;
-    }
-    if (!Platform.isAndroid && !Platform.isIOS) {
-      showSnack(context, 'PiP hiện chỉ hỗ trợ Android/iOS.');
-      return;
-    }
-    final c = controller;
-    final current = activePlayableUrls.isEmpty
-        ? null
-        : activePlayableUrls[activePlayableUrlIndex.clamp(
-            0,
-            activePlayableUrls.length - 1,
-          )];
-    final url = current?.url ?? currentEpisode.linkM3u8;
-    try {
-      final ok = await pipChannel.invokeMethod<bool>('enter', {
-        'url': url,
-        'positionMs': c?.value.position.inMilliseconds ?? 0,
-        'title': widget.movie.title,
-      });
-      if (!mounted) return;
-      if (ok != true) {
-        showSnack(context, 'Thiết bị/player này chưa hỗ trợ PiP.');
-      }
-    } catch (_) {
-      if (mounted) showSnack(context, 'Không bật được PiP trên thiết bị này.');
-    }
-  }
-
-  String _offlineSlug() {
-    final movieName = widget.movie.title.isNotEmpty
-        ? widget.movie.title
-        : 'CineViet';
-    final episodeName = currentEpisode.displayName.isNotEmpty
-        ? currentEpisode.displayName
-        : 'video';
-    final raw = '$movieName-$episodeName';
-    return raw
-        .replaceAll(RegExp(r'[\\/:*?"<>|]+'), '-')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-  }
-
-  String _safeOfflineFilename() {
-    return '${_offlineSlug()}.mp4';
-  }
-
-  String? _extractM3u8Url(String url) {
-    final parsed = Uri.tryParse(url);
-    if (parsed == null) return null;
-    final nested = parsed.queryParameters['url'];
-    if (nested != null && nested.toLowerCase().contains('.m3u8')) {
-      return Uri.decodeFull(nested);
-    }
-    if (parsed.path.toLowerCase().contains('.m3u8')) return url;
-    return null;
-  }
-
-  Future<void> _downloadHlsOffline(
-    String m3u8Url,
-    Directory rootDir, {
-    int depth = 0,
-  }) async {
-    final dio = Dio(BaseOptions(receiveTimeout: Duration.zero));
-    final episodeDir = Directory('${rootDir.path}/${_offlineSlug()}');
-    final segmentsDir = Directory('${episodeDir.path}/segments');
-    await segmentsDir.create(recursive: true);
-    final response = await dio.get<String>(m3u8Url);
-    final playlist = response.data ?? '';
-    if (!playlist.contains('#EXTM3U')) {
-      throw StateError('invalid_m3u8');
-    }
-    if (playlist.contains('#EXT-X-KEY')) {
-      throw StateError('encrypted_hls');
-    }
-
-    final baseUri = Uri.parse(m3u8Url);
-    final lines = const LineSplitter().convert(playlist);
-    if (playlist.contains('#EXT-X-STREAM-INF') && depth < 3) {
-      final variants = lines
-          .map((line) => line.trim())
-          .where((line) => line.isNotEmpty && !line.startsWith('#'))
-          .toList();
-      if (variants.isNotEmpty) {
-        final variantUrl = baseUri.resolve(variants.last).toString();
-        await _downloadHlsOffline(variantUrl, rootDir, depth: depth + 1);
-        return;
-      }
-    }
-    final rewritten = <String>[];
-    var segmentIndex = 0;
-    final segmentFiles = <String>[];
-
-    for (final line in lines) {
-      final trimmed = line.trim();
-      if (trimmed.isEmpty || trimmed.startsWith('#')) {
-        rewritten.add(line);
-        continue;
-      }
-      final segmentUri = baseUri.resolve(trimmed);
-      final ext = segmentUri.path.toLowerCase().endsWith('.m4s') ? 'm4s' : 'ts';
-      final filename = 'seg_${segmentIndex.toString().padLeft(5, '0')}.$ext';
-      final path = '${segmentsDir.path}/$filename';
-      await dio.download(
-        segmentUri.toString(),
-        path,
-        onReceiveProgress: (received, total) {
-          if (!mounted || lines.isEmpty) return;
-          setState(() => offlineDownloadProgress = segmentIndex / lines.length);
-        },
-        options: Options(followRedirects: true, receiveTimeout: Duration.zero),
-      );
-      segmentFiles.add('segments/$filename');
-      rewritten.add('segments/$filename');
-      segmentIndex += 1;
-    }
-
-    if (segmentFiles.isEmpty) throw StateError('empty_hls_segments');
-    final localPlaylist = File('${episodeDir.path}/index.m3u8');
-    await localPlaylist.writeAsString('${rewritten.join('\n')}\n');
-    final metadata = {
-      'movieId': widget.movie.id,
-      'slug': widget.movie.slug,
-      'title': widget.movie.title,
-      'episode': currentEpisode.displayName,
-      'server': currentServer.displayName,
-      'playlist': localPlaylist.path,
-      'segments': segmentFiles.length,
-      'downloadedAt': DateTime.now().toIso8601String(),
-    };
-    await File(
-      '${episodeDir.path}/offline.json',
-    ).writeAsString(jsonEncode(metadata));
-  }
-
-  Future<void> _downloadOffline() async {
-    if (!supportsOfflineFeatures) {
-      showSnack(context, 'Tải offline không hỗ trợ trên Android TV.');
-      return;
-    }
-    if (downloadingOffline) return;
-    final current = activePlayableUrls.isEmpty
-        ? null
-        : activePlayableUrls[activePlayableUrlIndex.clamp(
-            0,
-            activePlayableUrls.length - 1,
-          )];
-    final url = current?.url ?? currentEpisode.linkM3u8;
-    if (url.isEmpty) {
-      showSnack(context, 'Không tìm thấy link tải cho tập này.');
-      return;
-    }
-    final hlsUrl = _extractM3u8Url(url);
-    setState(() {
-      downloadingOffline = true;
-      offlineDownloadProgress = 0;
-    });
-    try {
-      final root = await getApplicationDocumentsDirectory();
-      final dir = Directory('${root.path}/offline_videos');
-      await dir.create(recursive: true);
-      if (hlsUrl != null) {
-        await _downloadHlsOffline(hlsUrl, dir);
-        if (!mounted) return;
-        showSnack(context, 'Đã tải HLS offline: ${_offlineSlug()}');
-      } else {
-        final episodeDir = Directory('${dir.path}/${_offlineSlug()}');
-        await episodeDir.create(recursive: true);
-        final file = File('${episodeDir.path}/${_safeOfflineFilename()}');
-        await Dio().download(
-          url,
-          file.path,
-          onReceiveProgress: (received, total) {
-            if (!mounted || total <= 0) return;
-            setState(() => offlineDownloadProgress = received / total);
-          },
-          options: Options(
-            followRedirects: true,
-            receiveTimeout: Duration.zero,
-          ),
-        );
-        final metadata = {
-          'movieId': widget.movie.id,
-          'slug': widget.movie.slug,
-          'title': widget.movie.title,
-          'episode': currentEpisode.displayName,
-          'server': currentServer.displayName,
-          'playlist': file.path,
-          'segments': 0,
-          'downloadedAt': DateTime.now().toIso8601String(),
-        };
-        await File(
-          '${episodeDir.path}/offline.json',
-        ).writeAsString(jsonEncode(metadata));
-        if (!mounted) return;
-        showSnack(context, 'Đã tải offline: ${file.path.split('/').last}');
-      }
-    } on StateError catch (e) {
-      if (!mounted) return;
-      final message = e.message == 'encrypted_hls'
-          ? 'Nguồn HLS có mã hoá, chưa tải offline được.'
-          : 'Playlist HLS không hợp lệ hoặc rỗng.';
-      showSnack(context, message);
-    } catch (_) {
-      if (mounted) showSnack(context, 'Tải offline thất bại, thử nguồn khác.');
-    } finally {
-      if (mounted) {
-        setState(() {
-          downloadingOffline = false;
-          offlineDownloadProgress = 0;
-        });
-      }
-    }
-  }
-
-  Future<void> _skipIntro() async {
-    final c = controller;
-    if (c == null || !c.value.isInitialized) return;
-    final target = Duration(seconds: introSkipSeconds);
-    await c.seekTo(_clampPosition(target, c.value.duration));
-    setState(() => introSkipped = true);
-    _emitWatchSync(force: true);
-    _showControls();
   }
 
   void _clearGestureHintSoon() {
@@ -8331,7 +7738,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       currentServerIndex = serverIndex < 0 ? currentServerIndex : serverIndex;
       controls = true;
       error = null;
-      introSkipped = false;
       selectedPlaybackSourceId = 'auto';
       selectedPlaybackSourceLabel = 'Auto';
     });
@@ -8612,8 +8018,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       widget.repo.closeWatchRoom(forceDelete: isWatchHost);
     }
     focusNode.dispose();
-    playerControlsFocusNode.dispose();
-    playerPlayPauseFocusNode.dispose();
     watchChatController.dispose();
     controller?.removeListener(_handlePlayerTick);
     controller?.dispose();
@@ -8646,15 +8050,6 @@ class _PlayerScreenState extends State<PlayerScreen>
           onKeyEvent: (event) {
             if (event is! KeyDownEvent || c == null) return;
             final key = event.logicalKey;
-            final tvControlsVisible = isTvBuild && controls && !controlsLocked;
-            if (tvControlsVisible &&
-                (key == LogicalKeyboardKey.arrowLeft ||
-                    key == LogicalKeyboardKey.arrowRight ||
-                    key == LogicalKeyboardKey.arrowUp ||
-                    key == LogicalKeyboardKey.arrowDown)) {
-              _showControls();
-              return;
-            }
             if (key == LogicalKeyboardKey.select ||
                 key == LogicalKeyboardKey.enter ||
                 key == LogicalKeyboardKey.space ||
@@ -8671,12 +8066,6 @@ class _PlayerScreenState extends State<PlayerScreen>
             }
             if (key == LogicalKeyboardKey.arrowUp) {
               _showControls();
-              if (isTvBuild) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  if (!mounted) return;
-                  playerPlayPauseFocusNode.requestFocus();
-                });
-              }
             }
             if (key == LogicalKeyboardKey.keyN) {
               _playSibling(1);
@@ -8712,16 +8101,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               onTap: () {
                 if (controlsLocked) return;
                 setState(() => controls = !controls);
-                if (controls) {
-                  _scheduleControlsHide();
-                  if (isTvBuild) {
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) playerPlayPauseFocusNode.requestFocus();
-                    });
-                  }
-                } else if (isTvBuild) {
-                  focusNode.requestFocus();
-                }
+                if (controls) _scheduleControlsHide();
               },
               child: Stack(
                 fit: StackFit.expand,
@@ -8752,8 +8132,6 @@ class _PlayerScreenState extends State<PlayerScreen>
                     ),
                   if (controls && !controlsLocked)
                     PlayerOverlay(
-                      focusNode: playerControlsFocusNode,
-                      playPauseFocusNode: playerPlayPauseFocusNode,
                       controller: c,
                       title: widget.movie.title,
                       episode:
@@ -8764,21 +8142,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                       canNext:
                           _currentEpisodeIndex >= 0 &&
                           _currentEpisodeIndex < currentServer.items.length - 1,
-                      showSkipIntro:
-                          !introSkipped &&
-                          c!.value.position <
-                              const Duration(seconds: introSkipSeconds) &&
-                          c.value.duration >
-                              const Duration(seconds: introSkipSeconds + 5),
-                      showOfflineActions: supportsOfflineFeatures,
-                      showDownloadProgress: downloadingOffline,
-                      downloadProgress: offlineDownloadProgress,
                       onPlayPause: _togglePlay,
                       onReplay: () => _seekBy(const Duration(seconds: -10)),
                       onForward: () => _seekBy(const Duration(seconds: 10)),
-                      onSkipIntro: _skipIntro,
-                      onPictureInPicture: _enterPictureInPicture,
-                      onDownloadOffline: _downloadOffline,
                       onPrevious: () => _playSibling(-1),
                       onNext: () => _playSibling(1),
                       onEpisodes: _showEpisodeSheet,
@@ -8993,8 +8359,6 @@ class PlayerErrorView extends StatelessWidget {
 class PlayerOverlay extends StatelessWidget {
   const PlayerOverlay({
     super.key,
-    required this.focusNode,
-    required this.playPauseFocusNode,
     required this.controller,
     required this.title,
     required this.episode,
@@ -9002,16 +8366,9 @@ class PlayerOverlay extends StatelessWidget {
     required this.fitLabel,
     required this.canPrevious,
     required this.canNext,
-    required this.showSkipIntro,
-    required this.showOfflineActions,
-    required this.showDownloadProgress,
-    required this.downloadProgress,
     required this.onPlayPause,
     required this.onReplay,
     required this.onForward,
-    required this.onSkipIntro,
-    required this.onPictureInPicture,
-    required this.onDownloadOffline,
     required this.onPrevious,
     required this.onNext,
     required this.onEpisodes,
@@ -9020,8 +8377,6 @@ class PlayerOverlay extends StatelessWidget {
     required this.onFit,
     this.onBack,
   });
-  final FocusNode focusNode;
-  final FocusNode playPauseFocusNode;
   final VideoPlayerController? controller;
   final String title;
   final String episode;
@@ -9029,16 +8384,9 @@ class PlayerOverlay extends StatelessWidget {
   final String fitLabel;
   final bool canPrevious;
   final bool canNext;
-  final bool showSkipIntro;
-  final bool showOfflineActions;
-  final bool showDownloadProgress;
-  final double downloadProgress;
   final VoidCallback onPlayPause;
   final VoidCallback onReplay;
   final VoidCallback onForward;
-  final VoidCallback onSkipIntro;
-  final VoidCallback onPictureInPicture;
-  final VoidCallback onDownloadOffline;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onEpisodes;
@@ -9111,6 +8459,7 @@ class PlayerOverlay extends StatelessWidget {
                       const SizedBox(height: 12),
                       LayoutBuilder(
                         builder: (context, constraints) {
+                          final compact = constraints.maxWidth < 640;
                           final buttons = [
                             PlayerControlButton(
                               icon: Icons.video_library_rounded,
@@ -9132,22 +8481,15 @@ class PlayerOverlay extends StatelessWidget {
                               label: 'Lùi',
                               onPressed: onReplay,
                             ),
-                            PlayerControlButton(
-                              focusNode: playPauseFocusNode,
-                              icon: value.isPlaying
-                                  ? Icons.pause_rounded
-                                  : Icons.play_arrow_rounded,
-                              label: value.isPlaying ? 'Tạm dừng' : 'Phát',
-                              primary: true,
+                            IconButton.filled(
                               onPressed: onPlayPause,
-                            ),
-                            if (showSkipIntro)
-                              PlayerControlButton(
-                                icon: Icons.fast_forward_rounded,
-                                label: 'Bỏ intro',
-                                wide: true,
-                                onPressed: onSkipIntro,
+                              iconSize: compact ? 28 : 34,
+                              icon: Icon(
+                                value.isPlaying
+                                    ? Icons.pause_rounded
+                                    : Icons.play_arrow_rounded,
                               ),
+                            ),
                             PlayerControlButton(
                               icon: Icons.forward_10_rounded,
                               label: 'Tới',
@@ -9158,24 +8500,6 @@ class PlayerOverlay extends StatelessWidget {
                               label: 'Sau',
                               onPressed: canNext ? onNext : null,
                             ),
-                            if (showOfflineActions)
-                              PlayerControlButton(
-                                icon: Icons.picture_in_picture_alt_rounded,
-                                label: 'PiP',
-                                onPressed: onPictureInPicture,
-                              ),
-                            if (showOfflineActions)
-                              PlayerControlButton(
-                                icon: showDownloadProgress
-                                    ? Icons.downloading_rounded
-                                    : Icons.download_rounded,
-                                label: showDownloadProgress
-                                    ? 'Đang tải ${(downloadProgress * 100).clamp(0, 99).toStringAsFixed(0)}%'
-                                    : 'Tải offline',
-                                onPressed: showDownloadProgress
-                                    ? null
-                                    : onDownloadOffline,
-                              ),
                             PlayerControlButton(
                               icon: Icons.fit_screen_rounded,
                               label: fitLabel,
@@ -9187,26 +8511,25 @@ class PlayerOverlay extends StatelessWidget {
                               onPressed: onSettings,
                             ),
                           ];
-                          final visibleButtons = buttons;
-                          final controlsRow = Row(children: visibleButtons);
+                          final visibleButtons = compact
+                              ? [
+                                  buttons[0],
+                                  buttons[1],
+                                  buttons[2],
+                                  buttons[3],
+                                  buttons[4],
+                                  buttons[5],
+                                  buttons[6],
+                                  buttons[8],
+                                ]
+                              : buttons;
                           return Row(
                             children: [
                               Expanded(
-                                child: isTvBuild
-                                    ? FocusTraversalGroup(
-                                        policy: OrderedTraversalPolicy(),
-                                        child: Focus(
-                                          focusNode: focusNode,
-                                          child: SingleChildScrollView(
-                                            scrollDirection: Axis.horizontal,
-                                            child: controlsRow,
-                                          ),
-                                        ),
-                                      )
-                                    : SingleChildScrollView(
-                                        scrollDirection: Axis.horizontal,
-                                        child: controlsRow,
-                                      ),
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: Row(children: visibleButtons),
+                                ),
                               ),
                               const SizedBox(width: 10),
                               Text(
@@ -9237,47 +8560,17 @@ class PlayerControlButton extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
-    this.focusNode,
-    this.primary = false,
-    this.wide = false,
   });
   final IconData icon;
   final String label;
   final VoidCallback? onPressed;
-  final FocusNode? focusNode;
-  final bool primary;
-  final bool wide;
 
   @override
   Widget build(BuildContext context) {
-    final enabled = onPressed != null;
-    final button = FocusButton(
-      focusNode: focusNode,
-      skipTraversal: !enabled,
-      onPressed: enabled ? onPressed! : () {},
-      child: Container(
-        width: isTvBuild ? (wide ? 104 : (primary ? 76 : 64)) : 46,
-        height: isTvBuild ? (primary ? 58 : 52) : 46,
-        margin: EdgeInsets.symmetric(horizontal: isTvBuild ? 4 : 1),
-        decoration: BoxDecoration(
-          color: primary
-              ? CvColors.accent.withValues(alpha: enabled ? .28 : .08)
-              : Colors.white.withValues(alpha: enabled ? .08 : .03),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: primary
-                ? CvColors.accent.withValues(alpha: .55)
-                : Colors.white.withValues(alpha: .12),
-          ),
-        ),
-        child: Icon(
-          icon,
-          size: isTvBuild ? (primary ? 34 : 28) : 24,
-          color: enabled ? Colors.white : Colors.white38,
-        ),
-      ),
+    return Tooltip(
+      message: label,
+      child: IconButton(onPressed: onPressed, icon: Icon(icon)),
     );
-    return Tooltip(message: label, child: button);
   }
 }
 
@@ -10191,9 +9484,7 @@ class TvActionButton extends StatelessWidget {
         ],
       ),
     );
-    if (onPressed == null) {
-      return ExcludeFocus(child: Opacity(opacity: .48, child: content));
-    }
+    if (onPressed == null) return Opacity(opacity: .48, child: content);
     return FocusButton(
       selected: selected,
       onPressed: onPressed!,
@@ -10233,14 +9524,10 @@ class FocusButton extends StatefulWidget {
     required this.child,
     required this.onPressed,
     this.selected = false,
-    this.skipTraversal = false,
-    this.focusNode,
   });
   final Widget child;
   final VoidCallback onPressed;
   final bool selected;
-  final bool skipTraversal;
-  final FocusNode? focusNode;
 
   @override
   State<FocusButton> createState() => _FocusButtonState();
@@ -10252,8 +9539,6 @@ class _FocusButtonState extends State<FocusButton> {
   @override
   Widget build(BuildContext context) {
     return Focus(
-      focusNode: widget.focusNode,
-      skipTraversal: widget.skipTraversal,
       onFocusChange: (value) => setState(() => focused = value),
       onKeyEvent: (_, event) {
         if (event is KeyDownEvent &&
@@ -10633,7 +9918,7 @@ EdgeInsets pagePadding(BuildContext context) {
 
 double cardExtent(BuildContext context) {
   final width = MediaQuery.sizeOf(context).width;
-  if (isTvBuild) return 154;
+  if (isTvBuild) return 176;
   if (width >= 1200) return 172;
   if (width >= 800) return 150;
   return 132;
