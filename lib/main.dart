@@ -6908,13 +6908,35 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   int _qualityRank(String label) {
     final text = label.toLowerCase();
+    if (text.contains('cam') || text.contains('ts')) return 120;
     if (text.contains('4k') || text.contains('2160')) return 2160;
     if (text.contains('1080') || text.contains('fhd')) return 1080;
     if (text.contains('720') || text == 'hd') return 720;
     if (text.contains('480')) return 480;
     if (text.contains('360')) return 360;
-    if (text.contains('cam') || text.contains('ts')) return 120;
     return 600;
+  }
+
+  int _sourceReliabilityRank(PlaybackSourceCandidate source) {
+    final haystack =
+        '${source.server.name} ${source.episode.filename} '
+                '${source.episode.linkM3u8} ${source.episode.linkEmbed}'
+            .toLowerCase();
+    var score = 0;
+    if (haystack.contains('phimapi') ||
+        haystack.contains('kkphim') ||
+        haystack.contains('phim1280')) {
+      score += 80;
+    }
+    if (haystack.contains('ophim') || haystack.contains('opstream')) {
+      score -= 35;
+    }
+    if (haystack.contains('cam') || RegExp(r'\bts\b').hasMatch(haystack)) {
+      score -= 120;
+    }
+    if (source.episode.linkM3u8.isNotEmpty) score += 20;
+    if (source.qualityRank >= 720) score += 20;
+    return score;
   }
 
   bool _sameEpisodeName(EpisodeItem a, EpisodeItem b) {
@@ -6968,15 +6990,10 @@ class _PlayerScreenState extends State<PlayerScreen>
       }
     }
     sources.sort((a, b) {
-      final aCurrent =
-          a.server.name == currentServer.name &&
-          a.episode.name == currentEpisode.name &&
-          a.episode.playUrl == currentEpisode.playUrl;
-      final bCurrent =
-          b.server.name == currentServer.name &&
-          b.episode.name == currentEpisode.name &&
-          b.episode.playUrl == currentEpisode.playUrl;
-      if (aCurrent != bCurrent) return aCurrent ? -1 : 1;
+      final reliability = _sourceReliabilityRank(
+        b,
+      ).compareTo(_sourceReliabilityRank(a));
+      if (reliability != 0) return reliability;
       final quality = b.qualityRank.compareTo(a.qualityRank);
       if (quality != 0) return quality;
       final m3u8 = (b.episode.linkM3u8.isNotEmpty ? 1 : 0).compareTo(
