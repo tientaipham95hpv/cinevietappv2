@@ -113,7 +113,10 @@ import UIKit
     layer.opacity = 0.01
     controller.view.layer.addSublayer(layer)
 
-    let pip = AVPictureInPictureController(playerLayer: layer)
+    guard let pip = AVPictureInPictureController(playerLayer: layer) else {
+      layer.removeFromSuperlayer()
+      return false
+    }
     pip.delegate = self
     if #available(iOS 14.2, *) {
       pip.canStartPictureInPictureAutomaticallyFromInline = true
