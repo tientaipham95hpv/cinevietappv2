@@ -8498,7 +8498,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (mounted) setState(() {});
     await _save();
     if (isWatchTogether) await _closeWatchRoomIfNeeded();
-    if (mounted) Navigator.of(context).pop();
+    if (mounted) Navigator.of(context).maybePop();
   }
 
   Future<void> _retryPlayback() async {
@@ -8997,13 +8997,14 @@ class _PlayerScreenState extends State<PlayerScreen>
   Widget build(BuildContext context) {
     final c = controller;
     return PopScope(
-      canPop: true,
+      canPop: leavingPlayer,
       onPopInvokedWithResult: (didPop, _) {
-        _stopPlaybackNow();
-        unawaited(_save());
-        if (isWatchTogether && !leavingPlayer) {
-          unawaited(_closeWatchRoomIfNeeded());
+        if (didPop) {
+          _stopPlaybackNow();
+          _save();
+          return;
         }
+        _exitPlayer();
       },
       child: Scaffold(
         backgroundColor: Colors.black,
