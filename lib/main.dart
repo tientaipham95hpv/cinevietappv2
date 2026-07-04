@@ -7301,6 +7301,30 @@ class _PlayerScreenState extends State<PlayerScreen>
             }
             return NavigationDecision.navigate;
           },
+          onPageFinished: (_) {
+            // StreamC/JWPlayer có fullscreen HTML riêng; khi vào fullscreen đó
+            // Flutter không còn vẽ được nút back của app. Giữ video inline để
+            // nút back native overlay bên dưới luôn hoạt động.
+            unawaited(
+              webViewController?.runJavaScript('''
+                (function () {
+                  try {
+                    document.querySelectorAll('video').forEach(function (v) {
+                      v.setAttribute('playsinline', '');
+                      v.setAttribute('webkit-playsinline', '');
+                      try { v.webkitEnterFullscreen = function () {}; } catch (_) {}
+                      try { v.webkitEnterFullScreen = function () {}; } catch (_) {}
+                    });
+                    ['requestFullscreen','webkitRequestFullscreen','webkitEnterFullscreen','webkitEnterFullScreen','mozRequestFullScreen','msRequestFullscreen'].forEach(function (name) {
+                      try {
+                        if (Element.prototype[name]) Element.prototype[name] = function () { return Promise.resolve && Promise.resolve(); };
+                      } catch (_) {}
+                    });
+                  } catch (_) {}
+                })();
+              '''),
+            );
+          },
           onWebResourceError: (error) {
             lastPlaybackError = '${error.errorCode}: ${error.description}';
             _trackPlaybackEvent(
@@ -8390,6 +8414,25 @@ class _PlayerScreenState extends State<PlayerScreen>
                   else
                     Center(
                       child: _FittedVideo(controller: c, fitMode: fitMode),
+                    ),
+                  if (activeWebViewUrl != null && !controlsLocked)
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      child: SafeArea(
+                        child: Material(
+                          color: Colors.black.withValues(alpha: .58),
+                          shape: const CircleBorder(),
+                          clipBehavior: Clip.antiAlias,
+                          child: IconButton(
+                            tooltip: 'Quay lại',
+                            color: Colors.white,
+                            iconSize: 28,
+                            onPressed: _exitPlayer,
+                            icon: const Icon(Icons.arrow_back_rounded),
+                          ),
+                        ),
+                      ),
                     ),
                   if (usesWindowsBrightnessOverlay && screenBrightness < .99)
                     IgnorePointer(
