@@ -1560,18 +1560,6 @@ class MovieRepository {
     _favoriteIdsCache = next;
   }
 
-  Future<Map<String, dynamic>> followStatus(int movieId) async {
-    final res = await api.dio.get('/movies/$movieId/follow');
-    return Map<String, dynamic>.from(res.data as Map);
-  }
-
-  Future<Map<String, dynamic>> toggleFollow(int movieId, bool follow) async {
-    final res = follow
-        ? await api.dio.post('/movies/$movieId/follow')
-        : await api.dio.delete('/movies/$movieId/follow');
-    return Map<String, dynamic>.from(res.data as Map);
-  }
-
   Future<List<CinePlaylist>> playlists() async {
     final res = await api.dio.get('/playlists/my');
     return (res.data is List ? res.data as List : const [])
@@ -5928,8 +5916,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   int? favoriteMovieId;
   bool isFavorite = false;
   bool favoriteBusy = false;
-  bool isFollowing = false;
-  bool followBusy = false;
 
   @override
   void initState() {
@@ -5938,7 +5924,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     favoriteMovieId = widget.initial.id;
     refreshFavoriteState(widget.initial);
     future.then(refreshFavoriteState).catchError((_) {});
-    future.then(refreshFollowState).catchError((_) {});
     if (widget.autoplay) {
       future.then((movie) {
         if (!mounted) return;
@@ -5972,41 +5957,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       isFavorite = favorited;
       favoriteBusy = false;
     });
-  }
-
-  Future<void> refreshFollowState(Movie movie) async {
-    if (movie.id <= 0 || !Api.instance.hasAuthToken) return;
-    try {
-      final status = await widget.repo.followStatus(movie.id);
-      if (!mounted) return;
-      setState(() => isFollowing = status['following'] == true);
-    } catch (_) {}
-  }
-
-  Future<void> toggleFollow(Movie movie) async {
-    if (followBusy) return;
-    if (!await requireLogin(context, 'Theo dõi phim')) return;
-    final next = !isFollowing;
-    setState(() {
-      isFollowing = next;
-      followBusy = true;
-    });
-    try {
-      await widget.repo.toggleFollow(movie.id, next);
-      if (!mounted) return;
-      showSnack(
-        context,
-        next ? 'Đã theo dõi phim này' : 'Đã bỏ theo dõi phim này',
-      );
-      setState(() => followBusy = false);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        isFollowing = !next;
-        followBusy = false;
-      });
-      showSnack(context, 'Không cập nhật được theo dõi');
-    }
   }
 
   Future<void> toggleFavorite(Movie movie) async {
@@ -6188,20 +6138,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                       onPressed: favoriteBusy
                                           ? null
                                           : () => toggleFavorite(movie),
-                                    ),
-                                    detailAction(
-                                      icon: isFollowing
-                                          ? Icons.notifications_active_rounded
-                                          : Icons.notifications_none_rounded,
-                                      label: isFollowing
-                                          ? 'Đang theo dõi'
-                                          : 'Theo dõi',
-                                      color: isFollowing
-                                          ? CvColors.amber
-                                          : null,
-                                      onPressed: followBusy
-                                          ? null
-                                          : () => toggleFollow(movie),
                                     ),
                                     detailAction(
                                       icon: Icons.share_rounded,
