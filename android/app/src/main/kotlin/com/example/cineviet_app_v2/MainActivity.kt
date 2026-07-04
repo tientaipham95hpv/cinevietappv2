@@ -7,6 +7,8 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import androidx.core.content.FileProvider
+import java.io.File
 import android.view.WindowManager
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -16,6 +18,7 @@ import kotlin.math.roundToInt
 class MainActivity : FlutterActivity() {
     private val brightnessChannel = "live.cineviet/brightness"
     private val oauthChannel = "live.cineviet/oauth"
+    private val installerChannel = "live.cineviet/installer"
     private var latestOAuthCallback: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -37,6 +40,20 @@ class MainActivity : FlutterActivity() {
                 "getLatestCallback" -> {
                     result.success(latestOAuthCallback)
                     latestOAuthCallback = null
+                }
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, installerChannel).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "installApk" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrBlank()) {
+                        result.error("missing_path", "APK path is required", null)
+                    } else {
+                        installApk(path)
+                        result.success(null)
+                    }
                 }
                 else -> result.notImplemented()
             }
@@ -80,6 +97,17 @@ class MainActivity : FlutterActivity() {
         if (uri.startsWith("cineviet://auth/callback")) {
             latestOAuthCallback = uri
         }
+    }
+
+    private fun installApk(path: String) {
+        val apk = File(path)
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/vnd.android.package-archive")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(intent)
     }
 
     private fun currentBrightness(): Double {

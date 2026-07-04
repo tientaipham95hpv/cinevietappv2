@@ -20,6 +20,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
+import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 import 'package:video_player_media_kit/video_player_media_kit.dart';
@@ -4701,9 +4702,19 @@ class _AddToPlaylistSheetState extends State<AddToPlaylistSheet> {
   }
 }
 
-class UpdateInfoScreen extends StatelessWidget {
-  UpdateInfoScreen({super.key});
-  final Future<Map<String, dynamic>> future = _load();
+class UpdateInfoScreen extends StatefulWidget {
+  const UpdateInfoScreen({super.key});
+
+  @override
+  State<UpdateInfoScreen> createState() => _UpdateInfoScreenState();
+}
+
+class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
+  static const _installerChannel = MethodChannel('live.cineviet/installer');
+  late final Future<Map<String, dynamic>> future = _load();
+  bool downloading = false;
+  double progress = 0;
+  String? statusMessage;
 
   static Future<Map<String, dynamic>> _load() async {
     final info = await PackageInfo.fromPlatform();
@@ -4723,6 +4734,42 @@ class UpdateInfoScreen extends StatelessWidget {
       },
     );
     return {'local': info, 'remote': res.data, 'platform': platform};
+  }
+
+  Future<void> _downloadAndInstall(String url) async {
+    if (downloading) return;
+    setState(() {
+      downloading = true;
+      progress = 0;
+      statusMessage = 'Đang tải bản mới...';
+    });
+    try {
+      if (!kIsWeb && Platform.isAndroid) {
+        final dir = await getTemporaryDirectory();
+        final file = File('${dir.path}/cineviet-update.apk');
+        if (await file.exists()) await file.delete();
+        await Dio().download(
+          url,
+          file.path,
+          onReceiveProgress: (received, total) {
+            if (!mounted || total <= 0) return;
+            setState(() => progress = received / total);
+          },
+        );
+        setState(() => statusMessage = 'Đã tải xong, đang mở trình cài đặt...');
+        await _installerChannel.invokeMethod('installApk', {'path': file.path});
+      } else {
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(
+        () => statusMessage = 'Không cài được tự động. Đang mở link tải...',
+      );
+      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    } finally {
+      if (mounted) setState(() => downloading = false);
+    }
   }
 
   @override
@@ -4818,13 +4865,36 @@ class UpdateInfoScreen extends StatelessWidget {
                     if (url.isNotEmpty && updateAvailable) ...[
                       const SizedBox(height: 16),
                       FilledButton.icon(
-                        onPressed: () => launchUrl(
-                          Uri.parse(url),
-                          mode: LaunchMode.externalApplication,
+                        onPressed: downloading
+                            ? null
+                            : () => _downloadAndInstall(url),
+                        icon: downloading
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : const Icon(Icons.download_rounded),
+                        label: Text(
+                          downloading ? 'Đang tải...' : 'Tải bản mới',
                         ),
-                        icon: const Icon(Icons.download_rounded),
-                        label: const Text('Tải bản mới'),
                       ),
+                      if (statusMessage != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          statusMessage!,
+                          style: const TextStyle(color: CvColors.muted),
+                        ),
+                      ],
+                      if (downloading && progress > 0) ...[
+                        const SizedBox(height: 8),
+                        LinearProgressIndicator(
+                          value: progress.clamp(0, 1),
+                          color: CvColors.accent,
+                        ),
+                      ],
                     ],
                   ],
                 ),
@@ -6828,8 +6898,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool recoveringPlayback = false;
   bool reportingPlaybackIssue = false;
   bool androidBrightnessSettingsPrompted = false;
+  bool introSkipped = false;
   int runtimeRecoveryAttempts = 0;
   Duration? lastGoodPosition;
+  static const introSkipSeconds = 72;
   String? playbackNotice;
   String? lastPlaybackError;
   late final String playbackSessionId =
@@ -7458,6 +7530,23 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (showControls) _showControls();
   }
 
+  bool _shouldShowIntroSkip(VideoPlayerController? c) {
+    if (introSkipped || c == null || !c.value.isInitialized) return false;
+    if (c.value.duration.inSeconds <= introSkipSeconds) return false;
+    final seconds = c.value.position.inSeconds;
+    return seconds >= 1 && seconds < introSkipSeconds;
+  }
+
+  Future<void> _skipIntro() async {
+    final c = controller;
+    if (c == null || !c.value.isInitialized) return;
+    introSkipped = true;
+    final target = Duration(seconds: introSkipSeconds);
+    await c.seekTo(_clampPosition(target, c.value.duration));
+    _emitWatchSync(force: true);
+    if (mounted) setState(() {});
+  }
+
   void _clearGestureHintSoon() {
     gestureHintTimer?.cancel();
     gestureHintTimer = Timer(const Duration(milliseconds: 620), () {
@@ -7952,6 +8041,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       currentServerIndex = serverIndex < 0 ? currentServerIndex : serverIndex;
       controls = true;
       error = null;
+      introSkipped = false;
       selectedPlaybackSourceId = 'auto';
       selectedPlaybackSourceLabel = 'Auto';
     });
@@ -8344,6 +8434,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                         ),
                       ),
                     ),
+                  if (_shouldShowIntroSkip(c) && !controlsLocked)
+                    IntroSkipButton(onPressed: _skipIntro),
                   if (controls && !controlsLocked)
                     PlayerOverlay(
                       controller: c,
@@ -8437,6 +8529,35 @@ class _PlayerScreenState extends State<PlayerScreen>
         tooltip: locked ? 'Mở khóa cử chỉ' : 'Khóa cử chỉ',
         onPressed: _toggleControlsLock,
         icon: Icon(locked ? Icons.lock_open_rounded : Icons.lock_rounded),
+      ),
+    ),
+  );
+}
+
+class IntroSkipButton extends StatelessWidget {
+  const IntroSkipButton({super.key, required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+    right: 20,
+    bottom: 118,
+    child: SafeArea(
+      child: FilledButton.icon(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: Colors.black.withValues(alpha: .72),
+          foregroundColor: CvColors.text,
+          side: const BorderSide(color: CvColors.borderLight),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        ),
+        icon: const Icon(Icons.fast_forward_rounded, size: 18),
+        label: const Text(
+          'Bỏ qua intro',
+          style: TextStyle(fontWeight: FontWeight.w900),
+        ),
       ),
     ),
   );
