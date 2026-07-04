@@ -9579,36 +9579,100 @@ class MoviePosterCard extends StatelessWidget {
                             onPressed: onRemove!,
                           ),
                         ),
+                      if (useLandscapeArt) ...[
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              gradient: LinearGradient(
+                                begin: Alignment.topCenter,
+                                end: Alignment.bottomCenter,
+                                colors: [
+                                  Colors.transparent,
+                                  Colors.black.withValues(alpha: .12),
+                                  Colors.black.withValues(alpha: .82),
+                                ],
+                                stops: const [.45, .7, 1],
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          left: 12,
+                          right: 12,
+                          bottom: 10,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                movie.title,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                textScaler: TextScaler.noScaling,
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w800,
+                                  height: 1.15,
+                                  shadows: [
+                                    Shadow(color: Colors.black, blurRadius: 8),
+                                  ],
+                                ),
+                              ),
+                              if (movie.metaLine.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  movie.metaLine,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textScaler: TextScaler.noScaling,
+                                  style: TextStyle(
+                                    color: Colors.white.withValues(alpha: .82),
+                                    fontSize: 12,
+                                    shadows: const [
+                                      Shadow(
+                                        color: Colors.black,
+                                        blurRadius: 6,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                height: 42,
-                child: Text(
-                  movie.title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textScaler: TextScaler.noScaling,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                    height: 1.18,
+              if (!useLandscapeArt) ...[
+                const SizedBox(height: 8),
+                SizedBox(
+                  height: 42,
+                  child: Text(
+                    movie.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textScaler: TextScaler.noScaling,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      height: 1.18,
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              SizedBox(
-                height: 18,
-                child: Text(
-                  movie.metaLine,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textScaler: TextScaler.noScaling,
-                  style: const TextStyle(color: CvColors.muted, fontSize: 12),
+                const SizedBox(height: 4),
+                SizedBox(
+                  height: 18,
+                  child: Text(
+                    movie.metaLine,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textScaler: TextScaler.noScaling,
+                    style: const TextStyle(color: CvColors.muted, fontSize: 12),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),
@@ -9933,6 +9997,20 @@ class _FocusButtonState extends State<FocusButton> {
                   color: focused ? Colors.white : Colors.transparent,
                   width: focused ? 2 : 1,
                 ),
+                boxShadow: focused && isTvBuild
+                    ? [
+                        BoxShadow(
+                          color: CvColors.accent.withValues(alpha: .55),
+                          blurRadius: 26,
+                          spreadRadius: 1,
+                        ),
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: .5),
+                          blurRadius: 18,
+                          offset: const Offset(0, 10),
+                        ),
+                      ]
+                    : null,
               ),
               child: widget.child,
             ),
@@ -10291,7 +10369,7 @@ double movieCardExtent(BuildContext context) =>
     isTvBuild ? landscapeExtent(context) : cardExtent(context);
 
 double moviePosterCardHeight(double width) =>
-    (isTvBuild ? width * 9 / 16 : width * 1.5) + 72;
+    isTvBuild ? (width * 9 / 16 + 12) : (width * 1.5 + 72);
 
 double moviePosterRowHeight(double width) =>
     moviePosterCardHeight(width) + (isTvBuild ? 28 : 0);
