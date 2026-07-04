@@ -144,9 +144,14 @@ class DeepLinkService {
   DeepLinkService._();
   static final AppLinks _links = AppLinks();
   static StreamSubscription<Uri>? _subscription;
+  static Timer? _windowsBridgeTimer;
+  static String _lastWindowsBridgeUrl = '';
 
   static Future<void> start(MovieRepository repo) async {
-    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    if (kIsWeb ||
+        !(Platform.isAndroid || Platform.isIOS || Platform.isWindows)) {
+      return;
+    }
     try {
       final initial = await _links.getInitialLink();
       if (initial != null) unawaited(open(initial, repo));
@@ -156,6 +161,31 @@ class DeepLinkService {
       (uri) => unawaited(open(uri, repo)),
       onError: (_) {},
     );
+    if (Platform.isWindows) {
+      await _consumeWindowsBridge(repo);
+      _windowsBridgeTimer?.cancel();
+      _windowsBridgeTimer = Timer.periodic(
+        const Duration(milliseconds: 600),
+        (_) => unawaited(_consumeWindowsBridge(repo)),
+      );
+    }
+  }
+
+  static Future<void> _consumeWindowsBridge(MovieRepository repo) async {
+    if (kIsWeb || !Platform.isWindows) return;
+    try {
+      final file = File(windowsDeepLinkBridgePath);
+      if (!await file.exists()) return;
+      final url = cleanText(await file.readAsString());
+      try {
+        await file.delete();
+      } catch (_) {
+        await file.writeAsString('');
+      }
+      if (url.isEmpty || url == _lastWindowsBridgeUrl) return;
+      _lastWindowsBridgeUrl = url;
+      unawaited(open(Uri.parse(url), repo));
+    } catch (_) {}
   }
 
   static Future<void> open(Uri uri, MovieRepository repo) async {
@@ -426,6 +456,8 @@ Future<Map<String, String>> playbackClientInfo() {
 
 String get windowsOAuthBridgePath =>
     '${Directory.systemTemp.path}\\cineviet_oauth_callback.txt';
+String get windowsDeepLinkBridgePath =>
+    '${Directory.systemTemp.path}\\cineviet_deeplink.txt';
 
 List<String> csv(dynamic value) {
   if (value is List) {
