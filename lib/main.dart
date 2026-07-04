@@ -9994,7 +9994,9 @@ class _FocusButtonState extends State<FocusButton> {
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
-                  color: focused ? Colors.white : Colors.transparent,
+                  color: focused
+                      ? (isTvBuild ? CvColors.accent : Colors.white)
+                      : Colors.transparent,
                   width: focused ? 2 : 1,
                 ),
                 boxShadow: focused && isTvBuild
