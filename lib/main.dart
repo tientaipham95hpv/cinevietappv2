@@ -8283,11 +8283,14 @@ class _PlayerScreenState extends State<PlayerScreen>
   Widget build(BuildContext context) {
     final c = controller;
     return PopScope(
-      canPop: true,
+      // WebView (StreamC/NguồnC) có thể giữ history/popup riêng và nuốt nút back.
+      // Chặn pop mặc định để mọi nút back luôn đi qua _exitPlayer() của app.
+      canPop: false,
       onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
         _stopPlaybackNow();
         unawaited(_save());
-        if (!didPop) unawaited(_exitPlayer());
+        unawaited(_exitPlayer());
       },
       child: Scaffold(
         backgroundColor: Colors.black,
@@ -8339,7 +8342,9 @@ class _PlayerScreenState extends State<PlayerScreen>
               if (key == LogicalKeyboardKey.keyM) _toggleMute();
               if (key == LogicalKeyboardKey.keyF) _cycleFitMode();
               if (key == LogicalKeyboardKey.keyE) _showEpisodeSheet();
-              if (key == LogicalKeyboardKey.escape) {
+              if (key == LogicalKeyboardKey.escape ||
+                  key == LogicalKeyboardKey.goBack ||
+                  key == LogicalKeyboardKey.browserBack) {
                 _exitPlayer();
               }
             }
