@@ -746,7 +746,29 @@ class Movie {
       return single.name.isEmpty ? const [] : [single];
     }
 
-    final parsedEpisodes = parseEpisodes(json['episodes']);
+    int serverPriority(EpisodeServer server) {
+      final name = server.name.toLowerCase();
+      // Thứ tự ưu tiên nguồn phát: OPhim → KKPhim/PhimAPI → NguồnC.
+      // NguồnC/StreamC chỉ là dự phòng embed/WebView, không đứng trước m3u8 sạch.
+      if (name.contains('ophim')) return 0;
+      if (name.contains('kkphim') || name.contains('phimapi')) return 1;
+      if (name.contains('nguồn c') ||
+          name.contains('nguồnc') ||
+          name.contains('nguonc') ||
+          server.items.any(
+            (e) => e.linkEmbed.toLowerCase().contains('streamc.xyz'),
+          )) {
+        return 2;
+      }
+      return 3;
+    }
+
+    final parsedEpisodes = parseEpisodes(json['episodes'])
+      ..sort((a, b) {
+        final pa = serverPriority(a);
+        final pb = serverPriority(b);
+        return pa == pb ? 0 : pa.compareTo(pb);
+      });
     final videoUrl = cleanText(json['video_url']);
     final episodes = parsedEpisodes.isNotEmpty || videoUrl.isEmpty
         ? parsedEpisodes
@@ -7088,8 +7110,13 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   String? _webViewFallbackUrl(EpisodeItem episode) {
-    // Bỏ NguồnC/StreamC trên app v2: nguồn này chỉ có embed, không có m3u8/direct
-    // và player StreamC thường tự lỗi/kẹt back trên mobile.
+    // Thử nghiệm có kiểm soát cho StreamC/NguồnC: nguồn này chỉ có embed,
+    // không có m3u8/direct nên native player không dùng được. Chỉ bật WebView
+    // cho chính link embed StreamC của tập hiện tại; không tự nhảy server khác.
+    final embed = episode.linkEmbed.trim();
+    if (_isStreamCEmbedUrl(embed)) return embed;
+    final play = episode.playUrl.trim();
+    if (_isStreamCEmbedUrl(play)) return play;
     return null;
   }
 
@@ -7260,6 +7287,20 @@ class _PlayerScreenState extends State<PlayerScreen>
       )
       ..setNavigationDelegate(
         NavigationDelegate(
+          onNavigationRequest: (request) {
+            final requested = Uri.tryParse(request.url);
+            final initial = Uri.tryParse(url);
+            final host = requested?.host.toLowerCase() ?? '';
+            final initialHost = initial?.host.toLowerCase() ?? '';
+            final isStreamCFrame =
+                host == initialHost || host.endsWith('.streamc.xyz');
+            if (request.isMainFrame && !isStreamCFrame) {
+              // Chặn popup/redirect quảng cáo chiếm toàn màn hình. Tài nguyên phụ
+              // (JS/CDN/ads iframe) vẫn để trang tự xử lý để player StreamC chạy.
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
           onWebResourceError: (error) {
             lastPlaybackError = '${error.errorCode}: ${error.description}';
             _trackPlaybackEvent(
@@ -7270,7 +7311,13 @@ class _PlayerScreenState extends State<PlayerScreen>
           },
         ),
       )
-      ..loadRequest(Uri.parse(url));
+      ..loadRequest(
+        Uri.parse(url),
+        headers: const {
+          'Referer': 'https://cineviet.live/',
+          'Origin': 'https://cineviet.live',
+        },
+      );
     if (controller.platform is AndroidWebViewController) {
       await (controller.platform as AndroidWebViewController)
           .setMediaPlaybackRequiresUserGesture(false);
