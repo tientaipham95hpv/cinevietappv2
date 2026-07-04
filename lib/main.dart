@@ -6889,10 +6889,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   String? _webViewFallbackUrl(EpisodeItem episode) {
-    final embed = episode.linkEmbed.trim();
-    if (_isStreamCEmbedUrl(embed)) return embed;
-    final playUrl = episode.playUrl.trim();
-    if (_isStreamCEmbedUrl(playUrl)) return playUrl;
+    // Bỏ NguồnC/StreamC trên app v2: nguồn này chỉ có embed, không có m3u8/direct
+    // và player StreamC thường tự lỗi/kẹt back trên mobile.
     return null;
   }
 
@@ -6982,8 +6980,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         haystack.contains('nguon c') ||
         haystack.contains('nguonc') ||
         haystack.contains('streamc.xyz')) {
-      score -= 120;
-      score += source.isWebViewOnly ? 0 : 10;
+      score -= 1000;
     }
     if (haystack.contains('cam') || RegExp(r'\bts\b').hasMatch(haystack)) {
       score -= 120;
