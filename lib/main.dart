@@ -715,7 +715,17 @@ class EpisodeServer {
 
   String get displayName => name
       .replaceAll(
-        RegExp(r'\s*\[(ophim|phimapi)\]\s*', caseSensitive: false),
+        RegExp(
+          r'\s*\[(ophim|kkphim|phimapi|nguồn\s*c|nguonc)\]\s*',
+          caseSensitive: false,
+        ),
+        ' ',
+      )
+      .replaceAll(
+        RegExp(
+          r'\s*(ophim|kkphim|phimapi|nguồn\s*c|nguonc)\s*[-–]\s*',
+          caseSensitive: false,
+        ),
         ' ',
       )
       .replaceAll(RegExp(r'\s+'), ' ')
@@ -6960,18 +6970,20 @@ class _PlayerScreenState extends State<PlayerScreen>
                 '${source.episode.linkM3u8} ${source.episode.linkEmbed}'
             .toLowerCase();
     var score = 0;
-    if (haystack.contains('nguồnc') ||
-        haystack.contains('nguonc') ||
-        haystack.contains('streamc.xyz')) {
-      score += source.isWebViewOnly ? 10 : 95;
+    if (haystack.contains('ophim') || haystack.contains('opstream')) {
+      score += 120;
     }
     if (haystack.contains('phimapi') ||
         haystack.contains('kkphim') ||
         haystack.contains('phim1280')) {
       score += 80;
     }
-    if (haystack.contains('ophim') || haystack.contains('opstream')) {
-      score -= 35;
+    if (haystack.contains('nguồnc') ||
+        haystack.contains('nguon c') ||
+        haystack.contains('nguonc') ||
+        haystack.contains('streamc.xyz')) {
+      score -= 120;
+      score += source.isWebViewOnly ? 0 : 10;
     }
     if (haystack.contains('cam') || RegExp(r'\bts\b').hasMatch(haystack)) {
       score -= 120;
@@ -7731,9 +7743,16 @@ class _PlayerScreenState extends State<PlayerScreen>
     leavingPlayer = true;
     _stopPlaybackNow();
     if (mounted) setState(() {});
-    await _save();
-    if (isWatchTogether) await _closeWatchRoomIfNeeded();
-    if (mounted) Navigator.of(context).maybePop();
+    try {
+      await _save().timeout(const Duration(seconds: 2));
+    } catch (_) {}
+    if (isWatchTogether) {
+      try {
+        await _closeWatchRoomIfNeeded().timeout(const Duration(seconds: 2));
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
   }
 
   Future<void> _retryPlayback() async {
@@ -8232,14 +8251,11 @@ class _PlayerScreenState extends State<PlayerScreen>
   Widget build(BuildContext context) {
     final c = controller;
     return PopScope(
-      canPop: leavingPlayer,
+      canPop: true,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) {
-          _stopPlaybackNow();
-          _save();
-          return;
-        }
-        _exitPlayer();
+        _stopPlaybackNow();
+        unawaited(_save());
+        if (!didPop) unawaited(_exitPlayer());
       },
       child: Scaffold(
         backgroundColor: Colors.black,
