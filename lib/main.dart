@@ -10,7 +10,9 @@ import 'package:dio/dio.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -34,6 +36,8 @@ const siteBase = 'https://cineviet.live';
 const isTvBuild = bool.fromEnvironment('APP_IS_TV');
 const googleServerClientId =
     '186784861581-5l7skrrke87pmf669l6ach0brbra4v76.apps.googleusercontent.com';
+
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 bool get supportsTvQrScan =>
     !kIsWeb && !isTvBuild && (Platform.isAndroid || Platform.isIOS);
@@ -110,6 +114,75 @@ class AppTelemetry {
   }
 }
 
+class AppNotificationService {
+  AppNotificationService._();
+  static StreamSubscription<String>? _tokenRefresh;
+
+  static Future<void> start(MovieRepository repo) async {
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    try {
+      await FirebaseMessaging.instance.requestPermission();
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null && token.isNotEmpty && Api.instance.hasAuthToken) {
+        await repo.registerFcmToken(token);
+      }
+      await _tokenRefresh?.cancel();
+      _tokenRefresh = FirebaseMessaging.instance.onTokenRefresh.listen((token) {
+        if (Api.instance.hasAuthToken) unawaited(repo.registerFcmToken(token));
+      });
+      FirebaseMessaging.onMessageOpenedApp.listen((message) {
+        final url = cleanText(message.data['url'] ?? message.data['link']);
+        if (url.isNotEmpty) {
+          unawaited(DeepLinkService.open(Uri.parse(url), repo));
+        }
+      });
+    } catch (_) {}
+  }
+}
+
+class DeepLinkService {
+  DeepLinkService._();
+  static final AppLinks _links = AppLinks();
+  static StreamSubscription<Uri>? _subscription;
+
+  static Future<void> start(MovieRepository repo) async {
+    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    try {
+      final initial = await _links.getInitialLink();
+      if (initial != null) unawaited(open(initial, repo));
+    } catch (_) {}
+    await _subscription?.cancel();
+    _subscription = _links.uriLinkStream.listen(
+      (uri) => unawaited(open(uri, repo)),
+      onError: (_) {},
+    );
+  }
+
+  static Future<void> open(Uri uri, MovieRepository repo) async {
+    final slug = _movieSlug(uri);
+    if (slug == null || slug.isEmpty) return;
+    try {
+      final movie = await repo.detail(slug);
+      final context = appNavigatorKey.currentContext;
+      if (context == null || !context.mounted) return;
+      openDetail(context, repo, movie);
+    } catch (_) {}
+  }
+
+  static String? _movieSlug(Uri uri) {
+    final host = uri.host.toLowerCase();
+    final segments = uri.pathSegments
+        .where((e) => e.trim().isNotEmpty)
+        .toList();
+    if (host == 'phim' && segments.isNotEmpty) return segments.first;
+    final phimIndex = segments.indexWhere((e) => e.toLowerCase() == 'phim');
+    if (phimIndex >= 0 && segments.length > phimIndex + 1) {
+      return segments[phimIndex + 1];
+    }
+    return null;
+  }
+}
+
 class CineVietV2App extends StatelessWidget {
   const CineVietV2App({super.key});
 
@@ -166,6 +239,7 @@ class CineVietV2App extends StatelessWidget {
       title: isTvBuild ? 'CineViet TV' : 'CineViet',
       debugShowCheckedModeBanner: false,
       theme: theme,
+      navigatorKey: appNavigatorKey,
       home: const AppShell(),
     );
   }
@@ -1481,6 +1555,29 @@ class MovieRepository {
     _favoriteIdsCache = next;
   }
 
+  Future<Map<String, dynamic>> followStatus(int movieId) async {
+    final res = await api.dio.get('/movies/$movieId/follow');
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<Map<String, dynamic>> toggleFollow(int movieId, bool follow) async {
+    final res = follow
+        ? await api.dio.post('/movies/$movieId/follow')
+        : await api.dio.delete('/movies/$movieId/follow');
+    return Map<String, dynamic>.from(res.data as Map);
+  }
+
+  Future<void> registerFcmToken(String token) async {
+    if (token.trim().isEmpty) return;
+    await api.dio.post(
+      '/app/fcm-token',
+      data: {
+        'token': token.trim(),
+        'platform': isTvBuild ? 'android-tv' : 'android',
+      },
+    );
+  }
+
   Future<List<CinePlaylist>> playlists() async {
     final res = await api.dio.get('/playlists/my');
     return (res.data is List ? res.data as List : const [])
@@ -1923,9 +2020,11 @@ class _AppShellState extends State<AppShell> {
     Api.instance.restoreToken().whenComplete(() {
       if (!mounted) return;
       setState(() => ready = true);
-      WidgetsBinding.instance.addPostFrameCallback(
-        (_) => _checkStartupUpdate(),
-      );
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _checkStartupUpdate();
+        unawaited(DeepLinkService.start(repo));
+        unawaited(AppNotificationService.start(repo));
+      });
     });
   }
 
@@ -5836,6 +5935,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   int? favoriteMovieId;
   bool isFavorite = false;
   bool favoriteBusy = false;
+  bool isFollowing = false;
+  bool followBusy = false;
 
   @override
   void initState() {
@@ -5844,6 +5945,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     favoriteMovieId = widget.initial.id;
     refreshFavoriteState(widget.initial);
     future.then(refreshFavoriteState).catchError((_) {});
+    future.then(refreshFollowState).catchError((_) {});
     if (widget.autoplay) {
       future.then((movie) {
         if (!mounted) return;
@@ -5877,6 +5979,41 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       isFavorite = favorited;
       favoriteBusy = false;
     });
+  }
+
+  Future<void> refreshFollowState(Movie movie) async {
+    if (movie.id <= 0 || !Api.instance.hasAuthToken) return;
+    try {
+      final status = await widget.repo.followStatus(movie.id);
+      if (!mounted) return;
+      setState(() => isFollowing = status['following'] == true);
+    } catch (_) {}
+  }
+
+  Future<void> toggleFollow(Movie movie) async {
+    if (followBusy) return;
+    if (!await requireLogin(context, 'Theo dõi phim')) return;
+    final next = !isFollowing;
+    setState(() {
+      isFollowing = next;
+      followBusy = true;
+    });
+    try {
+      await widget.repo.toggleFollow(movie.id, next);
+      if (!mounted) return;
+      showSnack(
+        context,
+        next ? 'Đã theo dõi phim này' : 'Đã bỏ theo dõi phim này',
+      );
+      setState(() => followBusy = false);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        isFollowing = !next;
+        followBusy = false;
+      });
+      showSnack(context, 'Không cập nhật được theo dõi');
+    }
   }
 
   Future<void> toggleFavorite(Movie movie) async {
@@ -6058,6 +6195,20 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                       onPressed: favoriteBusy
                                           ? null
                                           : () => toggleFavorite(movie),
+                                    ),
+                                    detailAction(
+                                      icon: isFollowing
+                                          ? Icons.notifications_active_rounded
+                                          : Icons.notifications_none_rounded,
+                                      label: isFollowing
+                                          ? 'Đang theo dõi'
+                                          : 'Theo dõi',
+                                      color: isFollowing
+                                          ? CvColors.amber
+                                          : null,
+                                      onPressed: followBusy
+                                          ? null
+                                          : () => toggleFollow(movie),
                                     ),
                                     detailAction(
                                       icon: Icons.share_rounded,
