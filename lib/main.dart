@@ -2035,11 +2035,6 @@ class _AppShellState extends State<AppShell> {
         label: 'Của tôi',
         screen: ProfileScreen(repo: repo),
       ),
-      AppDestination(
-        icon: Icons.settings_rounded,
-        label: 'Cài đặt',
-        screen: const SettingsScreen(),
-      ),
     ];
     if (index >= destinations.length) index = destinations.length - 1;
     final wide = MediaQuery.sizeOf(context).width >= 900 || isTvBuild;
@@ -4052,39 +4047,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         );
       },
-    );
-  }
-}
-
-class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return ListView(
-      key: const PageStorageKey('settings-scroll'),
-      padding: pagePadding(context).copyWith(top: 36, bottom: 36),
-      children: [
-        const PageHeading('Cài đặt'),
-        const SizedBox(height: 22),
-        ProfileTile(
-          icon: Icons.system_update_alt_rounded,
-          title: 'Kiểm tra cập nhật',
-          subtitle: 'Tải bản mới và cài đặt khi có cập nhật',
-          onTap: () => Navigator.of(
-            context,
-          ).push(MaterialPageRoute(builder: (_) => const UpdateInfoScreen())),
-        ),
-        ProfileTile(
-          icon: Icons.language_rounded,
-          title: 'Mở cineviet.live',
-          subtitle: siteBase,
-          onTap: () => launchUrl(
-            Uri.parse(siteBase),
-            mode: LaunchMode.externalApplication,
-          ),
-        ),
-      ],
     );
   }
 }
@@ -7060,8 +7022,6 @@ class _PlayerScreenState extends State<PlayerScreen>
   int activePlayableUrlIndex = 0;
   WebViewController? webViewController;
   String? activeWebViewUrl;
-  String selectedPlaybackSourceId = 'auto';
-  String selectedPlaybackSourceLabel = 'Auto';
   bool recoveringPlayback = false;
   bool reportingPlaybackIssue = false;
   bool androidBrightnessSettingsPrompted = false;
@@ -7201,130 +7161,34 @@ class _PlayerScreenState extends State<PlayerScreen>
     return 600;
   }
 
-  int _sourceReliabilityRank(PlaybackSourceCandidate source) {
-    final haystack =
-        '${source.server.name} ${source.episode.filename} '
-                '${source.episode.linkM3u8} ${source.episode.linkEmbed}'
-            .toLowerCase();
-    var score = 0;
-    if (haystack.contains('ophim') || haystack.contains('opstream')) {
-      score += 120;
-    }
-    if (haystack.contains('phimapi') ||
-        haystack.contains('kkphim') ||
-        haystack.contains('phim1280')) {
-      score += 80;
-    }
-    if (haystack.contains('nguồnc') ||
-        haystack.contains('nguon c') ||
-        haystack.contains('nguonc') ||
-        haystack.contains('streamc.xyz')) {
-      score -= 1000;
-    }
-    if (haystack.contains('cam') || RegExp(r'\bts\b').hasMatch(haystack)) {
-      score -= 120;
-    }
-    if (source.episode.linkM3u8.isNotEmpty) score += 20;
-    if (source.qualityRank >= 720) score += 20;
-    return score;
-  }
-
-  bool _sameEpisodeName(EpisodeItem a, EpisodeItem b) {
-    final left = compactKey(a.name);
-    final right = compactKey(b.name);
-    if (left.isEmpty || right.isEmpty) return a.playUrl == b.playUrl;
-    return left == right || a.displayName == b.displayName;
-  }
-
-  List<PlaybackSourceCandidate> _playbackSources() {
+  List<PlaybackSourceCandidate> _currentPlaybackSources() {
     final sources = <PlaybackSourceCandidate>[];
-    final servers = widget.movie.episodes.isEmpty
-        ? [currentServer]
-        : widget.movie.episodes;
-    for (var serverIndex = 0; serverIndex < servers.length; serverIndex++) {
-      final server = servers[serverIndex];
-      for (final episode in server.items) {
-        if (!_sameEpisodeName(episode, currentEpisode)) continue;
-        final urls = _playableUrls(episode.playUrl);
-        final webViewUrl = _webViewFallbackUrl(episode);
-        if (urls.isEmpty && webViewUrl == null) continue;
-        final quality = _qualityLabelFor(server, episode);
-        final sourceType = urls.isNotEmpty
-            ? (episode.linkM3u8.isNotEmpty ? 'M3U8' : 'Direct')
-            : 'WebView';
-        sources.add(
-          PlaybackSourceCandidate(
-            server: server,
-            episode: episode,
-            serverIndex: serverIndex,
-            qualityLabel: quality,
-            qualityRank: _qualityRank(quality),
-            sourceLabel: '${server.displayName} • $sourceType',
-            urls: urls,
-            webViewUrl: webViewUrl,
-          ),
-        );
-      }
-    }
-    if (sources.isEmpty) {
-      final urls = _playableUrls(currentEpisode.playUrl);
-      final webViewUrl = _webViewFallbackUrl(currentEpisode);
-      if (urls.isNotEmpty || webViewUrl != null) {
-        final quality = _qualityLabelFor(currentServer, currentEpisode);
-        sources.add(
-          PlaybackSourceCandidate(
-            server: currentServer,
-            episode: currentEpisode,
-            serverIndex: currentServerIndex,
-            qualityLabel: quality,
-            qualityRank: _qualityRank(quality),
-            sourceLabel: currentServer.displayName,
-            urls: urls,
-            webViewUrl: webViewUrl,
-          ),
-        );
-      }
-    }
-    sources.sort((a, b) {
-      final reliability = _sourceReliabilityRank(
-        b,
-      ).compareTo(_sourceReliabilityRank(a));
-      if (reliability != 0) return reliability;
-      final quality = b.qualityRank.compareTo(a.qualityRank);
-      if (quality != 0) return quality;
-      final m3u8 = (b.episode.linkM3u8.isNotEmpty ? 1 : 0).compareTo(
-        a.episode.linkM3u8.isNotEmpty ? 1 : 0,
+    // Chỉ phát nằng server đang chọn. Phim chỉ có 1 nguồn (kkphim),
+    // các server vẫn phát bình thường nên không tự nhảy sang server
+    // ngôn ngữ khác. Fallback chỉ xảy ra giữa các URL của cùng một tập
+    // (link trực tiếp → link qua proxy) khi link server đó bị chết.
+    final urls = _playableUrls(currentEpisode.playUrl);
+    final webViewUrl = _webViewFallbackUrl(currentEpisode);
+    if (urls.isNotEmpty || webViewUrl != null) {
+      final quality = _qualityLabelFor(currentServer, currentEpisode);
+      sources.add(
+        PlaybackSourceCandidate(
+          server: currentServer,
+          episode: currentEpisode,
+          serverIndex: currentServerIndex,
+          qualityLabel: quality,
+          qualityRank: _qualityRank(quality),
+          sourceLabel: currentServer.displayName,
+          urls: urls,
+          webViewUrl: webViewUrl,
+        ),
       );
-      if (m3u8 != 0) return m3u8;
-      return a.sourceLabel.compareTo(b.sourceLabel);
-    });
+    }
     return sources;
   }
 
-  List<PlaybackSourceCandidate> _selectedPlaybackSources() {
-    final sources = _playbackSources();
-    final filtered = selectedPlaybackSourceId == 'auto'
-        ? sources.where((source) => source.urls.isNotEmpty).toList()
-        : selectedPlaybackSourceId.startsWith('quality:')
-        ? sources
-              .where(
-                (source) =>
-                    compactKey(source.qualityLabel) ==
-                    selectedPlaybackSourceId.substring('quality:'.length),
-              )
-              .toList()
-        : sources
-              .where(
-                (source) => 'source:${source.id}' == selectedPlaybackSourceId,
-              )
-              .toList();
-    return filtered.isEmpty
-        ? sources.where((s) => s.urls.isNotEmpty).toList()
-        : filtered;
-  }
-
   List<PlaybackUrlCandidate> _playbackUrlCandidates() {
-    final selected = _selectedPlaybackSources();
+    final selected = _currentPlaybackSources();
     final urls = <PlaybackUrlCandidate>[];
     final seen = <String>{};
     for (final source in selected) {
@@ -7368,8 +7232,8 @@ class _PlayerScreenState extends State<PlayerScreen>
         errorCode: errorCode,
         errorMessage: errorMessage,
         sourceType: _sourceType(url),
-        sourceLabel: source?.displayName ?? selectedPlaybackSourceLabel,
-        sourceMode: selectedPlaybackSourceLabel,
+        sourceLabel: source?.displayName ?? currentServer.displayName,
+        sourceMode: currentServer.displayName,
         sessionId: playbackSessionId,
       ),
     );
@@ -7442,26 +7306,26 @@ class _PlayerScreenState extends State<PlayerScreen>
     activeWebViewUrl = null;
     activePlayableUrls = _playbackUrlCandidates();
     if (activePlayableUrls.isEmpty) {
-      final webViewSource = selectedPlaybackSourceId == 'auto'
-          ? null
-          : _selectedPlaybackSources().firstWhere(
-              (source) => source.webViewUrl != null,
-              orElse: () => const PlaybackSourceCandidate(
-                server: EpisodeServer(name: '', items: []),
-                episode: EpisodeItem(
-                  name: '',
-                  filename: '',
-                  linkM3u8: '',
-                  linkEmbed: '',
-                ),
-                serverIndex: -1,
-                qualityLabel: '',
-                qualityRank: 0,
-                sourceLabel: '',
-                urls: [],
-              ),
-            );
-      if (webViewSource != null && webViewSource.serverIndex >= 0) {
+      // Link trực tiếp của server đang chọn không phát được native → thử
+      // WebView fallback (StreamC/NguồnC) của chính tập đang xem.
+      final webViewSource = _currentPlaybackSources().firstWhere(
+        (source) => source.webViewUrl != null,
+        orElse: () => const PlaybackSourceCandidate(
+          server: EpisodeServer(name: '', items: []),
+          episode: EpisodeItem(
+            name: '',
+            filename: '',
+            linkM3u8: '',
+            linkEmbed: '',
+          ),
+          serverIndex: -1,
+          qualityLabel: '',
+          qualityRank: 0,
+          sourceLabel: '',
+          urls: [],
+        ),
+      );
+      if (webViewSource.serverIndex >= 0 && webViewSource.webViewUrl != null) {
         await _openWebViewSource(webViewSource);
         return;
       }
@@ -8186,7 +8050,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   String get _activeSourceLabel {
     if (activeWebViewUrl != null) {
-      return '$selectedPlaybackSourceLabel • WebView';
+      return '${currentServer.displayName} • WebView';
     }
     if (activePlayableUrls.isNotEmpty) {
       final source =
@@ -8194,9 +8058,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                   .clamp(0, activePlayableUrls.length - 1)
                   .toInt()]
               .source;
-      return '${selectedPlaybackSourceLabel == 'Auto' ? 'Auto' : selectedPlaybackSourceLabel} • ${source.qualityLabel}';
+      return source.qualityLabel;
     }
-    return selectedPlaybackSourceLabel;
+    return currentServer.displayName;
   }
 
   Future<void> _switchTo(EpisodeServer server, EpisodeItem episode) async {
@@ -8209,8 +8073,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       controls = true;
       error = null;
       introSkipped = false;
-      selectedPlaybackSourceId = 'auto';
-      selectedPlaybackSourceLabel = 'Auto';
     });
     runtimeRecoveryAttempts = 0;
     lastGoodPosition = null;
@@ -8249,137 +8111,6 @@ class _PlayerScreenState extends State<PlayerScreen>
           Navigator.of(context).pop();
           _switchTo(server, episode);
         },
-      ),
-    );
-    _showControls();
-  }
-
-  Future<void> _selectPlaybackSource(String id, String label) async {
-    await _save();
-    final position = controller?.value.position ?? lastGoodPosition;
-    setState(() {
-      selectedPlaybackSourceId = id;
-      selectedPlaybackSourceLabel = label;
-      controls = true;
-      error = null;
-      playbackNotice = label == 'Auto'
-          ? 'Đang bật Auto source...'
-          : 'Đang đổi sang $label...';
-    });
-    runtimeRecoveryAttempts = 0;
-    _trackPlaybackEvent('manual_source_select', errorMessage: label);
-    await _init(startAt: position);
-    _showControls();
-  }
-
-  Future<void> _showSourceSheet() async {
-    final sources = _playbackSources();
-    final qualities = <String, int>{};
-    for (final source in sources) {
-      qualities[compactKey(source.qualityLabel)] = source.qualityRank;
-    }
-    final qualityLabels = qualities.keys.toList()
-      ..sort((a, b) => (qualities[b] ?? 0).compareTo(qualities[a] ?? 0));
-    String labelForQuality(String key) => sources
-        .firstWhere((source) => compactKey(source.qualityLabel) == key)
-        .qualityLabel;
-    await showModalBottomSheet<void>(
-      context: context,
-      backgroundColor: CvColors.ink,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (_) => SafeArea(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-            maxHeight: (MediaQuery.sizeOf(context).height * .82).clamp(
-              280.0,
-              620.0,
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Expanded(child: SectionTitle('Nguồn & chất lượng')),
-                    IconButton(
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    ChoiceChip(
-                      label: const Text('Auto'),
-                      selected: selectedPlaybackSourceId == 'auto',
-                      onSelected: (_) {
-                        Navigator.of(context).pop();
-                        unawaited(_selectPlaybackSource('auto', 'Auto'));
-                      },
-                    ),
-                    for (final qualityKey in qualityLabels)
-                      ChoiceChip(
-                        label: Text(labelForQuality(qualityKey)),
-                        selected:
-                            selectedPlaybackSourceId == 'quality:$qualityKey',
-                        onSelected: (_) {
-                          Navigator.of(context).pop();
-                          unawaited(
-                            _selectPlaybackSource(
-                              'quality:$qualityKey',
-                              labelForQuality(qualityKey),
-                            ),
-                          );
-                        },
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                const Text(
-                  'Nguồn cụ thể',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 10),
-                Expanded(
-                  child: ListView.separated(
-                    itemCount: sources.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final source = sources[index];
-                      final id = 'source:${source.id}';
-                      return ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        selected: selectedPlaybackSourceId == id,
-                        leading: Icon(
-                          source.episode.linkM3u8.isNotEmpty
-                              ? Icons.high_quality_rounded
-                              : Icons.public_rounded,
-                        ),
-                        title: Text(source.sourceLabel),
-                        subtitle: Text(source.qualityLabel),
-                        trailing: selectedPlaybackSourceId == id
-                            ? const Icon(Icons.check_rounded)
-                            : null,
-                        onTap: () {
-                          Navigator.of(context).pop();
-                          unawaited(
-                            _selectPlaybackSource(id, source.displayName),
-                          );
-                        },
-                      );
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
     _showControls();
@@ -8561,7 +8292,6 @@ class _PlayerScreenState extends State<PlayerScreen>
               if (key == LogicalKeyboardKey.keyM) _toggleMute();
               if (key == LogicalKeyboardKey.keyF) _cycleFitMode();
               if (key == LogicalKeyboardKey.keyE) _showEpisodeSheet();
-              if (key == LogicalKeyboardKey.keyS) _showSourceSheet();
               if (key == LogicalKeyboardKey.escape) {
                 _exitPlayer();
               }
@@ -8595,7 +8325,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                       message: error!,
                       reporting: reportingPlaybackIssue,
                       onRetry: _retryPlayback,
-                      onChangeSource: _showSourceSheet,
+                      onChangeSource: _showEpisodeSheet,
                       onReport: _reportPlaybackIssue,
                     )
                   else if (activeWebViewUrl != null &&
@@ -8640,7 +8370,6 @@ class _PlayerScreenState extends State<PlayerScreen>
                         onPrevious: () => _playSibling(-1),
                         onNext: () => _playSibling(1),
                         onEpisodes: _showEpisodeSheet,
-                        onSources: _showSourceSheet,
                         onSettings: _showSettingsSheet,
                         onFit: _cycleFitMode,
                         onBack: _exitPlayer,
@@ -8826,7 +8555,7 @@ class PlayerErrorView extends StatelessWidget {
       OutlinedButton.icon(
         onPressed: onChangeSource,
         icon: const Icon(Icons.video_library_rounded),
-        label: Text(compact ? 'Nguồn' : 'Đổi nguồn'),
+        label: Text(compact ? 'Tập' : 'Chọn tập'),
       ),
       OutlinedButton.icon(
         onPressed: reporting ? null : onReport,
@@ -8894,7 +8623,6 @@ class PlayerOverlay extends StatelessWidget {
     required this.onPrevious,
     required this.onNext,
     required this.onEpisodes,
-    required this.onSources,
     required this.onSettings,
     required this.onFit,
     this.onBack,
@@ -8912,7 +8640,6 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onEpisodes;
-  final VoidCallback onSources;
   final VoidCallback onSettings;
   final VoidCallback onFit;
   final VoidCallback? onBack;
@@ -8989,11 +8716,6 @@ class PlayerOverlay extends StatelessWidget {
                               onPressed: onEpisodes,
                             ),
                             PlayerControlButton(
-                              icon: Icons.high_quality_rounded,
-                              label: 'Nguồn',
-                              onPressed: onSources,
-                            ),
-                            PlayerControlButton(
                               icon: Icons.skip_previous_rounded,
                               label: 'Trước',
                               onPressed: canPrevious ? onPrevious : null,
@@ -9046,8 +8768,7 @@ class PlayerOverlay extends StatelessWidget {
                                   buttons[3],
                                   buttons[4],
                                   buttons[5],
-                                  buttons[6],
-                                  buttons[8],
+                                  buttons[7],
                                 ]
                               : buttons;
                           return Row(
