@@ -1920,9 +1920,13 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    Api.instance.restoreToken().whenComplete(
-      () => setState(() => ready = true),
-    );
+    Api.instance.restoreToken().whenComplete(() {
+      if (!mounted) return;
+      setState(() => ready = true);
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _checkStartupUpdate(),
+      );
+    });
   }
 
   @override
@@ -1950,6 +1954,11 @@ class _AppShellState extends State<AppShell> {
         icon: Icons.person_rounded,
         label: 'Của tôi',
         screen: ProfileScreen(repo: repo),
+      ),
+      AppDestination(
+        icon: Icons.settings_rounded,
+        label: 'Cài đặt',
+        screen: const SettingsScreen(),
       ),
     ];
     if (index >= destinations.length) index = destinations.length - 1;
@@ -1982,6 +1991,39 @@ class _AppShellState extends State<AppShell> {
               onDestinationSelected: (value) => setTab(value, destinations),
             ),
     );
+  }
+
+  Future<void> _checkStartupUpdate() async {
+    try {
+      final data = await _UpdateInfoScreenState.loadUpdateInfo();
+      if (!mounted) return;
+      final remote = data['remote'];
+      if (remote is! Map) return;
+      final updateAvailable = remote['updateAvailable'] == true;
+      final forceUpdate =
+          remote['forceUpdate'] == true || remote['forced'] == true;
+      final url = cleanText(remote['url'] ?? remote['downloadUrl']);
+      if (!updateAvailable || !forceUpdate || url.isEmpty) return;
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => AlertDialog(
+          title: const Text('Cần cập nhật ứng dụng'),
+          content: const Text(
+            'Phiên bản hiện tại đã cũ. Vui lòng cập nhật để tiếp tục sử dụng CineViet.',
+          ),
+          actions: [
+            FilledButton.icon(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const UpdateInfoScreen()),
+              ),
+              icon: const Icon(Icons.system_update_alt_rounded),
+              label: const Text('Cập nhật'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {}
   }
 
   Future<void> setTab(int value, List<AppDestination> destinations) async {
@@ -3932,6 +3974,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
+class SettingsScreen extends StatelessWidget {
+  const SettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      key: const PageStorageKey('settings-scroll'),
+      padding: pagePadding(context).copyWith(top: 36, bottom: 36),
+      children: [
+        const PageHeading('Cài đặt'),
+        const SizedBox(height: 22),
+        ProfileTile(
+          icon: Icons.system_update_alt_rounded,
+          title: 'Kiểm tra cập nhật',
+          subtitle: 'Tải bản mới và cài đặt khi có cập nhật',
+          onTap: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const UpdateInfoScreen())),
+        ),
+        ProfileTile(
+          icon: Icons.language_rounded,
+          title: 'Mở cineviet.live',
+          subtitle: siteBase,
+          onTap: () => launchUrl(
+            Uri.parse(siteBase),
+            mode: LaunchMode.externalApplication,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class TvProfileHub extends StatelessWidget {
   const TvProfileHub({
     super.key,
@@ -4711,12 +4786,12 @@ class UpdateInfoScreen extends StatefulWidget {
 
 class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
   static const _installerChannel = MethodChannel('live.cineviet/installer');
-  late final Future<Map<String, dynamic>> future = _load();
+  late final Future<Map<String, dynamic>> future = loadUpdateInfo();
   bool downloading = false;
   double progress = 0;
   String? statusMessage;
 
-  static Future<Map<String, dynamic>> _load() async {
+  static Future<Map<String, dynamic>> loadUpdateInfo() async {
     final info = await PackageInfo.fromPlatform();
     final platform = isTvBuild
         ? 'android-tv'
@@ -5983,6 +6058,16 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                       onPressed: favoriteBusy
                                           ? null
                                           : () => toggleFavorite(movie),
+                                    ),
+                                    detailAction(
+                                      icon: Icons.share_rounded,
+                                      label: 'Chia sẻ',
+                                      onPressed: () => launchUrl(
+                                        Uri.parse(
+                                          '$siteBase/phim/${movie.slug}',
+                                        ),
+                                        mode: LaunchMode.externalApplication,
+                                      ),
                                     ),
                                     detailAction(
                                       icon: Icons.playlist_add_rounded,
@@ -8358,10 +8443,12 @@ class _PlayerScreenState extends State<PlayerScreen>
               _togglePlay();
             }
             if (key == LogicalKeyboardKey.arrowRight ||
+                key == LogicalKeyboardKey.mediaFastForward ||
                 key == LogicalKeyboardKey.keyL) {
               _seekBy(const Duration(seconds: 10));
             }
             if (key == LogicalKeyboardKey.arrowLeft ||
+                key == LogicalKeyboardKey.mediaRewind ||
                 key == LogicalKeyboardKey.keyJ) {
               _seekBy(const Duration(seconds: -10));
             }
