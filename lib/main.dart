@@ -8321,8 +8321,17 @@ class _PlayerScreenState extends State<PlayerScreen>
         body: KeyboardListener(
           focusNode: focusNode,
           onKeyEvent: (event) {
-            if (event is! KeyDownEvent || c == null) return;
+            if (event is! KeyDownEvent) return;
             final key = event.logicalKey;
+            // Back phải hoạt động trên WebView StreamC cả khi không có native
+            // VideoPlayer controller (Android TV remote, Windows Esc/back, keyboard).
+            if (key == LogicalKeyboardKey.escape ||
+                key == LogicalKeyboardKey.goBack ||
+                key == LogicalKeyboardKey.browserBack) {
+              _exitPlayer();
+              return;
+            }
+            if (c == null) return;
             final primaryFocus = FocusManager.instance.primaryFocus;
             final playerHasPrimaryFocus =
                 primaryFocus == null || primaryFocus == focusNode;
@@ -8366,11 +8375,6 @@ class _PlayerScreenState extends State<PlayerScreen>
               if (key == LogicalKeyboardKey.keyM) _toggleMute();
               if (key == LogicalKeyboardKey.keyF) _cycleFitMode();
               if (key == LogicalKeyboardKey.keyE) _showEpisodeSheet();
-              if (key == LogicalKeyboardKey.escape ||
-                  key == LogicalKeyboardKey.goBack ||
-                  key == LogicalKeyboardKey.browserBack) {
-                _exitPlayer();
-              }
             }
             if (isWindowsDesktop) {
               if (key == LogicalKeyboardKey.arrowUp) _nudgeVolume(.08);
