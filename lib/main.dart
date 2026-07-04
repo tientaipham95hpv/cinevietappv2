@@ -2902,7 +2902,9 @@ class MovieRow extends StatelessWidget {
           SectionTitle(title),
           const SizedBox(height: 12),
           SizedBox(
-            height: moviePosterCardHeight(cardWidth),
+            // TV focus scale needs extra paint room; otherwise poster cards can be
+            // clipped by the horizontal viewport and look like the poster is cut.
+            height: moviePosterRowHeight(cardWidth),
             child: ListView.separated(
               key: PageStorageKey('movie-row-$title'),
               scrollDirection: Axis.horizontal,
@@ -8516,11 +8518,16 @@ class _PlayerScreenState extends State<PlayerScreen>
           onKeyEvent: (event) {
             if (event is! KeyDownEvent || c == null) return;
             final key = event.logicalKey;
+            final primaryFocus = FocusManager.instance.primaryFocus;
+            final playerHasPrimaryFocus =
+                primaryFocus == null || primaryFocus == focusNode;
             if (key == LogicalKeyboardKey.select ||
                 key == LogicalKeyboardKey.enter ||
                 key == LogicalKeyboardKey.space ||
                 key == LogicalKeyboardKey.keyK) {
-              _togglePlay();
+              if (playerHasPrimaryFocus || key == LogicalKeyboardKey.keyK) {
+                _togglePlay();
+              }
             }
             if (key == LogicalKeyboardKey.arrowRight ||
                 key == LogicalKeyboardKey.mediaFastForward ||
@@ -8534,6 +8541,15 @@ class _PlayerScreenState extends State<PlayerScreen>
             }
             if (key == LogicalKeyboardKey.arrowUp) {
               _showControls();
+              if (isTvBuild && playerHasPrimaryFocus) {
+                FocusScope.of(context).previousFocus();
+              }
+            }
+            if (key == LogicalKeyboardKey.arrowDown) {
+              _showControls();
+              if (isTvBuild && playerHasPrimaryFocus) {
+                FocusScope.of(context).nextFocus();
+              }
             }
             if (key == LogicalKeyboardKey.keyN) {
               _playSibling(1);
@@ -8604,27 +8620,31 @@ class _PlayerScreenState extends State<PlayerScreen>
                   if (_shouldShowIntroSkip(c) && !controlsLocked)
                     IntroSkipButton(onPressed: _skipIntro),
                   if (controls && !controlsLocked)
-                    PlayerOverlay(
-                      controller: c,
-                      title: widget.movie.title,
-                      episode:
-                          '${currentServer.displayName} • ${currentEpisode.displayName}',
-                      sourceLabel: _activeSourceLabel,
-                      fitLabel: fitMode.label,
-                      canPrevious: _currentEpisodeIndex > 0,
-                      canNext:
-                          _currentEpisodeIndex >= 0 &&
-                          _currentEpisodeIndex < currentServer.items.length - 1,
-                      onPlayPause: _togglePlay,
-                      onReplay: () => _seekBy(const Duration(seconds: -10)),
-                      onForward: () => _seekBy(const Duration(seconds: 10)),
-                      onPrevious: () => _playSibling(-1),
-                      onNext: () => _playSibling(1),
-                      onEpisodes: _showEpisodeSheet,
-                      onSources: _showSourceSheet,
-                      onSettings: _showSettingsSheet,
-                      onFit: _cycleFitMode,
-                      onBack: _exitPlayer,
+                    FocusTraversalGroup(
+                      policy: OrderedTraversalPolicy(),
+                      child: PlayerOverlay(
+                        controller: c,
+                        title: widget.movie.title,
+                        episode:
+                            '${currentServer.displayName} • ${currentEpisode.displayName}',
+                        sourceLabel: _activeSourceLabel,
+                        fitLabel: fitMode.label,
+                        canPrevious: _currentEpisodeIndex > 0,
+                        canNext:
+                            _currentEpisodeIndex >= 0 &&
+                            _currentEpisodeIndex <
+                                currentServer.items.length - 1,
+                        onPlayPause: _togglePlay,
+                        onReplay: () => _seekBy(const Duration(seconds: -10)),
+                        onForward: () => _seekBy(const Duration(seconds: 10)),
+                        onPrevious: () => _playSibling(-1),
+                        onNext: () => _playSibling(1),
+                        onEpisodes: _showEpisodeSheet,
+                        onSources: _showSourceSheet,
+                        onSettings: _showSettingsSheet,
+                        onFit: _cycleFitMode,
+                        onBack: _exitPlayer,
+                      ),
                     ),
                   if (supportsTouchLevels && controls && !controlsLocked)
                     _buildLockButton(locked: false),
@@ -8983,13 +9003,18 @@ class PlayerOverlay extends StatelessWidget {
                               label: 'Lùi',
                               onPressed: onReplay,
                             ),
-                            IconButton.filled(
+                            FocusButton(
                               onPressed: onPlayPause,
-                              iconSize: compact ? 28 : 34,
-                              icon: Icon(
-                                value.isPlaying
-                                    ? Icons.pause_rounded
-                                    : Icons.play_arrow_rounded,
+                              child: SizedBox.square(
+                                dimension: compact ? 54 : 62,
+                                child: Center(
+                                  child: Icon(
+                                    value.isPlaying
+                                        ? Icons.pause_rounded
+                                        : Icons.play_arrow_rounded,
+                                    size: compact ? 28 : 34,
+                                  ),
+                                ),
                               ),
                             ),
                             PlayerControlButton(
@@ -9069,9 +9094,19 @@ class PlayerControlButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final enabled = onPressed != null;
     return Tooltip(
       message: label,
-      child: IconButton(onPressed: onPressed, icon: Icon(icon)),
+      child: Opacity(
+        opacity: enabled ? 1 : .38,
+        child: FocusButton(
+          onPressed: enabled ? onPressed! : () {},
+          child: SizedBox.square(
+            dimension: isTvBuild ? 54 : 48,
+            child: Center(child: Icon(icon)),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -10427,6 +10462,9 @@ double cardExtent(BuildContext context) {
 }
 
 double moviePosterCardHeight(double width) => width * 1.5 + 72;
+
+double moviePosterRowHeight(double width) =>
+    moviePosterCardHeight(width) + (isTvBuild ? 28 : 0);
 
 double landscapeExtent(BuildContext context) {
   final width = MediaQuery.sizeOf(context).width;
