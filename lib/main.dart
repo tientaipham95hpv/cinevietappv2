@@ -2907,7 +2907,7 @@ class MovieRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (movies.isEmpty) return const SizedBox.shrink();
-    final cardWidth = cardExtent(context);
+    final cardWidth = movieCardExtent(context);
     return Padding(
       padding: (padded ? pagePadding(context) : EdgeInsets.zero).copyWith(
         top: 28,
@@ -3135,7 +3135,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final gridWidth = cardExtent(context);
+    final gridWidth = movieCardExtent(context);
     final largeControls = useLeanbackControls;
     final tablet = isTouchTablet(context);
     final topPadding = largeControls ? 46.0 : 36.0;
@@ -4440,7 +4440,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final width = cardExtent(context);
+    final width = movieCardExtent(context);
     return Scaffold(
       appBar: AppBar(title: const Text('Yêu thích')),
       body: FutureBuilder<List<Movie>>(
@@ -4658,7 +4658,7 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final width = cardExtent(context);
+    final width = movieCardExtent(context);
     return Scaffold(
       appBar: AppBar(title: Text(widget.playlist.name)),
       body: CustomScrollView(
@@ -9540,6 +9540,10 @@ class MoviePosterCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final useLandscapeArt = isTvBuild;
+    final artUrl = useLandscapeArt
+        ? (movie.backdropUrl.isNotEmpty ? movie.backdropUrl : movie.posterUrl)
+        : movie.posterUrl;
     return SizedBox(
       width: width,
       child: FocusButton(
@@ -9550,13 +9554,15 @@ class MoviePosterCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               AspectRatio(
-                aspectRatio: 2 / 3,
+                aspectRatio: useLandscapeArt ? 16 / 9 : 2 / 3,
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      NetworkPoster(url: movie.posterUrl),
+                      useLandscapeArt
+                          ? NetworkBackdrop(url: artUrl, fit: BoxFit.cover)
+                          : NetworkPoster(url: artUrl),
                       Positioned(
                         left: 7,
                         top: 7,
@@ -10281,7 +10287,11 @@ double cardExtent(BuildContext context) {
   return 132;
 }
 
-double moviePosterCardHeight(double width) => width * 1.5 + 72;
+double movieCardExtent(BuildContext context) =>
+    isTvBuild ? landscapeExtent(context) : cardExtent(context);
+
+double moviePosterCardHeight(double width) =>
+    (isTvBuild ? width * 9 / 16 : width * 1.5) + 72;
 
 double moviePosterRowHeight(double width) =>
     moviePosterCardHeight(width) + (isTvBuild ? 28 : 0);
