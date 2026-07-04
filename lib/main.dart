@@ -815,7 +815,8 @@ class EpisodeServer {
   final String name;
   final List<EpisodeItem> items;
 
-  String get displayName => name
+  String get displayName {
+    final base = name
       .replaceAll(
         RegExp(
           r'\s*\[(ophim|kkphim|phimapi|nguồn\s*c|nguonc)\]\s*',
@@ -832,6 +833,19 @@ class EpisodeServer {
       )
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
+    final s = name.toLowerCase();
+    String tag = '';
+    if (RegExp(r'\[ophim\]|ophim').hasMatch(s)) {
+      tag = 'ophim';
+    } else if (RegExp(r'\[kkphim\]|kkphim|\[phimapi\]|phimapi').hasMatch(s)) {
+      tag = 'kkphim';
+    } else if (RegExp(r'\[nguồn\s*c\]|\[nguonc\]|nguồn\s*c|nguonc|streamc')
+        .hasMatch(s)) {
+      tag = 'nguonc';
+    }
+    final label = base.isEmpty ? 'Nguồn' : base;
+    return tag.isEmpty ? label : '$label [$tag]';
+  }
 
   factory EpisodeServer.fromJson(Map<String, dynamic> json) => EpisodeServer(
     name: cleanText(json['server_name'] ?? json['name']).isEmpty
