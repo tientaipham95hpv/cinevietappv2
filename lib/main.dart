@@ -10,7 +10,6 @@ import 'package:dio/dio.dart';
 import 'package:firebase_analytics/firebase_analytics.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/foundation.dart';
@@ -111,32 +110,6 @@ class AppTelemetry {
     unawaited(
       FirebaseCrashlytics.instance.recordError(error, stack, fatal: true),
     );
-  }
-}
-
-class AppNotificationService {
-  AppNotificationService._();
-  static StreamSubscription<String>? _tokenRefresh;
-
-  static Future<void> start(MovieRepository repo) async {
-    if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
-    try {
-      await FirebaseMessaging.instance.requestPermission();
-      final token = await FirebaseMessaging.instance.getToken();
-      if (token != null && token.isNotEmpty && Api.instance.hasAuthToken) {
-        await repo.registerFcmToken(token);
-      }
-      await _tokenRefresh?.cancel();
-      _tokenRefresh = FirebaseMessaging.instance.onTokenRefresh.listen((token) {
-        if (Api.instance.hasAuthToken) unawaited(repo.registerFcmToken(token));
-      });
-      FirebaseMessaging.onMessageOpenedApp.listen((message) {
-        final url = cleanText(message.data['url'] ?? message.data['link']);
-        if (url.isNotEmpty) {
-          unawaited(DeepLinkService.open(Uri.parse(url), repo));
-        }
-      });
-    } catch (_) {}
   }
 }
 
@@ -1599,17 +1572,6 @@ class MovieRepository {
     return Map<String, dynamic>.from(res.data as Map);
   }
 
-  Future<void> registerFcmToken(String token) async {
-    if (token.trim().isEmpty) return;
-    await api.dio.post(
-      '/app/fcm-token',
-      data: {
-        'token': token.trim(),
-        'platform': isTvBuild ? 'android-tv' : 'android',
-      },
-    );
-  }
-
   Future<List<CinePlaylist>> playlists() async {
     final res = await api.dio.get('/playlists/my');
     return (res.data is List ? res.data as List : const [])
@@ -2055,7 +2017,6 @@ class _AppShellState extends State<AppShell> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _checkStartupUpdate();
         unawaited(DeepLinkService.start(repo));
-        unawaited(AppNotificationService.start(repo));
       });
     });
   }
