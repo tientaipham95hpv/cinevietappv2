@@ -763,7 +763,7 @@ class Movie {
       return 3;
     }
 
-    final parsedEpisodes = parseEpisodes(json['episodes'])
+    final parsedEpisodes = parseEpisodes(json['episodes']).toList()
       ..sort((a, b) {
         final pa = serverPriority(a);
         final pb = serverPriority(b);
