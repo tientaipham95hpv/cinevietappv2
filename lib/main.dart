@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Directory, File, Platform;
+import 'dart:io' show Directory, File, Platform, Process, ProcessStartMode;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -4913,6 +4913,26 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
         );
         setState(() => statusMessage = 'Đã tải xong, đang mở trình cài đặt...');
         await _installerChannel.invokeMethod('installApk', {'path': file.path});
+      } else if (!kIsWeb &&
+          Platform.isWindows &&
+          url.toLowerCase().endsWith('.exe')) {
+        final dir = await getTemporaryDirectory();
+        final file = File('${dir.path}\\cineviet-update-setup.exe');
+        if (await file.exists()) await file.delete();
+        await Dio().download(
+          url,
+          file.path,
+          onReceiveProgress: (received, total) {
+            if (!mounted || total <= 0) return;
+            setState(() => progress = received / total);
+          },
+        );
+        setState(() => statusMessage = 'Đã tải xong, đang mở trình cài đặt...');
+        await Process.start(
+          file.path,
+          const [],
+          mode: ProcessStartMode.detached,
+        );
       } else {
         await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
       }

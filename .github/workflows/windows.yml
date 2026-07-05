@@ -88,11 +88,27 @@ jobs:
           Copy-Item release\RELEASE_NOTES_TEMPLATE.md "$releaseDir\RELEASE_NOTES_TEMPLATE.md" -Force
           Compress-Archive -Path "$releaseDir\*" -DestinationPath "$packageDir\$zipName" -Force
 
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Windows installer (.exe)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $build = $env:BUILD_NUMBER
+          $releaseDir = "build\windows\x64\runner\Release"
+          $distDir = "dist"
+          New-Item -ItemType Directory -Force $distDir | Out-Null
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          & "$iscc" "/DAppVersion=$($env:VERSION_NAME)" "/DAppBuild=$build" "/DSourceDir=$releaseDir" "/DOutputDir=$distDir" "windows\installer\cineviet.iss"
+          Get-ChildItem $distDir
+
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: cineviet-v2-windows-${{ env.RELEASE_CHANNEL }}-${{ env.VERSION_NAME }}-${{ github.run_number }}
           path: |
             build/windows/package/*.zip
+            dist/*.exe
             build/windows/x64/runner/Release/BUILD_INFO.txt
           if-no-files-found: error
