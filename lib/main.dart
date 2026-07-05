@@ -3682,7 +3682,12 @@ class _BrowseScreenState extends State<BrowseScreen> {
             ),
           ),
         ),
-        FutureGrid(future: results, cardWidth: gridWidth, repo: widget.repo),
+        FutureGrid(
+          future: results,
+          cardWidth: gridWidth,
+          repo: widget.repo,
+          onRetry: runSearch,
+        ),
       ],
     );
     if (widget.embedded) return content;
@@ -3996,16 +4001,47 @@ class FutureGrid extends StatelessWidget {
     required this.future,
     required this.cardWidth,
     required this.repo,
+    this.onRetry,
   });
   final Future<List<Movie>> future;
   final double cardWidth;
   final MovieRepository repo;
+  final VoidCallback? onRetry;
 
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<Movie>>(
       future: future,
       builder: (context, snapshot) {
+        // Lỗi mạng/timeout: báo lỗi + nút thử lại thay vì skeleton loading vô hạn.
+        if (snapshot.hasError) {
+          return SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'Không tải được phim. Kiểm tra kết nối mạng.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: CvColors.muted),
+                    ),
+                    if (onRetry != null) ...[
+                      const SizedBox(height: 14),
+                      OutlinedButton.icon(
+                        onPressed: onRetry,
+                        icon: const Icon(Icons.refresh_rounded),
+                        label: const Text('Thử lại'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          );
+        }
         if (!snapshot.hasData) {
           return SliverPadding(
             padding: pagePadding(context).copyWith(top: 20, bottom: 36),
