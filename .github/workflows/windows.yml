@@ -96,8 +96,11 @@ jobs:
         run: |
           $ErrorActionPreference = "Stop"
           $build = $env:BUILD_NUMBER
-          $releaseDir = "build\windows\x64\runner\Release"
-          $distDir = "dist"
+          # Inno Setup resolves relative Source paths against the .iss file's
+          # folder (windows\installer\), so pass ABSOLUTE paths to avoid
+          # "No files found matching ...windows\installer\build\...".
+          $releaseDir = (Resolve-Path "build\windows\x64\runner\Release").Path
+          $distDir = Join-Path (Get-Location).Path "dist"
           New-Item -ItemType Directory -Force $distDir | Out-Null
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           & "$iscc" "/DAppVersion=$($env:VERSION_NAME)" "/DAppBuild=$build" "/DSourceDir=$releaseDir" "/DOutputDir=$distDir" "windows\installer\cineviet.iss"
