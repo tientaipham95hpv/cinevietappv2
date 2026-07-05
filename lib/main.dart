@@ -808,6 +808,29 @@ class Movie {
       related: parseRelated(json['related']),
     );
   }
+
+  // Serialize gọn cho cache home (chỉ field hiển thị; episodes/cast/related
+  // không cache vì màn chi tiết luôn fetch full riêng).
+  Map<String, dynamic> toCacheJson() => {
+    'id': id,
+    'title': title,
+    'slug': slug,
+    'title_en': titleEn,
+    'description': description,
+    'poster': poster,
+    'backdrop': backdrop,
+    'thumbnail': thumbnail,
+    'release_year': releaseYear,
+    'duration': duration,
+    'rating': rating,
+    'quality': quality,
+    'language': language,
+    'country': country,
+    'type': type,
+    'episode_current': episodeCurrent,
+    'total_episodes': totalEpisodes,
+    'genres': genres,
+  };
 }
 
 class EpisodeServer {
@@ -2265,11 +2288,21 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late Future<HomeData> data;
+  HomeData? _cachedHome; // dữ liệu cache hiển ngay khi mở app
 
   @override
   void initState() {
     super.initState();
-    data = _load();
+    data = _loadWithCache();
+  }
+
+  // Đọc cache trước để hiển thị tức thì, sau đó tải mới ghi đè (stale-while-revalidate).
+  Future<HomeData> _loadWithCache() async {
+    final cached = await HomeCache.read();
+    if (cached != null && mounted) {
+      setState(() => _cachedHome = cached);
+    }
+    return _load();
   }
 
   Future<HomeData> _load() async {
@@ -2286,7 +2319,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _safeMovies(() => widget.repo.list(limit: sectionLimit, type: 'anime')),
       _safeMovies(() => widget.repo.list(limit: sectionLimit, type: 'tvshows')),
     ]);
-    return HomeData(
+    final home = HomeData(
       featured: results[0],
       latest: results[1],
       cinema: results[2],
@@ -2296,6 +2329,10 @@ class _HomeScreenState extends State<HomeScreen> {
       tvShows: results[6],
       history: showContinue ? await _safeHistory() : const [],
     );
+    // Ghi cache nền (không cache history vì thay đổi liên tục).
+    unawaited(HomeCache.write(home));
+    if (mounted) setState(() => _cachedHome = null);
+    return home;
   }
 
   Future<List<Movie>> _safeMovies(Future<List<Movie>> Function() load) async {
@@ -2341,29 +2378,39 @@ class _HomeScreenState extends State<HomeScreen> {
         await widget.repo.deleteHistoryMovie(item.movieId);
       } catch (_) {}
     }
-    if (mounted) setState(() => data = _load());
+    if (mounted) setState(() => data = _loadWithCache());
   }
 
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
-      onRefresh: () async => setState(() => data = _load()),
+      onRefresh: () async => setState(() => data = _loadWithCache()),
       color: CvColors.accent,
       child: FutureBuilder<HomeData>(
         future: data,
         builder: (context, snapshot) {
           if (!snapshot.hasData) {
+            // Có cache → hiển thị ngay dữ liệu cũ trong lúc tải mới.
+            if (_cachedHome != null) {
+              return _buildHome(_cachedHome!);
+            }
             if (snapshot.hasError) {
               debugPrint('CineViet home load error: ${snapshot.error}');
               return HomeErrorState(
                 onRetry: () {
-                  setState(() => data = _load());
+                  setState(() => data = _loadWithCache());
                 },
               );
             }
-            return const LoadingPage(label: 'Đang tải CineViet');
+            return const HomeSkeleton();
           }
-          final home = snapshot.data!;
+          return _buildHome(snapshot.data!);
+        },
+      ),
+    );
+  }
+
+  Widget _buildHome(HomeData home) {
           final featured = home.featured.isNotEmpty
               ? home.featured
               : home.latest.take(8).toList();
@@ -2450,73 +2497,260 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             );
           }
-          return CustomScrollView(
-            key: const PageStorageKey('home-touch-scroll'),
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverToBoxAdapter(
-                child: featured.isEmpty
-                    ? const SizedBox(height: 120)
-                    : FeaturedHeroCarousel(movies: featured, repo: widget.repo),
-              ),
-              if (home.history.isNotEmpty)
-                SliverToBoxAdapter(
-                  child: WatchRow(
-                    title: 'Xem tiếp',
-                    items: home.history,
-                    repo: widget.repo,
-                    onRemove: _removeHistory,
-                  ),
-                ),
-              SliverToBoxAdapter(
-                child: MovieRow(
-                  title: 'Mới cập nhật',
-                  movies: home.latest,
-                  repo: widget.repo,
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: MovieRow(
-                  title: 'Phim chiếu rạp',
-                  movies: home.cinema,
-                  repo: widget.repo,
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: MovieRow(
-                  title: 'Phim bộ',
-                  movies: home.series,
-                  repo: widget.repo,
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: MovieRow(
-                  title: 'Phim lẻ',
-                  movies: home.single,
-                  repo: widget.repo,
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: MovieRow(
-                  title: 'Hoạt hình',
-                  movies: home.anime,
-                  repo: widget.repo,
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: MovieRow(
-                  title: 'TV Shows',
-                  movies: home.tvShows,
-                  repo: widget.repo,
-                ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 48)),
-            ],
+          return PhoneHome(
+            home: home,
+            repo: widget.repo,
+            featured: featured,
+            onRemoveHistory: _removeHistory,
           );
-        },
+  }
+}
+
+// Home 2 lớp kiểu iQiyi: lớp neo (hero + thanh tab dính đỉnh khi cuộn)
+// + lớp vuốt (TabBarView vuốt ngang giữa các danh mục).
+class PhoneHome extends StatelessWidget {
+  const PhoneHome({
+    super.key,
+    required this.home,
+    required this.repo,
+    required this.featured,
+    required this.onRemoveHistory,
+  });
+  final HomeData home;
+  final MovieRepository repo;
+  final List<Movie> featured;
+  final Future<void> Function(WatchItem item) onRemoveHistory;
+
+  @override
+  Widget build(BuildContext context) {
+    // Tab đầu "Đề xuất" giữ nguyên trải nghiệm cũ (nhiều hàng cuộn dọc);
+    // các tab sau lọc theo danh mục, hiển dạng lưới.
+    final tabs = <_HomeTab>[
+      _HomeTab('Đề xuất', null),
+      _HomeTab('Phim bộ', home.series),
+      _HomeTab('Phim lẻ', home.single),
+      _HomeTab('Chiếu rạp', home.cinema),
+      _HomeTab('Hoạt hình', home.anime),
+      _HomeTab('TV Shows', home.tvShows),
+    ];
+    return DefaultTabController(
+      length: tabs.length,
+      child: NestedScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        headerSliverBuilder: (context, innerScrolled) => [
+          SliverOverlapAbsorber(
+            handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
+            sliver: SliverToBoxAdapter(
+              child: featured.isEmpty
+                  ? const SizedBox(height: 120)
+                  : FeaturedHeroCarousel(movies: featured, repo: repo),
+            ),
+          ),
+          SliverPersistentHeader(
+            pinned: true,
+            delegate: _HomeTabBarDelegate(
+              TabBar(
+                isScrollable: true,
+                tabAlignment: TabAlignment.start,
+                indicatorColor: CvColors.accent,
+                indicatorSize: TabBarIndicatorSize.label,
+                labelColor: Colors.white,
+                unselectedLabelColor: CvColors.muted,
+                labelStyle: const TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 15,
+                ),
+                tabs: [for (final t in tabs) Tab(text: t.title)],
+              ),
+            ),
+          ),
+        ],
+        body: TabBarView(
+          children: [
+            for (final t in tabs)
+              _HomeTabView(
+                tab: t,
+                home: home,
+                repo: repo,
+                onRemoveHistory: onRemoveHistory,
+              ),
+          ],
+        ),
       ),
     );
   }
+}
+
+class _HomeTab {
+  const _HomeTab(this.title, this.movies);
+  final String title;
+  final List<Movie>? movies; // null = tab "Đề xuất"
+}
+
+class _HomeTabView extends StatelessWidget {
+  const _HomeTabView({
+    required this.tab,
+    required this.home,
+    required this.repo,
+    required this.onRemoveHistory,
+  });
+  final _HomeTab tab;
+  final HomeData home;
+  final MovieRepository repo;
+  final Future<void> Function(WatchItem item) onRemoveHistory;
+
+  @override
+  Widget build(BuildContext context) {
+    return Builder(
+      builder: (context) => CustomScrollView(
+        key: PageStorageKey('home-tab-${tab.title}'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverOverlapInjector(
+            handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
+          ),
+          if (tab.movies == null) ...[
+            // Tab Đề xuất: giữ nguyên các hàng cuộn ngang như trước.
+            if (home.history.isNotEmpty)
+              SliverToBoxAdapter(
+                child: WatchRow(
+                  title: 'Xem tiếp',
+                  items: home.history,
+                  repo: repo,
+                  onRemove: onRemoveHistory,
+                ),
+              ),
+            SliverToBoxAdapter(
+              child: MovieRow(
+                title: 'Mới cập nhật',
+                movies: home.latest,
+                repo: repo,
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: MovieRow(
+                title: 'Phim chiếu rạp',
+                movies: home.cinema,
+                repo: repo,
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: MovieRow(
+                title: 'Phim bộ',
+                movies: home.series,
+                repo: repo,
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: MovieRow(
+                title: 'Phim lẻ',
+                movies: home.single,
+                repo: repo,
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: MovieRow(
+                title: 'Hoạt hình',
+                movies: home.anime,
+                repo: repo,
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: MovieRow(
+                title: 'TV Shows',
+                movies: home.tvShows,
+                repo: repo,
+              ),
+            ),
+            const SliverToBoxAdapter(child: SizedBox(height: 48)),
+          ] else if (tab.movies!.isEmpty)
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: Center(
+                child: Text(
+                  'Chưa có phim',
+                  style: TextStyle(color: CvColors.muted),
+                ),
+              ),
+            )
+          else
+            _CategoryGrid(movies: tab.movies!, title: tab.title, repo: repo),
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryGrid extends StatelessWidget {
+  const _CategoryGrid({
+    required this.movies,
+    required this.title,
+    required this.repo,
+  });
+  final List<Movie> movies;
+  final String title;
+  final MovieRepository repo;
+
+  @override
+  Widget build(BuildContext context) {
+    final pad = pagePadding(context);
+    final avail =
+        MediaQuery.sizeOf(context).width - pad.left - pad.right;
+    const spacing = 12.0;
+    final target = movieCardExtent(context);
+    final count = math.max(2, ((avail + spacing) / (target + spacing)).floor());
+    final cellW = (avail - spacing * (count - 1)) / count;
+    // Truyền đúng cellW cho card để chiều cao khớp, tránh overflow.
+    final cellH = moviePosterCardHeight(cellW);
+    return SliverPadding(
+      padding: pad.copyWith(top: 16, bottom: 48),
+      sliver: SliverGrid(
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: count,
+          mainAxisSpacing: 18,
+          crossAxisSpacing: spacing,
+          mainAxisExtent: cellH,
+        ),
+        delegate: SliverChildBuilderDelegate((context, index) {
+          final m = movies[index];
+          final tag = 'poster-$title-${m.id}-$index';
+          return MoviePosterCard(
+            movie: m,
+            width: cellW,
+            heroTag: tag,
+            onTap: () => openDetail(context, repo, m, heroTag: tag),
+          );
+        }, childCount: movies.length),
+      ),
+    );
+  }
+}
+
+class _HomeTabBarDelegate extends SliverPersistentHeaderDelegate {
+  _HomeTabBarDelegate(this.tabBar);
+  final TabBar tabBar;
+
+  @override
+  double get minExtent => 48;
+  @override
+  double get maxExtent => 48;
+
+  @override
+  Widget build(
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
+    return Container(
+      color: CvColors.black,
+      alignment: Alignment.centerLeft,
+      child: tabBar,
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _HomeTabBarDelegate oldDelegate) =>
+      oldDelegate.tabBar != tabBar;
 }
 
 class HomeData {
@@ -2538,6 +2772,88 @@ class HomeData {
   final List<Movie> anime;
   final List<Movie> tvShows;
   final List<WatchItem> history;
+
+  Map<String, dynamic> toCacheJson() => {
+    'featured': featured.map((m) => m.toCacheJson()).toList(),
+    'latest': latest.map((m) => m.toCacheJson()).toList(),
+    'cinema': cinema.map((m) => m.toCacheJson()).toList(),
+    'series': series.map((m) => m.toCacheJson()).toList(),
+    'single': single.map((m) => m.toCacheJson()).toList(),
+    'anime': anime.map((m) => m.toCacheJson()).toList(),
+    'tvShows': tvShows.map((m) => m.toCacheJson()).toList(),
+  };
+
+  factory HomeData.fromCacheJson(Map<String, dynamic> json) {
+    List<Movie> parse(dynamic v) => v is List
+        ? v
+            .whereType<Map>()
+            .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
+            .toList()
+        : const <Movie>[];
+    return HomeData(
+      featured: parse(json['featured']),
+      latest: parse(json['latest']),
+      cinema: parse(json['cinema']),
+      series: parse(json['series']),
+      single: parse(json['single']),
+      anime: parse(json['anime']),
+      tvShows: parse(json['tvShows']),
+      history: const [],
+    );
+  }
+
+  bool get isEmpty =>
+      featured.isEmpty &&
+      latest.isEmpty &&
+      cinema.isEmpty &&
+      series.isEmpty &&
+      single.isEmpty &&
+      anime.isEmpty &&
+      tvShows.isEmpty;
+}
+
+// Cache dữ liệu home vào SharedPreferences để mở app hiển thị tức thì
+// (stale-while-revalidate): lần sau mở app show dữ liệu cũ ngay, rồi nền tải mới.
+class HomeCache {
+  static const _key = 'cineviet_home_cache_v1';
+  static const _tsKey = 'cineviet_home_cache_ts_v1';
+  // Cache cũ hơn ngưỡng này vẫn hiển nhưng được coi là stale (vẫn revalidate nền).
+  static const staleAfter = Duration(hours: 6);
+
+  static Future<HomeData?> read() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_key);
+      if (raw == null || raw.isEmpty) return null;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final data = HomeData.fromCacheJson(Map<String, dynamic>.from(decoded));
+      return data.isEmpty ? null : data;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> write(HomeData data) async {
+    try {
+      if (data.isEmpty) return;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_key, jsonEncode(data.toCacheJson()));
+      await prefs.setInt(_tsKey, DateTime.now().millisecondsSinceEpoch);
+    } catch (_) {}
+  }
+
+  static Future<bool> isStale() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final ts = prefs.getInt(_tsKey);
+      if (ts == null) return true;
+      final age = DateTime.now().millisecondsSinceEpoch - ts;
+      return age > staleAfter.inMilliseconds;
+    } catch (_) {
+      return true;
+    }
+  }
 }
 
 class HomeErrorState extends StatelessWidget {
@@ -2941,11 +3257,20 @@ class MovieRow extends StatelessWidget {
               scrollDirection: Axis.horizontal,
               itemCount: movies.length,
               separatorBuilder: (_, _) => const SizedBox(width: 12),
-              itemBuilder: (context, index) => MoviePosterCard(
-                movie: movies[index],
-                width: cardWidth,
-                onTap: () => openDetail(context, repo, movies[index]),
-              ),
+              itemBuilder: (context, index) {
+                final tag = 'poster-$title-${movies[index].id}-$index';
+                return MoviePosterCard(
+                  movie: movies[index],
+                  width: cardWidth,
+                  heroTag: tag,
+                  onTap: () => openDetail(
+                    context,
+                    repo,
+                    movies[index],
+                    heroTag: tag,
+                  ),
+                );
+              },
             ),
           ),
         ],
@@ -5921,10 +6246,12 @@ class MovieDetailScreen extends StatefulWidget {
     required this.repo,
     required this.initial,
     this.autoplay = false,
+    this.heroTag,
   });
   final MovieRepository repo;
   final Movie initial;
   final bool autoplay;
+  final String? heroTag;
 
   @override
   State<MovieDetailScreen> createState() => _MovieDetailScreenState();
@@ -6055,12 +6382,22 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                   background: Stack(
                     fit: StackFit.expand,
                     children: [
-                      NetworkBackdrop(
-                        url: usePortraitHero
-                            ? movie.posterUrl
-                            : movie.backdropUrl,
-                        fit: BoxFit.cover,
-                      ),
+                      widget.heroTag != null
+                          ? Hero(
+                              tag: widget.heroTag!,
+                              child: NetworkBackdrop(
+                                url: usePortraitHero
+                                    ? movie.posterUrl
+                                    : movie.backdropUrl,
+                                fit: BoxFit.cover,
+                              ),
+                            )
+                          : NetworkBackdrop(
+                              url: usePortraitHero
+                                  ? movie.posterUrl
+                                  : movie.backdropUrl,
+                              fit: BoxFit.cover,
+                            ),
                       DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
@@ -6164,7 +6501,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                       label: 'Chia sẻ',
                                       onPressed: () => launchUrl(
                                         Uri.parse(
-                                          '$siteBase/phim/${movie.slug}',
+                                          '$siteBase/movie/${movie.slug}',
                                         ),
                                         mode: LaunchMode.externalApplication,
                                       ),
@@ -9565,12 +9902,14 @@ class MoviePosterCard extends StatelessWidget {
     required this.onTap,
     this.onRemove,
     this.removeTooltip,
+    this.heroTag,
   });
   final Movie movie;
   final double width;
   final VoidCallback onTap;
   final VoidCallback? onRemove;
   final String? removeTooltip;
+  final String? heroTag;
 
   @override
   Widget build(BuildContext context) {
@@ -9596,7 +9935,12 @@ class MoviePosterCard extends StatelessWidget {
                     children: [
                       useLandscapeArt
                           ? NetworkBackdrop(url: artUrl, fit: BoxFit.cover)
-                          : NetworkPoster(url: artUrl),
+                          : (heroTag != null
+                              ? Hero(
+                                  tag: heroTag!,
+                                  child: NetworkPoster(url: artUrl),
+                                )
+                              : NetworkPoster(url: artUrl)),
                       Positioned(
                         left: 7,
                         top: 7,
@@ -10272,6 +10616,61 @@ class PageHeading extends StatelessWidget {
   );
 }
 
+class HomeSkeleton extends StatelessWidget {
+  const HomeSkeleton({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final cardW = cardExtent(context);
+    final cardH = moviePosterCardHeight(cardW);
+    Widget row(String _) => Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: pagePadding(context).copyWith(top: 0, bottom: 12),
+            child: SkeletonBox(width: 160, height: 20, borderRadius: 6),
+          ),
+          SizedBox(
+            height: cardH,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: pagePadding(context).copyWith(top: 0, bottom: 0),
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: 5,
+              separatorBuilder: (_, i) => const SizedBox(width: 14),
+              itemBuilder: (_, i) =>
+                  SkeletonBox(width: cardW, height: cardH, borderRadius: 8),
+            ),
+          ),
+        ],
+      ),
+    );
+    return CustomScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 20),
+            child: SkeletonBox(
+              width: double.infinity,
+              height: heroBannerHeight(context),
+              borderRadius: 0,
+            ),
+          ),
+        ),
+        SliverList(
+          delegate: SliverChildListDelegate([
+            for (final t in const ['a', 'b', 'c', 'd', 'e']) row(t),
+            const SizedBox(height: 48),
+          ]),
+        ),
+      ],
+    );
+  }
+}
+
 class LoadingPage extends StatelessWidget {
   const LoadingPage({super.key, required this.label});
   final String label;
@@ -10440,11 +10839,13 @@ void openDetail(
   MovieRepository repo,
   Movie movie, {
   bool autoplay = false,
+  String? heroTag,
 }) {
   final page = MovieDetailScreen(
     repo: repo,
     initial: movie,
     autoplay: autoplay,
+    heroTag: heroTag,
   );
   if (isTvBuild) {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
@@ -10452,8 +10853,14 @@ void openDetail(
   }
   Navigator.of(context).push(
     PageRouteBuilder(
+      opaque: false,
+      barrierColor: Colors.black54,
+      transitionDuration: const Duration(milliseconds: 340),
+      reverseTransitionDuration: const Duration(milliseconds: 260),
       pageBuilder: (_, _, _) => page,
       transitionsBuilder: (_, animation, secondaryAnimation, child) {
+        // Slide-up modal kiểu Crunchyroll: trang chi tiết trượt từ dưới lên
+        // đè lên home, kèm fade nhẹ.
         final curved = CurvedAnimation(
           parent: animation,
           curve: Curves.easeOutCubic,
@@ -10463,7 +10870,7 @@ void openDetail(
           opacity: curved,
           child: SlideTransition(
             position: Tween<Offset>(
-              begin: const Offset(0, .035),
+              begin: const Offset(0, 1),
               end: Offset.zero,
             ).animate(curved),
             child: child,
