@@ -6,7 +6,7 @@ on:
       version_name:
         description: App version name
         required: false
-        default: 2.0.0
+        default: 2.0.1
       release_channel:
         description: Release channel
         required: false
@@ -14,7 +14,7 @@ on:
       build_number:
         description: App build number
         required: false
-        default: "9207"
+        default: "9211"
   push:
     branches:
       - main
@@ -30,9 +30,9 @@ jobs:
     timeout-minutes: 90
 
     env:
-      VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.0' }}
+      VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.1' }}
       RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'release' }}
-      BUILD_NUMBER: ${{ github.event.inputs.build_number || '9207' }}
+      BUILD_NUMBER: ${{ github.event.inputs.build_number || '9211' }}
 
     steps:
       - name: Checkout
