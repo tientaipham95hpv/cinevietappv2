@@ -7809,15 +7809,30 @@ class _PlayerScreenState extends State<PlayerScreen>
             // StreamC/JWPlayer có fullscreen HTML riêng; khi vào fullscreen đó
             // Flutter không còn vẽ được nút back của app. Giữ video inline để
             // nút back native overlay bên dưới luôn hoạt động.
+            final resumeSec =
+                (lastGoodPosition ?? widget.resume)?.inSeconds ?? 0;
             unawaited(
               webViewController?.runJavaScript('''
                 (function () {
                   try {
+                    var resumeAt = $resumeSec;
                     document.querySelectorAll('video').forEach(function (v) {
                       v.setAttribute('playsinline', '');
                       v.setAttribute('webkit-playsinline', '');
                       try { v.webkitEnterFullscreen = function () {}; } catch (_) {}
                       try { v.webkitEnterFullScreen = function () {}; } catch (_) {}
+                      if (resumeAt > 3 && !v.dataset.cvResumed) {
+                        v.dataset.cvResumed = '1';
+                        var doSeek = function () {
+                          try {
+                            if (isFinite(v.duration) && v.duration > 0 && resumeAt < v.duration - 5) {
+                              v.currentTime = resumeAt;
+                            }
+                          } catch (_) {}
+                        };
+                        if (isFinite(v.duration) && v.duration > 0) { doSeek(); }
+                        else { v.addEventListener('loadedmetadata', doSeek, { once: true }); }
+                      }
                     });
                     ['requestFullscreen','webkitRequestFullscreen','webkitEnterFullscreen','webkitEnterFullScreen','mozRequestFullScreen','msRequestFullscreen'].forEach(function (name) {
                       try {
@@ -7859,6 +7874,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     activeWebViewUrl = url;
     playbackNotice = null;
     error = null;
+    // WebView không có controller native nên cần timer riêng để lưu "Xem tiếp".
+    saveTimer?.cancel();
+    saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
     _trackPlaybackEvent('webview_start');
     if (mounted) setState(() {});
   }
@@ -8062,7 +8080,12 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _save() async {
     final c = controller;
-    if (c == null || !c.value.isInitialized) return;
+    if (c == null || !c.value.isInitialized) {
+      // Nguồn WebView (NguồnC/StreamC) không có controller native -> đọc tiến độ
+      // trực tiếp từ thẻ <video> trong trang qua JS để vẫn lưu "Xem tiếp".
+      if (activeWebViewUrl != null) await _saveWebView();
+      return;
+    }
     _emitWatchSync();
     if (!await isLoggedIn()) return;
     final item = WatchItem(
@@ -8077,6 +8100,55 @@ class _PlayerScreenState extends State<PlayerScreen>
       streamUrl: currentEpisode.playUrl,
       positionMs: c.value.position.inMilliseconds,
       durationMs: c.value.duration.inMilliseconds,
+      updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+    await LocalHistory.upsert(item);
+    await widget.repo.syncWatch(item);
+  }
+
+  // Lưu tiến độ khi phát bằng WebView (NguồnC/StreamC). Đọc currentTime/duration
+  // của thẻ <video> đầu tiên; nếu chưa phát (<3s) hoặc chưa có video thì bỏ qua.
+  Future<void> _saveWebView() async {
+    final wc = webViewController;
+    if (wc == null) return;
+    double posSec = 0;
+    double durSec = 0;
+    try {
+      final raw = await wc.runJavaScriptReturningResult('''
+        (function () {
+          try {
+            var v = document.querySelector('video');
+            if (!v) return '0|0';
+            var ct = isFinite(v.currentTime) ? v.currentTime : 0;
+            var d = isFinite(v.duration) ? v.duration : 0;
+            return ct + '|' + d;
+          } catch (e) { return '0|0'; }
+        })();
+      ''');
+      final text = raw.toString().replaceAll('"', '');
+      final parts = text.split('|');
+      if (parts.length == 2) {
+        posSec = double.tryParse(parts[0]) ?? 0;
+        durSec = double.tryParse(parts[1]) ?? 0;
+      }
+    } catch (_) {
+      return;
+    }
+    if (posSec < 3) return;
+    _emitWatchSync();
+    if (!await isLoggedIn()) return;
+    final item = WatchItem(
+      movieId: widget.movie.id,
+      slug: widget.movie.slug,
+      title: widget.movie.title,
+      poster: widget.movie.posterUrl,
+      backdrop: widget.movie.backdropUrl,
+      serverName: currentServer.name,
+      serverIndex: currentServerIndex,
+      episodeName: currentEpisode.name,
+      streamUrl: currentEpisode.playUrl,
+      positionMs: (posSec * 1000).round(),
+      durationMs: (durSec * 1000).round(),
       updatedAtMs: DateTime.now().millisecondsSinceEpoch,
     );
     await LocalHistory.upsert(item);
