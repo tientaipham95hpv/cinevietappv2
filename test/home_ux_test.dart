@@ -93,4 +93,58 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byType(MoviePosterCard), findsWidgets);
   });
+
+  testWidgets('Empty seed then fresh data -> grid shows movies (regression)',
+      (tester) async {
+    // Mô phỏng bug: cache cũ seed rỗng, sau đó dữ liệu tươi về (SWR).
+    HomeData mk(List<Movie> single) => HomeData(
+          featured: const [],
+          latest: const [],
+          cinema: const [],
+          series: const [],
+          single: single,
+          anime: const [],
+          tvShows: const [],
+          history: const [],
+        );
+    final key = GlobalKey<_SwapState>();
+    await tester.pumpWidget(_wrap(_Swap(key: key, initial: mk(const []))));
+    await tester.pump(const Duration(milliseconds: 100));
+    // Chuyển sang tab Phim lẻ (seed rỗng -> spinner).
+    await tester.tap(find.descendant(
+      of: find.byType(TabBar),
+      matching: find.text('Phim lẻ'),
+    ));
+    await tester.pump(const Duration(milliseconds: 200));
+    // Dữ liệu tươi về: đổi home trong chỗ (giữ nguyên tab controller).
+    key.currentState!.swap(mk([_m(20, 'Lẻ 1'), _m(21, 'Lẻ 2'), _m(22, 'Lẻ 3')]));
+    await tester.pump(const Duration(milliseconds: 300));
+    // Sau khi dữ liệu tươi về, mở lại tab Phim lẻ (như người dùng thao tác).
+    await tester.tap(find.descendant(
+      of: find.byType(TabBar),
+      matching: find.text('Phim lẻ'),
+    ));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.takeException(), isNull);
+    expect(find.byType(MoviePosterCard), findsWidgets);
+  });
+}
+
+class _Swap extends StatefulWidget {
+  const _Swap({super.key, required this.initial});
+  final HomeData initial;
+  @override
+  State<_Swap> createState() => _SwapState();
+}
+
+class _SwapState extends State<_Swap> {
+  late HomeData _home = widget.initial;
+  void swap(HomeData h) => setState(() => _home = h);
+  @override
+  Widget build(BuildContext context) => PhoneHome(
+        home: _home,
+        repo: MovieRepository(Api.instance),
+        featured: const [],
+        onRemoveHistory: (_) async {},
+      );
 }

@@ -2721,6 +2721,30 @@ class _CategoryGridState extends State<_CategoryGrid> {
     }
   }
 
+  @override
+  void didUpdateWidget(covariant _CategoryGrid old) {
+    super.didUpdateWidget(old);
+    // Dữ liệu home tươi về sau khi State đã tạo (seed cũ rỗng do đọc cache cũ
+    // hoặc call lỗi lần đầu). Nếu seed thay đổi thì nạp lại từ seed mới.
+    final oldFirst = old.seed.isEmpty ? null : old.seed.first.id;
+    final newFirst = widget.seed.isEmpty ? null : widget.seed.first.id;
+    final seedChanged = old.seed.length != widget.seed.length ||
+        oldFirst != newFirst;
+    // Chỉ reset khi đang rỗng (nhận ngay seed tươi) HOẶC chưa cuộn sang
+    // trang khác (tránh xoá dữ liệu người dùng đã cuộn tới).
+    final canReset = _items.isEmpty || (_page == 1 && !_loading);
+    if (seedChanged && widget.seed.isNotEmpty && canReset) {
+      setState(() {
+        _items = [...widget.seed];
+        _ids
+          ..clear()
+          ..addAll(_items.map((m) => m.id));
+        _page = 1;
+        _hasMore = widget.seed.length >= _pageSize;
+      });
+    }
+  }
+
   Future<void> _loadMore() async {
     if (_loading || !_hasMore) return;
     _loading = true;
@@ -2888,8 +2912,8 @@ class HomeData {
 // Cache dữ liệu home vào SharedPreferences để mở app hiển thị tức thì
 // (stale-while-revalidate): lần sau mở app show dữ liệu cũ ngay, rồi nền tải mới.
 class HomeCache {
-  static const _key = 'cineviet_home_cache_v1';
-  static const _tsKey = 'cineviet_home_cache_ts_v1';
+  static const _key = 'cineviet_home_cache_v2';
+  static const _tsKey = 'cineviet_home_cache_ts_v2';
   // Cache cũ hơn ngưỡng này vẫn hiển nhưng được coi là stale (vẫn revalidate nền).
   static const staleAfter = Duration(hours: 6);
 
