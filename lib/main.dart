@@ -29,6 +29,7 @@ import 'package:wakelock_plus/wakelock_plus.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'package:webview_flutter_android/webview_flutter_android.dart';
 import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
+import 'package:webview_windows/webview_windows.dart' as windows_webview;
 
 const apiBase = 'https://cineviet.live/api';
 const siteBase = 'https://cineviet.live';
@@ -7547,6 +7548,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   List<PlaybackUrlCandidate> activePlayableUrls = const [];
   int activePlayableUrlIndex = 0;
   WebViewController? webViewController;
+  windows_webview.WebviewController? windowsWebViewController;
   String? activeWebViewUrl;
   bool recoveringPlayback = false;
   bool reportingPlaybackIssue = false;
@@ -7773,6 +7775,31 @@ class _PlayerScreenState extends State<PlayerScreen>
   Future<void> _openWebViewSource(PlaybackSourceCandidate source) async {
     final url = source.webViewUrl;
     if (url == null || url.isEmpty) return;
+    if (!kIsWeb && Platform.isWindows) {
+      final controller = windows_webview.WebviewController();
+      await controller.initialize();
+      await controller.setBackgroundColor(Colors.black);
+      await controller.setPopupWindowPolicy(
+        windows_webview.WebviewPopupWindowPolicy.deny,
+      );
+      await controller.loadUrl(url);
+      currentServer = source.server;
+      currentEpisode = source.episode;
+      currentServerIndex = source.serverIndex;
+      activePlayableUrls = const [];
+      activePlayableUrlIndex = 0;
+      webViewController = null;
+      await windowsWebViewController?.dispose();
+      windowsWebViewController = controller;
+      activeWebViewUrl = url;
+      playbackNotice = null;
+      error = null;
+      saveTimer?.cancel();
+      saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
+      _trackPlaybackEvent('webview_windows_start');
+      if (mounted) setState(() {});
+      return;
+    }
     late final PlatformWebViewControllerCreationParams params;
     if (WebViewPlatform.instance is WebKitWebViewPlatform) {
       params = WebKitWebViewControllerCreationParams(
@@ -7896,6 +7923,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     await controller?.dispose();
     controller = null;
     webViewController = null;
+    await windowsWebViewController?.dispose();
+    windowsWebViewController = null;
     activeWebViewUrl = null;
     activePlayableUrls = _playbackUrlCandidates();
     if (activePlayableUrls.isEmpty) {
@@ -8110,11 +8139,12 @@ class _PlayerScreenState extends State<PlayerScreen>
   // của thẻ <video> đầu tiên; nếu chưa phát (<3s) hoặc chưa có video thì bỏ qua.
   Future<void> _saveWebView() async {
     final wc = webViewController;
-    if (wc == null) return;
+    final wwc = windowsWebViewController;
+    if (wc == null && wwc == null) return;
     double posSec = 0;
     double durSec = 0;
     try {
-      final raw = await wc.runJavaScriptReturningResult('''
+      final script = '''
         (function () {
           try {
             var v = document.querySelector('video');
@@ -8124,7 +8154,10 @@ class _PlayerScreenState extends State<PlayerScreen>
             return ct + '|' + d;
           } catch (e) { return '0|0'; }
         })();
-      ''');
+      ''';
+      final raw = wc != null
+          ? await wc.runJavaScriptReturningResult(script)
+          : await wwc!.executeScript(script);
       final text = raw.toString().replaceAll('"', '');
       final parts = text.split('|');
       if (parts.length == 2) {
@@ -8870,6 +8903,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     watchChatController.dispose();
     controller?.removeListener(_handlePlayerTick);
     controller?.dispose();
+    windowsWebViewController?.dispose();
     WakelockPlus.disable();
     if (supportsTouchLevels) {
       brightnessChannel.invokeMethod<double>('reset').catchError((_) => null);
@@ -8984,6 +9018,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                       onChangeSource: _showEpisodeSheet,
                       onReport: _reportPlaybackIssue,
                     )
+                  else if (activeWebViewUrl != null &&
+                      windowsWebViewController != null)
+                    windows_webview.Webview(windowsWebViewController!)
                   else if (activeWebViewUrl != null &&
                       webViewController != null)
                     WebViewWidget(controller: webViewController!)
