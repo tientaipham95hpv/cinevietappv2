@@ -31,6 +31,11 @@ set(CMAKE_CXX_FLAGS_PROFILE "${CMAKE_CXX_FLAGS_RELEASE}")
 
 # Use Unicode for all projects.
 add_definitions(-DUNICODE -D_UNICODE)
+# VS/MSVC 14.51+ turns <experimental/coroutine> deprecation into a hard
+# static_assert. webview_windows 0.4.0 still includes that header internally,
+# so silence it globally for Windows plugins until the plugin moves to C++20
+# <coroutine>.
+add_definitions(-D_SILENCE_EXPERIMENTAL_COROUTINE_DEPRECATION_WARNINGS)
 
 # Compilation settings that should be applied to most targets.
 #
