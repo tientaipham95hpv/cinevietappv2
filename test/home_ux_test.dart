@@ -61,12 +61,13 @@ void main() {
     expect(find.byType(MoviePosterCard), findsWidgets);
   });
 
-  testWidgets('Empty category tab shows placeholder, no crash', (tester) async {
+  testWidgets('Seeded category tab renders grid, no crash', (tester) async {
+    // Tab "Phim bộ" có sẵn <pageSize phim -> render lưới, không tự gọi API.
     final home = HomeData(
       featured: const [],
       latest: const [],
       cinema: const [],
-      series: const [], // rỗng -> tab hiển thị "Chưa có phim"
+      series: [_m(10, 'Bộ 1'), _m(11, 'Bộ 2'), _m(12, 'Bộ 3')],
       single: const [],
       anime: const [],
       tvShows: const [],
@@ -83,9 +84,13 @@ void main() {
       ),
     );
     await tester.pump(const Duration(milliseconds: 200));
-    await tester.tap(find.text('Phim bộ'));
+    final seriesTab = find.descendant(
+      of: find.byType(TabBar),
+      matching: find.text('Phim bộ'),
+    );
+    await tester.tap(seriesTab);
     await tester.pumpAndSettle(const Duration(milliseconds: 400));
     expect(tester.takeException(), isNull);
-    expect(find.text('Chưa có phim'), findsOneWidget);
+    expect(find.byType(MoviePosterCard), findsWidgets);
   });
 }

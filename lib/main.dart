@@ -2527,11 +2527,11 @@ class PhoneHome extends StatelessWidget {
     // các tab sau lọc theo danh mục, hiển dạng lưới.
     final tabs = <_HomeTab>[
       _HomeTab('Đề xuất', null),
-      _HomeTab('Phim bộ', home.series),
-      _HomeTab('Phim lẻ', home.single),
-      _HomeTab('Chiếu rạp', home.cinema),
-      _HomeTab('Hoạt hình', home.anime),
-      _HomeTab('TV Shows', home.tvShows),
+      _HomeTab('Phim bộ', home.series, type: 'series'),
+      _HomeTab('Phim lẻ', home.single, type: 'movie'),
+      _HomeTab('Chiếu rạp', home.cinema, cinema: true),
+      _HomeTab('Hoạt hình', home.anime, type: 'anime'),
+      _HomeTab('TV Shows', home.tvShows, type: 'tvshows'),
     ];
     return DefaultTabController(
       length: tabs.length,
@@ -2582,9 +2582,11 @@ class PhoneHome extends StatelessWidget {
 }
 
 class _HomeTab {
-  const _HomeTab(this.title, this.movies);
+  const _HomeTab(this.title, this.movies, {this.type = '', this.cinema = false});
   final String title;
-  final List<Movie>? movies; // null = tab "Đề xuất"
+  final List<Movie>? movies; // null = tab "Đề xuất"; ngược lại = seed trang 1
+  final String type; // type gọi API cho tab danh mục
+  final bool cinema; // chieu_rap=1
 }
 
 class _HomeTabView extends StatelessWidget {
@@ -2663,39 +2665,106 @@ class _HomeTabView extends StatelessWidget {
               ),
             ),
             const SliverToBoxAdapter(child: SizedBox(height: 48)),
-          ] else if (tab.movies!.isEmpty)
-            const SliverFillRemaining(
-              hasScrollBody: false,
-              child: Center(
-                child: Text(
-                  'Chưa có phim',
-                  style: TextStyle(color: CvColors.muted),
-                ),
-              ),
-            )
-          else
-            _CategoryGrid(movies: tab.movies!, title: tab.title, repo: repo),
+          ] else
+            _CategoryGrid(
+              seed: tab.movies!,
+              title: tab.title,
+              type: tab.type,
+              cinema: tab.cinema,
+              repo: repo,
+            ),
         ],
       ),
     );
   }
 }
 
-class _CategoryGrid extends StatelessWidget {
+// Lưới danh mục có phân trang: seed = trang 1 (18 phim lấy sẵn ở home),
+// cuộn gần cuối thì tự tải trang tiếp, khử trùng theo id.
+class _CategoryGrid extends StatefulWidget {
   const _CategoryGrid({
-    required this.movies,
+    required this.seed,
     required this.title,
+    required this.type,
+    required this.cinema,
     required this.repo,
   });
-  final List<Movie> movies;
+  final List<Movie> seed;
   final String title;
+  final String type;
+  final bool cinema;
   final MovieRepository repo;
 
   @override
+  State<_CategoryGrid> createState() => _CategoryGridState();
+}
+
+class _CategoryGridState extends State<_CategoryGrid> {
+  static const int _pageSize = 18; // khớp sectionLimit của home để nối liền mạch
+  late List<Movie> _items;
+  final Set<int> _ids = {};
+  int _page = 1;
+  bool _loading = false;
+  bool _hasMore = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _items = [...widget.seed];
+    _ids.addAll(_items.map((m) => m.id));
+    if (_items.isEmpty) {
+      // Seed rỗng (call trang chủ lỗi/timeout) → tự tải trang 1 từ API.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _loadMore());
+    } else if (_items.length < _pageSize) {
+      // Trang 1 chưa đầy → coi như hết.
+      _hasMore = false;
+    }
+  }
+
+  Future<void> _loadMore() async {
+    if (_loading || !_hasMore) return;
+    _loading = true;
+    // Seed rỗng thì bắt đầu từ trang 1, ngược lại tải trang kế tiếp.
+    final next = _items.isEmpty ? 1 : _page + 1;
+    try {
+      final more = await widget.repo.list(
+        page: next,
+        limit: _pageSize,
+        type: widget.type,
+        cinema: widget.cinema ? '1' : '',
+      );
+      final fresh = more.where((m) => _ids.add(m.id)).toList();
+      if (!mounted) return;
+      setState(() {
+        _items.addAll(fresh);
+        _page = next;
+        if (more.length < _pageSize) _hasMore = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _hasMore = false);
+    } finally {
+      _loading = false;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_items.isEmpty) {
+      // Đang tải trang 1 (seed rỗng) hoặc thật sự không có phim.
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(
+          child: _hasMore
+              ? const CircularProgressIndicator(color: CvColors.accent)
+              : const Text(
+                  'Chưa có phim',
+                  style: TextStyle(color: CvColors.muted),
+                ),
+        ),
+      );
+    }
     final pad = pagePadding(context);
-    final avail =
-        MediaQuery.sizeOf(context).width - pad.left - pad.right;
+    final avail = MediaQuery.sizeOf(context).width - pad.left - pad.right;
     const spacing = 12.0;
     final target = movieCardExtent(context);
     final count = math.max(2, ((avail + spacing) / (target + spacing)).floor());
@@ -2712,15 +2781,19 @@ class _CategoryGrid extends StatelessWidget {
           mainAxisExtent: cellH,
         ),
         delegate: SliverChildBuilderDelegate((context, index) {
-          final m = movies[index];
-          final tag = 'poster-$title-${m.id}-$index';
+          // Sắp chạm cuối → tải thêm trang.
+          if (index >= _items.length - 6 && _hasMore && !_loading) {
+            WidgetsBinding.instance.addPostFrameCallback((_) => _loadMore());
+          }
+          final m = _items[index];
+          final tag = 'poster-${widget.title}-${m.id}-$index';
           return MoviePosterCard(
             movie: m,
             width: cellW,
             heroTag: tag,
-            onTap: () => openDetail(context, repo, m, heroTag: tag),
+            onTap: () => openDetail(context, widget.repo, m, heroTag: tag),
           );
-        }, childCount: movies.length),
+        }, childCount: _items.length),
       ),
     );
   }
