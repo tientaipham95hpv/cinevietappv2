@@ -196,6 +196,7 @@ class CineVietV2App extends StatelessWidget {
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: CvColors.black,
+      fontFamily: 'Inter',
       colorScheme: const ColorScheme.dark(
         primary: CvColors.accent,
         secondary: CvColors.accent,
@@ -841,30 +842,31 @@ class EpisodeServer {
 
   String get displayName {
     final base = name
-      .replaceAll(
-        RegExp(
-          r'\s*\[(ophim|kkphim|phimapi|nguồn\s*c|nguonc)\]\s*',
-          caseSensitive: false,
-        ),
-        ' ',
-      )
-      .replaceAll(
-        RegExp(
-          r'\s*(ophim|kkphim|phimapi|nguồn\s*c|nguonc)\s*[-–]\s*',
-          caseSensitive: false,
-        ),
-        ' ',
-      )
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+        .replaceAll(
+          RegExp(
+            r'\s*\[(ophim|kkphim|phimapi|nguồn\s*c|nguonc)\]\s*',
+            caseSensitive: false,
+          ),
+          ' ',
+        )
+        .replaceAll(
+          RegExp(
+            r'\s*(ophim|kkphim|phimapi|nguồn\s*c|nguonc)\s*[-–]\s*',
+            caseSensitive: false,
+          ),
+          ' ',
+        )
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
     final s = name.toLowerCase();
     String tag = '';
     if (RegExp(r'\[ophim\]|ophim').hasMatch(s)) {
       tag = 'ophim';
     } else if (RegExp(r'\[kkphim\]|kkphim|\[phimapi\]|phimapi').hasMatch(s)) {
       tag = 'kkphim';
-    } else if (RegExp(r'\[nguồn\s*c\]|\[nguonc\]|nguồn\s*c|nguonc|streamc')
-        .hasMatch(s)) {
+    } else if (RegExp(
+      r'\[nguồn\s*c\]|\[nguonc\]|nguồn\s*c|nguonc|streamc',
+    ).hasMatch(s)) {
       tag = 'nguonc';
     }
     final label = base.isEmpty ? 'Nguồn' : base;
@@ -2412,98 +2414,93 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildHome(HomeData home) {
-          final featured = home.featured.isNotEmpty
-              ? home.featured
-              : home.latest.take(8).toList();
-          if (isTvBuild) {
-            return Column(
-              children: [
-                SizedBox(
-                  height: heroBannerHeight(context),
-                  child: featured.isEmpty
-                      ? const HomeEmptyHero()
-                      : FeaturedHeroCarousel(
-                          movies: featured,
+    final featured = home.featured.isNotEmpty
+        ? home.featured
+        : home.latest.take(8).toList();
+    if (isTvBuild) {
+      return Column(
+        children: [
+          SizedBox(
+            height: heroBannerHeight(context),
+            child: featured.isEmpty
+                ? const HomeEmptyHero()
+                : FeaturedHeroCarousel(movies: featured, repo: widget.repo),
+          ),
+          Expanded(
+            child: CustomScrollView(
+              key: const PageStorageKey('home-tv-scroll'),
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverPadding(
+                  padding: pagePadding(context).copyWith(top: 22, bottom: 72),
+                  sliver: SliverList(
+                    delegate: SliverChildListDelegate([
+                      if (home.history.isNotEmpty)
+                        WatchRow(
+                          title: 'Xem tiếp',
+                          items: home.history,
                           repo: widget.repo,
+                          onRemove: _removeHistory,
                         ),
-                ),
-                Expanded(
-                  child: CustomScrollView(
-                    key: const PageStorageKey('home-tv-scroll'),
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    slivers: [
-                      SliverPadding(
-                        padding: pagePadding(
-                          context,
-                        ).copyWith(top: 22, bottom: 72),
-                        sliver: SliverList(
-                          delegate: SliverChildListDelegate([
-                            if (home.history.isNotEmpty)
-                              WatchRow(
-                                title: 'Xem tiếp',
-                                items: home.history,
-                                repo: widget.repo,
-                                onRemove: _removeHistory,
-                              ),
-                            MovieRow(
-                              title: 'Top CineViet',
-                              movies: featured.length > 1
-                                  ? featured.skip(1).toList()
-                                  : featured,
-                              repo: widget.repo,
-                              padded: false,
-                            ),
-                            MovieRow(
-                              title: 'Mới cập nhật hôm nay',
-                              movies: home.latest,
-                              repo: widget.repo,
-                              padded: false,
-                            ),
-                            MovieRow(
-                              title: 'Phim chiếu rạp',
-                              movies: home.cinema,
-                              repo: widget.repo,
-                              padded: false,
-                            ),
-                            MovieRow(
-                              title: 'Phim bộ',
-                              movies: home.series,
-                              repo: widget.repo,
-                              padded: false,
-                            ),
-                            MovieRow(
-                              title: 'Phim lẻ',
-                              movies: home.single,
-                              repo: widget.repo,
-                              padded: false,
-                            ),
-                            MovieRow(
-                              title: 'Anime',
-                              movies: home.anime,
-                              repo: widget.repo,
-                              padded: false,
-                            ),
-                            MovieRow(
-                              title: 'TV Shows',
-                              movies: home.tvShows,
-                              repo: widget.repo,
-                              padded: false,
-                            ),
-                          ]),
-                        ),
+                      MovieRow(
+                        title: 'Top CineViet',
+                        movies: featured.length > 1
+                            ? featured.skip(1).toList()
+                            : featured,
+                        repo: widget.repo,
+                        padded: false,
                       ),
-                    ],
+                      MovieRow(
+                        title: 'Mới cập nhật hôm nay',
+                        movies: home.latest,
+                        repo: widget.repo,
+                        padded: false,
+                      ),
+                      MovieRow(
+                        title: 'Phim chiếu rạp',
+                        movies: home.cinema,
+                        repo: widget.repo,
+                        padded: false,
+                      ),
+                      MovieRow(
+                        title: 'Phim bộ',
+                        movies: home.series,
+                        repo: widget.repo,
+                        padded: false,
+                      ),
+                      MovieRow(
+                        title: 'Phim lẻ',
+                        movies: home.single,
+                        repo: widget.repo,
+                        padded: false,
+                      ),
+                      MovieRow(
+                        title: 'Anime',
+                        movies: home.anime,
+                        repo: widget.repo,
+                        padded: false,
+                      ),
+                      MovieRow(
+                        title: 'TV Shows',
+                        movies: home.tvShows,
+                        repo: widget.repo,
+                        padded: false,
+                      ),
+                    ]),
                   ),
                 ),
               ],
-            );
-          }
-          return PhoneHome(
-            home: home,
-            repo: widget.repo,
-            featured: featured,
-            onRemoveHistory: _removeHistory,
-          );
+            ),
+          ),
+        ],
+      );
+    }
+    return PhoneHome(
+      home: home,
+      repo: widget.repo,
+      featured: featured,
+      onRemoveHistory: _removeHistory,
+    );
   }
 }
 
@@ -2583,7 +2580,12 @@ class PhoneHome extends StatelessWidget {
 }
 
 class _HomeTab {
-  const _HomeTab(this.title, this.movies, {this.type = '', this.cinema = false});
+  const _HomeTab(
+    this.title,
+    this.movies, {
+    this.type = '',
+    this.cinema = false,
+  });
   final String title;
   final List<Movie>? movies; // null = tab "Đề xuất"; ngược lại = seed trang 1
   final String type; // type gọi API cho tab danh mục
@@ -2701,7 +2703,8 @@ class _CategoryGrid extends StatefulWidget {
 }
 
 class _CategoryGridState extends State<_CategoryGrid> {
-  static const int _pageSize = 18; // khớp sectionLimit của home để nối liền mạch
+  static const int _pageSize =
+      18; // khớp sectionLimit của home để nối liền mạch
   late List<Movie> _items;
   final Set<int> _ids = {};
   int _page = 1;
@@ -2729,8 +2732,8 @@ class _CategoryGridState extends State<_CategoryGrid> {
     // hoặc call lỗi lần đầu). Nếu seed thay đổi thì nạp lại từ seed mới.
     final oldFirst = old.seed.isEmpty ? null : old.seed.first.id;
     final newFirst = widget.seed.isEmpty ? null : widget.seed.first.id;
-    final seedChanged = old.seed.length != widget.seed.length ||
-        oldFirst != newFirst;
+    final seedChanged =
+        old.seed.length != widget.seed.length || oldFirst != newFirst;
     // Chỉ reset khi đang rỗng (nhận ngay seed tươi) HOẶC chưa cuộn sang
     // trang khác (tránh xoá dữ liệu người dùng đã cuộn tới).
     final canReset = _items.isEmpty || (_page == 1 && !_loading);
@@ -2884,9 +2887,9 @@ class HomeData {
   factory HomeData.fromCacheJson(Map<String, dynamic> json) {
     List<Movie> parse(dynamic v) => v is List
         ? v
-            .whereType<Map>()
-            .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
-            .toList()
+              .whereType<Map>()
+              .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
         : const <Movie>[];
     return HomeData(
       featured: parse(json['featured']),
@@ -3361,12 +3364,8 @@ class MovieRow extends StatelessWidget {
                   movie: movies[index],
                   width: cardWidth,
                   heroTag: tag,
-                  onTap: () => openDetail(
-                    context,
-                    repo,
-                    movies[index],
-                    heroTag: tag,
-                  ),
+                  onTap: () =>
+                      openDetail(context, repo, movies[index], heroTag: tag),
                 );
               },
             ),
@@ -10178,11 +10177,11 @@ class MoviePosterCard extends StatelessWidget {
                       useLandscapeArt
                           ? NetworkBackdrop(url: artUrl, fit: BoxFit.cover)
                           : (heroTag != null
-                              ? Hero(
-                                  tag: heroTag!,
-                                  child: NetworkPoster(url: artUrl),
-                                )
-                              : NetworkPoster(url: artUrl)),
+                                ? Hero(
+                                    tag: heroTag!,
+                                    child: NetworkPoster(url: artUrl),
+                                  )
+                                : NetworkPoster(url: artUrl)),
                       Positioned(
                         left: 7,
                         top: 7,
