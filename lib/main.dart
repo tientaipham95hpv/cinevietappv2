@@ -9644,10 +9644,43 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                 ]
               : null,
         ),
-        child: VideoProgressIndicator(
-          widget.controller,
-          allowScrubbing: true,
-          colors: const VideoProgressColors(playedColor: CvColors.accent),
+        child: ValueListenableBuilder<VideoPlayerValue>(
+          valueListenable: widget.controller,
+          builder: (context, value, _) {
+            final durationMs = value.duration.inMilliseconds;
+            final positionMs = value.position.inMilliseconds.clamp(
+              0,
+              durationMs > 0 ? durationMs : 1,
+            );
+            final max = durationMs > 0 ? durationMs.toDouble() : 1.0;
+            return SliderTheme(
+              data: SliderTheme.of(context).copyWith(
+                trackHeight: focused && isTvBuild ? 7 : 4,
+                activeTrackColor: CvColors.accent,
+                inactiveTrackColor: Colors.white.withValues(alpha: .28),
+                thumbColor: CvColors.accent,
+                overlayColor: CvColors.accent.withValues(alpha: .18),
+                thumbShape: RoundSliderThumbShape(
+                  enabledThumbRadius: focused && isTvBuild ? 9 : 6,
+                ),
+                overlayShape: RoundSliderOverlayShape(
+                  overlayRadius: focused && isTvBuild ? 22 : 14,
+                ),
+              ),
+              child: Slider(
+                value: positionMs.toDouble(),
+                min: 0,
+                max: max,
+                onChanged: durationMs <= 0
+                    ? null
+                    : (nextMs) {
+                        widget.controller.seekTo(
+                          Duration(milliseconds: nextMs.round()),
+                        );
+                      },
+              ),
+            );
+          },
         ),
       ),
     );
