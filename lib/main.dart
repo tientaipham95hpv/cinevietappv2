@@ -642,6 +642,7 @@ class Movie {
     this.poster = '',
     this.backdrop = '',
     this.thumbnail = '',
+    this.trailerUrl = '',
     this.releaseYear,
     this.duration,
     this.rating,
@@ -666,6 +667,7 @@ class Movie {
   final String poster;
   final String backdrop;
   final String thumbnail;
+  final String trailerUrl;
   final int? releaseYear;
   final int? duration;
   final double? rating;
@@ -688,6 +690,12 @@ class Movie {
         : (thumbnail.isNotEmpty ? thumbnail : poster),
   );
   String get routeKey => slug.isNotEmpty ? slug : '$id';
+  bool get hasPlayableVideo => episodes.any(
+    (server) => server.items.any((episode) => episode.playUrl.isNotEmpty),
+  );
+  bool get isTrailerOnly => !hasPlayableVideo && trailerUrl.isNotEmpty;
+  String get posterBadgeLabel =>
+      isTrailerOnly ? 'Trailer' : (quality.isEmpty ? 'HD' : quality);
   String get metaLine {
     final parts = [
       if (releaseYear != null) '$releaseYear',
@@ -794,6 +802,7 @@ class Movie {
       poster: cleanText(json['poster']),
       backdrop: cleanText(json['backdrop']),
       thumbnail: cleanText(json['thumbnail']),
+      trailerUrl: cleanText(json['trailer_url'] ?? json['trailerUrl']),
       releaseYear: asInt(json['release_year']),
       duration: asInt(json['duration']),
       rating: asDouble(json['rating']) ?? asDouble(json['tmdb_vote_average']),
@@ -822,6 +831,7 @@ class Movie {
     'poster': poster,
     'backdrop': backdrop,
     'thumbnail': thumbnail,
+    'trailer_url': trailerUrl,
     'release_year': releaseYear,
     'duration': duration,
     'rating': rating,
@@ -10185,9 +10195,7 @@ class MoviePosterCard extends StatelessWidget {
                       Positioned(
                         left: 7,
                         top: 7,
-                        child: MetaPill(
-                          movie.quality.isEmpty ? 'HD' : movie.quality,
-                        ),
+                        child: MetaPill(movie.posterBadgeLabel),
                       ),
                       if (onRemove != null)
                         Positioned(
