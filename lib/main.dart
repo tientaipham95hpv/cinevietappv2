@@ -9484,12 +9484,10 @@ class PlayerOverlay extends StatelessWidget {
                   valueListenable: c,
                   builder: (context, value, _) => Column(
                     children: [
-                      VideoProgressIndicator(
-                        c,
-                        allowScrubbing: true,
-                        colors: const VideoProgressColors(
-                          playedColor: CvColors.accent,
-                        ),
+                      PlayerSeekBar(
+                        controller: c,
+                        onSeekBackward: onReplay,
+                        onSeekForward: onForward,
                       ),
                       const SizedBox(height: 12),
                       LayoutBuilder(
@@ -9582,6 +9580,74 @@ class PlayerOverlay extends StatelessWidget {
                 ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class PlayerSeekBar extends StatefulWidget {
+  const PlayerSeekBar({
+    super.key,
+    required this.controller,
+    required this.onSeekBackward,
+    required this.onSeekForward,
+  });
+
+  final VideoPlayerController controller;
+  final VoidCallback onSeekBackward;
+  final VoidCallback onSeekForward;
+
+  @override
+  State<PlayerSeekBar> createState() => _PlayerSeekBarState();
+}
+
+class _PlayerSeekBarState extends State<PlayerSeekBar> {
+  bool focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      onFocusChange: (value) => setState(() => focused = value),
+      onKeyEvent: (_, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
+            event.logicalKey == LogicalKeyboardKey.mediaRewind) {
+          widget.onSeekBackward();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowRight ||
+            event.logicalKey == LogicalKeyboardKey.mediaFastForward) {
+          widget.onSeekForward();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: EdgeInsets.symmetric(
+          horizontal: focused && isTvBuild ? 8 : 0,
+          vertical: focused && isTvBuild ? 8 : 0,
+        ),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(999),
+          border: focused && isTvBuild
+              ? Border.all(color: CvColors.accent, width: 2)
+              : null,
+          boxShadow: focused && isTvBuild
+              ? [
+                  BoxShadow(
+                    color: CvColors.accent.withValues(alpha: .28),
+                    blurRadius: 18,
+                    spreadRadius: 1,
+                  ),
+                ]
+              : null,
+        ),
+        child: VideoProgressIndicator(
+          widget.controller,
+          allowScrubbing: true,
+          colors: const VideoProgressColors(playedColor: CvColors.accent),
         ),
       ),
     );
