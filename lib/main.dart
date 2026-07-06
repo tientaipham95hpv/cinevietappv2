@@ -1393,10 +1393,20 @@ class WatchTogetherCreateResult {
   final WatchTogetherState? room;
 }
 
+class _MovieListCacheEntry {
+  const _MovieListCacheEntry(this.movies, this.expiresAt);
+  final List<Movie> movies;
+  final DateTime expiresAt;
+
+  bool get isFresh => DateTime.now().isBefore(expiresAt);
+}
+
 class MovieRepository {
   MovieRepository(this.api);
+  static const Duration _listCacheTtl = Duration(minutes: 10);
   final Api api;
   final Map<String, Movie> _cache = {};
+  final Map<String, _MovieListCacheEntry> _listCache = {};
   Set<int>? _favoriteIdsCache;
   static io.Socket? _activeWatchRoomSocket;
   static String? _activeWatchRoomCode;
@@ -1418,23 +1428,28 @@ class MovieRepository {
     String sort = 'created_at',
     String featured = '',
     String cinema = '',
+    bool forceRefresh = false,
   }) async {
-    final res = await api.dio.get(
-      '/movies',
-      queryParameters: {
-        'page': page,
-        'limit': limit,
-        'sort': sort,
-        'order': 'desc',
-        if (search.trim().isNotEmpty) 'search': search.trim(),
-        if (type.isNotEmpty) 'type': type,
-        if (genre.isNotEmpty) 'genre': genre,
-        if (country.isNotEmpty) 'country': country,
-        if (year.isNotEmpty) 'release_year': year,
-        if (featured.isNotEmpty) 'featured': featured,
-        if (cinema.isNotEmpty) 'chieu_rap': cinema,
-      },
-    );
+    final query = {
+      'page': page,
+      'limit': limit,
+      'sort': sort,
+      'order': 'desc',
+      if (search.trim().isNotEmpty) 'search': search.trim(),
+      if (type.isNotEmpty) 'type': type,
+      if (genre.isNotEmpty) 'genre': genre,
+      if (country.isNotEmpty) 'country': country,
+      if (year.isNotEmpty) 'release_year': year,
+      if (featured.isNotEmpty) 'featured': featured,
+      if (cinema.isNotEmpty) 'chieu_rap': cinema,
+    };
+    final cacheKey = _listCacheKey(query);
+    final cached = _listCache[cacheKey];
+    if (!forceRefresh && cached != null && cached.isFresh) {
+      return List<Movie>.of(cached.movies);
+    }
+
+    final res = await api.dio.get('/movies', queryParameters: query);
     final movies = ((res.data['movies'] as List?) ?? const [])
         .whereType<Map>()
         .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
@@ -1443,7 +1458,17 @@ class MovieRepository {
       _cache[movie.routeKey] = movie;
       _cache['${movie.id}'] = movie;
     }
+    _listCache[cacheKey] = _MovieListCacheEntry(
+      List<Movie>.unmodifiable(movies),
+      DateTime.now().add(_listCacheTtl),
+    );
     return movies;
+  }
+
+  String _listCacheKey(Map<String, Object> query) {
+    final entries = query.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
+    return entries.map((entry) => '${entry.key}=${entry.value}').join('&');
   }
 
   Future<List<(String, String)>> genres() => _metaList(
@@ -3523,6 +3548,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
   String sort = 'created_at';
   late Future<List<Movie>> results;
   late Future<BrowseMeta> meta;
+  Timer? _searchDebounce;
 
   static const defaultGenres = [
     ('', 'Tất cả thể loại'),
@@ -3591,6 +3617,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
   }
 
   void runSearch() {
+    _searchDebounce?.cancel();
     setState(() {
       results = widget.repo.list(
         limit: 48,
@@ -3604,8 +3631,14 @@ class _BrowseScreenState extends State<BrowseScreen> {
     });
   }
 
+  void scheduleSearch() {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), runSearch);
+  }
+
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     search.dispose();
     super.dispose();
   }
@@ -3649,6 +3682,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       child: TextField(
                         controller: search,
                         textInputAction: TextInputAction.search,
+                        onChanged: (_) => scheduleSearch(),
                         onSubmitted: (_) => runSearch(),
                         decoration: InputDecoration(
                           hintText: 'Tên phim, diễn viên, quốc gia...',
