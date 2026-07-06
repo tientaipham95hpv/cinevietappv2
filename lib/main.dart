@@ -9658,14 +9658,10 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                 trackHeight: focused && isTvBuild ? 7 : 4,
                 activeTrackColor: CvColors.accent,
                 inactiveTrackColor: Colors.white.withValues(alpha: .28),
-                thumbColor: CvColors.accent,
-                overlayColor: CvColors.accent.withValues(alpha: .18),
-                thumbShape: RoundSliderThumbShape(
-                  enabledThumbRadius: focused && isTvBuild ? 9 : 6,
-                ),
-                overlayShape: RoundSliderOverlayShape(
-                  overlayRadius: focused && isTvBuild ? 22 : 14,
-                ),
+                thumbColor: Colors.transparent,
+                overlayColor: Colors.transparent,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
+                overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
               ),
               child: Slider(
                 value: positionMs.toDouble(),
