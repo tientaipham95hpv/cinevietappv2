@@ -694,11 +694,38 @@ class Movie {
     (server) => server.items.any((episode) => episode.playUrl.isNotEmpty),
   );
   bool get isTrailerOnly => !hasPlayableVideo && trailerUrl.isNotEmpty;
-  String get posterBadgeLabel {
-    if (hasPlayableVideo) return quality.isEmpty ? 'HD' : quality;
-    if (trailerUrl.isNotEmpty) return 'Trailer';
-    return 'Sắp có';
+  bool get isSeriesLike {
+    final t = type.toLowerCase();
+    return t.contains('series') ||
+        t.contains('tv') ||
+        t.contains('anime') ||
+        (totalEpisodes ?? 0) > 1;
   }
+
+  int? get currentEpisodeNumber {
+    final matches = RegExp(r'\d+').allMatches(episodeCurrent).toList();
+    if (matches.isEmpty) return null;
+    return int.tryParse(matches.first.group(0) ?? '');
+  }
+
+  String get availabilityBadgeLabel {
+    if (!hasPlayableVideo) return trailerUrl.isNotEmpty ? 'Trailer' : 'Sắp có';
+    if (!isSeriesLike) return 'Full';
+    final current = currentEpisodeNumber;
+    final total = totalEpisodes;
+    if (current != null && total != null && total > 0) {
+      return 'Tập $current/$total';
+    }
+    if (current != null) return 'Tập $current';
+    final raw = episodeCurrent.trim();
+    if (raw.isNotEmpty) return raw;
+    return 'Tập mới';
+  }
+
+  String get qualityBadgeLabel =>
+      hasPlayableVideo ? (quality.isEmpty ? 'HD' : quality) : '';
+
+  String get posterBadgeLabel => availabilityBadgeLabel;
 
   String get metaLine {
     final parts = [
@@ -10199,8 +10226,15 @@ class MoviePosterCard extends StatelessWidget {
                       Positioned(
                         left: 7,
                         top: 7,
-                        child: MetaPill(movie.posterBadgeLabel),
+                        child: MetaPill(movie.availabilityBadgeLabel),
                       ),
+                      if (movie.qualityBadgeLabel.isNotEmpty &&
+                          onRemove == null)
+                        Positioned(
+                          top: 7,
+                          right: 7,
+                          child: MetaPill(movie.qualityBadgeLabel),
+                        ),
                       if (onRemove != null)
                         Positioned(
                           top: 7,
