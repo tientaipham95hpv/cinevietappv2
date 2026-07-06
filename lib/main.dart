@@ -10662,10 +10662,24 @@ class FocusButton extends StatefulWidget {
 class _FocusButtonState extends State<FocusButton> {
   bool focused = false;
 
+  void _handleFocusChange(bool value) {
+    setState(() => focused = value);
+    if (!value || !isTvBuild) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Focus(
-      onFocusChange: (value) => setState(() => focused = value),
+      onFocusChange: _handleFocusChange,
       onKeyEvent: (_, event) {
         if (event is KeyDownEvent &&
             (event.logicalKey == LogicalKeyboardKey.select ||
