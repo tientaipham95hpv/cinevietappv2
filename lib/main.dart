@@ -694,8 +694,12 @@ class Movie {
     (server) => server.items.any((episode) => episode.playUrl.isNotEmpty),
   );
   bool get isTrailerOnly => !hasPlayableVideo && trailerUrl.isNotEmpty;
-  String get posterBadgeLabel =>
-      isTrailerOnly ? 'Trailer' : (quality.isEmpty ? 'HD' : quality);
+  String get posterBadgeLabel {
+    if (hasPlayableVideo) return quality.isEmpty ? 'HD' : quality;
+    if (trailerUrl.isNotEmpty) return 'Trailer';
+    return 'Sắp có';
+  }
+
   String get metaLine {
     final parts = [
       if (releaseYear != null) '$releaseYear',
