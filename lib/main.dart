@@ -196,7 +196,7 @@ class CineVietV2App extends StatelessWidget {
       useMaterial3: true,
       brightness: Brightness.dark,
       scaffoldBackgroundColor: CvColors.black,
-      fontFamily: 'Inter',
+      fontFamily: 'Plus Jakarta Sans',
       colorScheme: const ColorScheme.dark(
         primary: CvColors.accent,
         secondary: CvColors.accent,
