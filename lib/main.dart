@@ -33,6 +33,7 @@ import 'package:webview_windows/webview_windows.dart' as windows_webview;
 
 const apiBase = 'https://cineviet.live/api';
 const siteBase = 'https://cineviet.live';
+const tmdbImageBase = 'https://image.tmdb.org/t/p';
 const isTvBuild = bool.fromEnvironment('APP_IS_TV');
 const googleServerClientId =
     '186784861581-5l7skrrke87pmf669l6ach0brbra4v76.apps.googleusercontent.com';
@@ -275,6 +276,38 @@ String imageUrl(String? value) {
   if (raw.startsWith('//')) return 'https:$raw';
   if (raw.startsWith('/')) return '$siteBase$raw';
   return '$siteBase/$raw';
+}
+
+String tmdbImageUrlFrom(String? value, {required bool poster}) {
+  final raw = (value ?? '').trim();
+  if (raw.isEmpty || raw == 'null') return '';
+  if (raw.startsWith('/')) {
+    return '$tmdbImageBase/${poster ? 'w500' : 'w1280'}$raw';
+  }
+  final uri = Uri.tryParse(raw);
+  final host = uri?.host.toLowerCase() ?? '';
+  final path = uri?.path ?? '';
+  if (host.contains('image.tmdb.org')) {
+    final fileName = uri?.pathSegments.isNotEmpty == true
+        ? uri!.pathSegments.last
+        : '';
+    return fileName.isEmpty
+        ? ''
+        : '$tmdbImageBase/${poster ? 'w500' : 'w1280'}/$fileName';
+  }
+  if (!host.contains('phim.nguonc.com') ||
+      !path.contains('/public/images/Film/')) {
+    return '';
+  }
+  final fileName = uri?.pathSegments.isNotEmpty == true
+      ? uri!.pathSegments.last
+      : raw.split('/').last;
+  final match = RegExp(
+    r'^([A-Za-z0-9_-]{18,})\.(jpe?g|png|webp)$',
+    caseSensitive: false,
+  ).firstMatch(fileName);
+  if (match == null) return '';
+  return '$tmdbImageBase/${poster ? 'w500' : 'w1280'}/${match.group(1)}.${match.group(2)}';
 }
 
 int? asInt(dynamic value) {
@@ -639,6 +672,7 @@ class Movie {
     required this.slug,
     this.titleEn = '',
     this.description = '',
+    this.tmdbId = '',
     this.poster = '',
     this.backdrop = '',
     this.thumbnail = '',
@@ -664,6 +698,7 @@ class Movie {
   final String slug;
   final String titleEn;
   final String description;
+  final String tmdbId;
   final String poster;
   final String backdrop;
   final String thumbnail;
@@ -683,12 +718,30 @@ class Movie {
   final List<EpisodeServer> episodes;
   final List<Movie> related;
 
-  String get posterUrl => imageUrl(poster.isNotEmpty ? poster : thumbnail);
-  String get backdropUrl => imageUrl(
+  bool get hasTmdbId => tmdbId.trim().isNotEmpty && tmdbId.trim() != 'null';
+  String get sourcePosterUrl =>
+      imageUrl(poster.isNotEmpty ? poster : thumbnail);
+  String get sourceBackdropUrl => imageUrl(
     backdrop.isNotEmpty
         ? backdrop
         : (thumbnail.isNotEmpty ? thumbnail : poster),
   );
+  String get tmdbPosterUrl =>
+      hasTmdbId ? tmdbImageUrlFrom(poster, poster: true) : '';
+  String get tmdbBackdropUrl => hasTmdbId
+      ? tmdbImageUrlFrom(
+          backdrop.isNotEmpty ? backdrop : thumbnail,
+          poster: false,
+        )
+      : '';
+  String get posterUrl =>
+      tmdbPosterUrl.isNotEmpty ? tmdbPosterUrl : sourcePosterUrl;
+  String get posterFallbackUrl =>
+      posterUrl != sourcePosterUrl ? sourcePosterUrl : '';
+  String get backdropUrl =>
+      tmdbBackdropUrl.isNotEmpty ? tmdbBackdropUrl : sourceBackdropUrl;
+  String get backdropFallbackUrl =>
+      backdropUrl != sourceBackdropUrl ? sourceBackdropUrl : '';
   String get routeKey => slug.isNotEmpty ? slug : '$id';
   bool get hasPlayableVideo => episodes.any(
     (server) => server.items.any((episode) => episode.playUrl.isNotEmpty),
@@ -830,6 +883,7 @@ class Movie {
       ),
       titleEn: cleanText(json['title_en']),
       description: cleanText(json['description']),
+      tmdbId: cleanText(json['tmdb_id'] ?? json['tmdbId']),
       poster: cleanText(json['poster']),
       backdrop: cleanText(json['backdrop']),
       thumbnail: cleanText(json['thumbnail']),
@@ -859,6 +913,7 @@ class Movie {
     'slug': slug,
     'title_en': titleEn,
     'description': description,
+    'tmdb_id': tmdbId,
     'poster': poster,
     'backdrop': backdrop,
     'thumbnail': thumbnail,
@@ -3269,6 +3324,13 @@ class HeroBanner extends StatelessWidget {
     final artwork = usePosterArt
         ? (movie.posterUrl.isNotEmpty ? movie.posterUrl : movie.backdropUrl)
         : (movie.backdropUrl.isNotEmpty ? movie.backdropUrl : movie.posterUrl);
+    final artworkFallback = usePosterArt
+        ? (movie.posterFallbackUrl.isNotEmpty
+              ? movie.posterFallbackUrl
+              : movie.backdropFallbackUrl)
+        : (movie.backdropFallbackUrl.isNotEmpty
+              ? movie.backdropFallbackUrl
+              : movie.posterFallbackUrl);
     final height = heroBannerHeight(context);
     final heroMeta = [
       if (movie.releaseYear != null) '${movie.releaseYear}',
@@ -3281,7 +3343,11 @@ class HeroBanner extends StatelessWidget {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          NetworkBackdrop(url: artwork, fit: BoxFit.cover),
+          NetworkBackdrop(
+            url: artwork,
+            fallbackUrl: artworkFallback,
+            fit: BoxFit.cover,
+          ),
           DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
@@ -7020,6 +7086,12 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               : servers[serverIndex.clamp(0, servers.length - 1)];
           final detailWidth = MediaQuery.sizeOf(context).width;
           final usePortraitHero = detailWidth < 600 && !isTvBuild;
+          final detailHeroUrl = usePortraitHero
+              ? movie.posterUrl
+              : movie.backdropUrl;
+          final detailHeroFallbackUrl = usePortraitHero
+              ? movie.posterFallbackUrl
+              : movie.backdropFallbackUrl;
           final titleSize = isTvBuild
               ? 46.0
               : detailWidth < 390
@@ -7060,16 +7132,14 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                           ? Hero(
                               tag: widget.heroTag!,
                               child: NetworkBackdrop(
-                                url: usePortraitHero
-                                    ? movie.posterUrl
-                                    : movie.backdropUrl,
+                                url: detailHeroUrl,
+                                fallbackUrl: detailHeroFallbackUrl,
                                 fit: BoxFit.cover,
                               ),
                             )
                           : NetworkBackdrop(
-                              url: usePortraitHero
-                                  ? movie.posterUrl
-                                  : movie.backdropUrl,
+                              url: detailHeroUrl,
+                              fallbackUrl: detailHeroFallbackUrl,
                               fit: BoxFit.cover,
                             ),
                       DecoratedBox(
@@ -11083,6 +11153,11 @@ class MoviePosterCard extends StatelessWidget {
     final artUrl = useLandscapeArt
         ? (movie.backdropUrl.isNotEmpty ? movie.backdropUrl : movie.posterUrl)
         : movie.posterUrl;
+    final artFallbackUrl = useLandscapeArt
+        ? (movie.backdropFallbackUrl.isNotEmpty
+              ? movie.backdropFallbackUrl
+              : movie.posterFallbackUrl)
+        : movie.posterFallbackUrl;
     return SizedBox(
       width: width,
       child: FocusButton(
@@ -11100,13 +11175,23 @@ class MoviePosterCard extends StatelessWidget {
                     fit: StackFit.expand,
                     children: [
                       useLandscapeArt
-                          ? NetworkBackdrop(url: artUrl, fit: BoxFit.cover)
+                          ? NetworkBackdrop(
+                              url: artUrl,
+                              fallbackUrl: artFallbackUrl,
+                              fit: BoxFit.cover,
+                            )
                           : (heroTag != null
                                 ? Hero(
                                     tag: heroTag!,
-                                    child: NetworkPoster(url: artUrl),
+                                    child: NetworkPoster(
+                                      url: artUrl,
+                                      fallbackUrl: artFallbackUrl,
+                                    ),
                                   )
-                                : NetworkPoster(url: artUrl)),
+                                : NetworkPoster(
+                                    url: artUrl,
+                                    fallbackUrl: artFallbackUrl,
+                                  )),
                       Positioned(
                         left: 7,
                         top: useLandscapeArt ? 7 : null,
@@ -11402,8 +11487,9 @@ class MiniBadge extends StatelessWidget {
 }
 
 class NetworkPoster extends StatelessWidget {
-  const NetworkPoster({super.key, required this.url});
+  const NetworkPoster({super.key, required this.url, this.fallbackUrl = ''});
   final String url;
+  final String fallbackUrl;
 
   @override
   Widget build(BuildContext context) {
@@ -11416,28 +11502,38 @@ class NetworkPoster extends StatelessWidget {
         final height = constraints.hasBoundedHeight
             ? constraints.maxHeight
             : width * 1.5;
-        return RepaintBoundary(
-          child: CachedNetworkImage(
-            imageUrl: url,
-            fit: BoxFit.cover,
-            memCacheWidth: cachePixels(context, width, max: 900),
-            memCacheHeight: cachePixels(context, height, max: 1400),
-            maxWidthDiskCache: cachePixels(context, width, max: 900),
-            maxHeightDiskCache: cachePixels(context, height, max: 1400),
-            fadeInDuration: const Duration(milliseconds: 120),
-            useOldImageOnUrlChange: true,
-            placeholder: (_, _) => const PosterFallback(),
-            errorWidget: (_, _, _) => const PosterFallback(),
-          ),
-        );
+        final fallback = fallbackUrl.trim();
+        Widget image(String imageUrl, {required bool allowFallback}) =>
+            CachedNetworkImage(
+              imageUrl: imageUrl,
+              fit: BoxFit.cover,
+              memCacheWidth: cachePixels(context, width, max: 900),
+              memCacheHeight: cachePixels(context, height, max: 1400),
+              maxWidthDiskCache: cachePixels(context, width, max: 900),
+              maxHeightDiskCache: cachePixels(context, height, max: 1400),
+              fadeInDuration: const Duration(milliseconds: 120),
+              useOldImageOnUrlChange: true,
+              placeholder: (_, _) => const PosterFallback(),
+              errorWidget: (_, _, _) =>
+                  allowFallback && fallback.isNotEmpty && fallback != imageUrl
+                  ? image(fallback, allowFallback: false)
+                  : const PosterFallback(),
+            );
+        return RepaintBoundary(child: image(url, allowFallback: true));
       },
     );
   }
 }
 
 class NetworkBackdrop extends StatelessWidget {
-  const NetworkBackdrop({super.key, required this.url, required this.fit});
+  const NetworkBackdrop({
+    super.key,
+    required this.url,
+    this.fallbackUrl = '',
+    required this.fit,
+  });
   final String url;
+  final String fallbackUrl;
   final BoxFit fit;
 
   @override
@@ -11452,20 +11548,24 @@ class NetworkBackdrop extends StatelessWidget {
         final height = constraints.hasBoundedHeight
             ? constraints.maxHeight
             : math.max(width * 9 / 16, 180.0);
-        return RepaintBoundary(
-          child: CachedNetworkImage(
-            imageUrl: url,
-            fit: fit,
-            memCacheWidth: cachePixels(context, width, max: 1800),
-            memCacheHeight: cachePixels(context, height, max: 1100),
-            maxWidthDiskCache: cachePixels(context, width, max: 1800),
-            maxHeightDiskCache: cachePixels(context, height, max: 1100),
-            fadeInDuration: const Duration(milliseconds: 120),
-            useOldImageOnUrlChange: true,
-            placeholder: (_, _) => const PosterFallback(),
-            errorWidget: (_, _, _) => const PosterFallback(),
-          ),
-        );
+        final fallback = fallbackUrl.trim();
+        Widget image(String imageUrl, {required bool allowFallback}) =>
+            CachedNetworkImage(
+              imageUrl: imageUrl,
+              fit: fit,
+              memCacheWidth: cachePixels(context, width, max: 1800),
+              memCacheHeight: cachePixels(context, height, max: 1100),
+              maxWidthDiskCache: cachePixels(context, width, max: 1800),
+              maxHeightDiskCache: cachePixels(context, height, max: 1100),
+              fadeInDuration: const Duration(milliseconds: 120),
+              useOldImageOnUrlChange: true,
+              placeholder: (_, _) => const PosterFallback(),
+              errorWidget: (_, _, _) =>
+                  allowFallback && fallback.isNotEmpty && fallback != imageUrl
+                  ? image(fallback, allowFallback: false)
+                  : const PosterFallback(),
+            );
+        return RepaintBoundary(child: image(url, allowFallback: true));
       },
     );
   }
