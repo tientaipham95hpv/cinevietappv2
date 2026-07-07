@@ -3752,6 +3752,39 @@ class _BrowseScreenState extends State<BrowseScreen> {
     });
   }
 
+  bool get hasActiveFilters =>
+      type.isNotEmpty ||
+      genre.isNotEmpty ||
+      country.isNotEmpty ||
+      year.isNotEmpty ||
+      sort != 'created_at';
+
+  void clearFilters() {
+    setState(() {
+      type = '';
+      genre = '';
+      country = '';
+      year = '';
+      sort = 'created_at';
+    });
+    runSearch();
+  }
+
+  String typeLabel(String value) => switch (value) {
+    'movie' => 'Phim lẻ',
+    'series' => 'Phim bộ',
+    'anime' => 'Hoạt hình',
+    'tvshows' => 'TV Shows',
+    _ => 'Tất cả',
+  };
+
+  String filterLabel(List<(String, String)> items, String value) {
+    if (value.isEmpty) return '';
+    return items
+        .firstWhere((item) => item.$1 == value, orElse: () => (value, value))
+        .$2;
+  }
+
   void scheduleSearch() {
     _searchDebounce?.cancel();
     _searchDebounce = Timer(const Duration(milliseconds: 400), runSearch);
@@ -3887,31 +3920,84 @@ class _BrowseScreenState extends State<BrowseScreen> {
                   future: meta,
                   builder: (context, snapshot) {
                     final data = snapshot.data ?? BrowseMeta.fallback;
-                    return FilterBar(
-                      genre: genre,
-                      country: country,
-                      year: year,
-                      sort: sort,
-                      genres: data.genres,
-                      countries: data.countries,
-                      years: data.years,
-                      sorts: sorts,
-                      onGenre: (value) {
-                        genre = value;
-                        runSearch();
-                      },
-                      onCountry: (value) {
-                        country = value;
-                        runSearch();
-                      },
-                      onYear: (value) {
-                        year = value;
-                        runSearch();
-                      },
-                      onSort: (value) {
-                        sort = value;
-                        runSearch();
-                      },
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        FilterBar(
+                          genre: genre,
+                          country: country,
+                          year: year,
+                          sort: sort,
+                          genres: data.genres,
+                          countries: data.countries,
+                          years: data.years,
+                          sorts: sorts,
+                          onGenre: (value) {
+                            genre = value;
+                            runSearch();
+                          },
+                          onCountry: (value) {
+                            country = value;
+                            runSearch();
+                          },
+                          onYear: (value) {
+                            year = value;
+                            runSearch();
+                          },
+                          onSort: (value) {
+                            sort = value;
+                            runSearch();
+                          },
+                        ),
+                        if (hasActiveFilters) ...[
+                          const SizedBox(height: 10),
+                          ActiveFilterChips(
+                            filters: [
+                              if (type.isNotEmpty)
+                                (
+                                  'Loại: ${typeLabel(type)}',
+                                  () {
+                                    type = '';
+                                    runSearch();
+                                  },
+                                ),
+                              if (genre.isNotEmpty)
+                                (
+                                  'Thể loại: ${filterLabel(data.genres, genre)}',
+                                  () {
+                                    genre = '';
+                                    runSearch();
+                                  },
+                                ),
+                              if (country.isNotEmpty)
+                                (
+                                  'Quốc gia: ${filterLabel(data.countries, country)}',
+                                  () {
+                                    country = '';
+                                    runSearch();
+                                  },
+                                ),
+                              if (year.isNotEmpty)
+                                (
+                                  'Năm: $year',
+                                  () {
+                                    year = '';
+                                    runSearch();
+                                  },
+                                ),
+                              if (sort != 'created_at')
+                                (
+                                  'Sắp xếp: ${filterLabel(sorts, sort)}',
+                                  () {
+                                    sort = 'created_at';
+                                    runSearch();
+                                  },
+                                ),
+                            ],
+                            onClearAll: clearFilters,
+                          ),
+                        ],
+                      ],
                     );
                   },
                 ),
@@ -3924,6 +4010,11 @@ class _BrowseScreenState extends State<BrowseScreen> {
           cardWidth: gridWidth,
           repo: widget.repo,
           onRetry: runSearch,
+          emptyMessage: hasActiveFilters
+              ? 'Không có phim khớp bộ lọc hiện tại'
+              : 'Không tìm thấy phim phù hợp',
+          emptyActionLabel: hasActiveFilters ? 'Xoá bộ lọc' : null,
+          onEmptyAction: hasActiveFilters ? clearFilters : null,
         ),
       ],
     );
@@ -4025,6 +4116,40 @@ class SearchSuggestionChips extends StatelessWidget {
                 ),
             ],
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class ActiveFilterChips extends StatelessWidget {
+  const ActiveFilterChips({
+    super.key,
+    required this.filters,
+    required this.onClearAll,
+  });
+
+  final List<(String, VoidCallback)> filters;
+  final VoidCallback onClearAll;
+
+  @override
+  Widget build(BuildContext context) {
+    if (filters.isEmpty) return const SizedBox.shrink();
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (final filter in filters)
+          InputChip(
+            avatar: const Icon(Icons.tune_rounded, size: 16),
+            label: Text(filter.$1),
+            onDeleted: filter.$2,
+          ),
+        TextButton.icon(
+          onPressed: onClearAll,
+          icon: const Icon(Icons.clear_all_rounded, size: 18),
+          label: const Text('Xoá lọc'),
         ),
       ],
     );
@@ -4315,11 +4440,17 @@ class FutureGrid extends StatelessWidget {
     required this.cardWidth,
     required this.repo,
     this.onRetry,
+    this.emptyMessage = 'Không tìm thấy phim phù hợp',
+    this.emptyActionLabel,
+    this.onEmptyAction,
   });
   final Future<List<Movie>> future;
   final double cardWidth;
   final MovieRepository repo;
   final VoidCallback? onRetry;
+  final String emptyMessage;
+  final String? emptyActionLabel;
+  final VoidCallback? onEmptyAction;
 
   @override
   Widget build(BuildContext context) {
@@ -4376,8 +4507,14 @@ class FutureGrid extends StatelessWidget {
         }
         final movies = snapshot.data!;
         if (movies.isEmpty) {
-          return const SliverFillRemaining(
-            child: EmptyState('Không tìm thấy phim phù hợp'),
+          return SliverFillRemaining(
+            hasScrollBody: false,
+            child: EmptyActionState(
+              message: emptyMessage,
+              actionLabel: emptyActionLabel,
+              onAction: onEmptyAction,
+              icon: Icons.search_off_rounded,
+            ),
           );
         }
         return SliverPadding(
@@ -4495,7 +4632,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
               )
             else if (list.isEmpty)
               const SliverFillRemaining(
-                child: EmptyState('Chưa có phim đang xem dở'),
+                hasScrollBody: false,
+                child: EmptyActionState(
+                  message: 'Chưa có phim đang xem dở',
+                  icon: Icons.history_rounded,
+                ),
               )
             else
               SliverPadding(
@@ -5198,6 +5339,10 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     future = widget.repo.favorites();
   }
 
+  void reload() {
+    setState(() => future = widget.repo.favorites());
+  }
+
   Future<void> remove(Movie movie) async {
     final current = await future;
     setState(
@@ -5221,6 +5366,12 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       body: FutureBuilder<List<Movie>>(
         future: future,
         builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return InlineErrorState(
+              message: 'Không tải được danh sách yêu thích',
+              onRetry: reload,
+            );
+          }
           if (!snapshot.hasData) {
             return CustomScrollView(
               slivers: [
@@ -5229,7 +5380,12 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
             );
           }
           final movies = snapshot.data!;
-          if (movies.isEmpty) return const EmptyState('Chưa có phim yêu thích');
+          if (movies.isEmpty) {
+            return const EmptyActionState(
+              message: 'Chưa có phim yêu thích',
+              icon: Icons.favorite_border_rounded,
+            );
+          }
           return GridView.builder(
             key: const PageStorageKey('favorites-grid'),
             padding: pagePadding(context).copyWith(top: 20, bottom: 36),
@@ -5297,6 +5453,10 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
     }
   }
 
+  void reload() {
+    setState(() => future = widget.repo.playlists());
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -5341,10 +5501,18 @@ class _PlaylistsScreenState extends State<PlaylistsScreen> {
                 ),
               ),
               const SizedBox(height: 18),
-              if (!snapshot.hasData)
+              if (snapshot.hasError)
+                InlineErrorState(
+                  message: 'Không tải được playlist',
+                  onRetry: reload,
+                )
+              else if (!snapshot.hasData)
                 const LinearProgressIndicator(color: CvColors.accent)
               else if (playlists.isEmpty)
-                const EmptyState('Chưa có playlist hoặc chưa đăng nhập')
+                const EmptyActionState(
+                  message: 'Chưa có playlist hoặc chưa đăng nhập',
+                  icon: Icons.playlist_add_rounded,
+                )
               else
                 for (final playlist in playlists)
                   ProfileTile(
@@ -5426,6 +5594,10 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
     }
   }
 
+  void reload() {
+    setState(() => future = widget.repo.playlistMovies(widget.playlist));
+  }
+
   ButtonStyle get _deletePlaylistStyle => OutlinedButton.styleFrom(
     foregroundColor: CvColors.danger,
     side: BorderSide(color: CvColors.danger.withValues(alpha: .72)),
@@ -5441,6 +5613,15 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
           FutureBuilder<PlaylistDetail>(
             future: future,
             builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: InlineErrorState(
+                    message: 'Không tải được playlist này',
+                    onRetry: reload,
+                  ),
+                );
+              }
               if (!snapshot.hasData) {
                 return const SliverFillRemaining(
                   child: Center(
@@ -5454,7 +5635,10 @@ class _PlaylistDetailScreenState extends State<PlaylistDetailScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      EmptyState('Playlist này chưa có phim'),
+                      EmptyActionState(
+                        message: 'Playlist này chưa có phim',
+                        icon: Icons.playlist_play_rounded,
+                      ),
                       Wrap(
                         spacing: 10,
                         children: [
@@ -5565,6 +5749,10 @@ class _AddToPlaylistSheetState extends State<AddToPlaylistSheet> {
     future = widget.repo.playlists();
   }
 
+  void reload() {
+    setState(() => future = widget.repo.playlists());
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -5580,11 +5768,18 @@ class _AddToPlaylistSheetState extends State<AddToPlaylistSheet> {
               children: [
                 const SectionTitle('Thêm vào playlist'),
                 const SizedBox(height: 12),
-                if (!snapshot.hasData)
+                if (snapshot.hasError)
+                  InlineErrorState(
+                    message: 'Không tải được playlist',
+                    onRetry: reload,
+                  )
+                else if (!snapshot.hasData)
                   const LinearProgressIndicator(color: CvColors.accent)
                 else if (playlists.isEmpty)
-                  const EmptyState(
-                    'Chưa có playlist. Tạo playlist trong mục Của tôi.',
+                  const EmptyActionState(
+                    message:
+                        'Chưa có playlist. Tạo playlist trong mục Của tôi.',
+                    icon: Icons.playlist_add_rounded,
                   )
                 else
                   for (final playlist in playlists)
@@ -11808,6 +12003,90 @@ class EmptyState extends StatelessWidget {
         label,
         textAlign: TextAlign.center,
         style: const TextStyle(color: CvColors.muted),
+      ),
+    ),
+  );
+}
+
+class EmptyActionState extends StatelessWidget {
+  const EmptyActionState({
+    super.key,
+    required this.message,
+    this.icon = Icons.inbox_rounded,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final String message;
+  final IconData icon;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 44, color: CvColors.muted),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: CvColors.muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          if (actionLabel != null && onAction != null) ...[
+            const SizedBox(height: 14),
+            OutlinedButton.icon(
+              onPressed: onAction,
+              icon: const Icon(Icons.refresh_rounded),
+              label: Text(actionLabel!),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+}
+
+class InlineErrorState extends StatelessWidget {
+  const InlineErrorState({
+    super.key,
+    required this.message,
+    required this.onRetry,
+  });
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: Padding(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.wifi_off_rounded, size: 44, color: CvColors.amber),
+          const SizedBox(height: 12),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: CvColors.muted,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Thử lại'),
+          ),
+        ],
       ),
     ),
   );
