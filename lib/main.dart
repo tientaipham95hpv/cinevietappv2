@@ -11109,7 +11109,8 @@ class MoviePosterCard extends StatelessWidget {
                                 : NetworkPoster(url: artUrl)),
                       Positioned(
                         left: 7,
-                        top: 7,
+                        top: useLandscapeArt ? 7 : null,
+                        bottom: useLandscapeArt ? null : 7,
                         child: MetaPill(movie.availabilityBadgeLabel),
                       ),
                       if (movie.qualityBadgeLabel.isNotEmpty &&
