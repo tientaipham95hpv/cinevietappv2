@@ -1617,6 +1617,29 @@ class MovieRepository {
     return synced;
   }
 
+  Future<int> syncLocalFavoritesToCloud() async {
+    if (!api.hasAuthToken) return 0;
+    final local = await LocalFavorites.items();
+    var synced = 0;
+    for (final movie in local) {
+      if (movie.id <= 0) continue;
+      try {
+        await api.dio.post('/user/favorites/${movie.id}');
+        synced += 1;
+      } catch (_) {
+        // Keep local favorites intact; retry on next login/startup.
+      }
+    }
+    if (synced > 0) _favoriteIdsCache = null;
+    return synced;
+  }
+
+  Future<({int history, int favorites})> syncLocalLibraryToCloud() async {
+    final history = await syncLocalHistoryToCloud();
+    final favorites = await syncLocalFavoritesToCloud();
+    return (history: history, favorites: favorites);
+  }
+
   Future<void> reportPlaybackEvent({
     required Movie movie,
     required EpisodeServer server,
@@ -1688,6 +1711,7 @@ class MovieRepository {
   }
 
   Future<List<Movie>> favorites() async {
+    if (!api.hasAuthToken) return LocalFavorites.items();
     try {
       final res = await api.dio.get('/user/favorites');
       final data = res.data;
@@ -1713,7 +1737,7 @@ class MovieRepository {
   Future<Set<int>> favoriteIds({bool force = false}) async {
     if (!api.hasAuthToken) {
       _favoriteIdsCache = null;
-      return const {};
+      return LocalFavorites.ids();
     }
     final cached = _favoriteIdsCache;
     if (!force && cached != null) return cached;
@@ -1749,6 +1773,15 @@ class MovieRepository {
   }
 
   Future<void> toggleFavorite(Movie movie, bool add) async {
+    if (!api.hasAuthToken) {
+      if (add) {
+        await LocalFavorites.upsert(movie);
+      } else {
+        await LocalFavorites.remove(movie.id);
+      }
+      _favoriteIdsCache = null;
+      return;
+    }
     if (add) {
       await api.dio.post('/user/favorites/${movie.id}');
     } else {
@@ -1885,7 +1918,7 @@ class MovieRepository {
       final refreshToken = cleanText(data['refreshToken']);
       if (token.isNotEmpty) {
         await api.saveSession(token, refreshToken);
-        await syncLocalHistoryToCloud();
+        await syncLocalLibraryToCloud();
       }
       return token.isNotEmpty;
     } on DioException catch (e) {
@@ -2190,6 +2223,63 @@ class LocalHistory {
   }
 }
 
+class LocalFavorites {
+  static const key = 'cineviet_favorites_v1';
+
+  static Future<List<Movie>> items() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(key);
+    if (raw == null || raw.isEmpty) return const [];
+    try {
+      final list = (jsonDecode(raw) as List)
+          .whereType<Map>()
+          .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
+          .where((movie) => movie.id > 0)
+          .toList();
+      return list;
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<Set<int>> ids() async {
+    final movies = await items();
+    return movies.map((movie) => movie.id).where((id) => id > 0).toSet();
+  }
+
+  static Future<void> upsert(Movie movie) async {
+    if (movie.id <= 0) return;
+    final prefs = await SharedPreferences.getInstance();
+    final current = await items();
+    final next = [
+      movie,
+      ...current.where((item) => item.id != movie.id),
+    ].take(300).toList();
+    await prefs.setString(
+      key,
+      jsonEncode(next.map((movie) => movie.toCacheJson()).toList()),
+    );
+  }
+
+  static Future<void> remove(int movieId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final next = (await items()).where((movie) => movie.id != movieId).toList();
+    if (next.isEmpty) {
+      await prefs.remove(key);
+      return;
+    }
+    await prefs.setString(
+      key,
+      jsonEncode(next.map((movie) => movie.toCacheJson()).toList()),
+    );
+  }
+
+  static Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(key);
+  }
+}
+
 Future<List<WatchItem>> mergedWatchHistory(MovieRepository repo) async {
   final local = await LocalHistory.items();
   var cloud = const <WatchItem>[];
@@ -2249,7 +2339,7 @@ class _AppShellState extends State<AppShell> {
         _checkStartupUpdate();
         unawaited(DeepLinkService.start(repo));
         if (Api.instance.hasAuthToken) {
-          unawaited(repo.syncLocalHistoryToCloud());
+          unawaited(repo.syncLocalLibraryToCloud());
         }
       });
     });
@@ -4782,13 +4872,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await Api.instance.saveSession(token, refreshToken);
       final synced = await MovieRepository(
         Api.instance,
-      ).syncLocalHistoryToCloud();
+      ).syncLocalLibraryToCloud();
       setState(() => meFuture = _me());
       if (mounted) {
         showSnack(
           context,
-          synced > 0
-              ? 'Đăng nhập thành công • đã đồng bộ $synced phim đang xem'
+          synced.history + synced.favorites > 0
+              ? 'Đăng nhập thành công • đã đồng bộ ${synced.history} phim xem tiếp, ${synced.favorites} yêu thích'
               : 'Đăng nhập thành công',
         );
       }
@@ -4847,13 +4937,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await Api.instance.saveSession(token, refreshToken);
       final synced = await MovieRepository(
         Api.instance,
-      ).syncLocalHistoryToCloud();
+      ).syncLocalLibraryToCloud();
       setState(() => meFuture = _me());
       if (mounted) {
         showSnack(
           context,
-          synced > 0
-              ? 'Đăng nhập Google thành công • đã đồng bộ $synced phim đang xem'
+          synced.history + synced.favorites > 0
+              ? 'Đăng nhập Google thành công • đã đồng bộ ${synced.history} phim xem tiếp, ${synced.favorites} yêu thích'
               : 'Đăng nhập Google thành công',
         );
       }
@@ -4920,13 +5010,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await Api.instance.saveSession(token, refreshToken);
       final synced = await MovieRepository(
         Api.instance,
-      ).syncLocalHistoryToCloud();
+      ).syncLocalLibraryToCloud();
       if (!mounted) return;
       setState(() => meFuture = _me());
       showSnack(
         context,
-        synced > 0
-            ? 'Đăng nhập Google thành công • đã đồng bộ $synced phim đang xem'
+        synced.history + synced.favorites > 0
+            ? 'Đăng nhập Google thành công • đã đồng bộ ${synced.history} phim xem tiếp, ${synced.favorites} yêu thích'
             : 'Đăng nhập Google thành công',
       );
     } catch (_) {
@@ -6988,15 +7078,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   Future<void> refreshFavoriteState(Movie movie, {bool force = false}) async {
     if (movie.id <= 0) return;
     favoriteMovieId = movie.id;
-    if (!Api.instance.hasAuthToken) {
-      if (mounted) {
-        setState(() {
-          isFavorite = false;
-          favoriteBusy = false;
-        });
-      }
-      return;
-    }
     final expectedMovieId = movie.id;
     final favorited = await widget.repo.isFavorite(movie, force: force);
     if (!mounted || favoriteMovieId != expectedMovieId) return;
@@ -7048,7 +7129,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
 
   Future<void> toggleFavorite(Movie movie) async {
     if (favoriteBusy) return;
-    if (!await requireLogin(context, 'Yêu thích')) return;
     final next = !isFavorite;
     setState(() {
       favoriteMovieId = movie.id;
@@ -8789,7 +8869,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       return;
     }
     _emitWatchSync();
-    if (!await isLoggedIn()) return;
     final item = WatchItem(
       movieId: widget.movie.id,
       slug: widget.movie.slug,
@@ -8805,7 +8884,9 @@ class _PlayerScreenState extends State<PlayerScreen>
       updatedAtMs: DateTime.now().millisecondsSinceEpoch,
     );
     await LocalHistory.upsert(item);
-    await widget.repo.syncWatch(item);
+    if (Api.instance.hasAuthToken) {
+      await widget.repo.syncWatch(item);
+    }
   }
 
   // Lưu tiến độ khi phát bằng WebView (NguồnC/StreamC). Đọc currentTime/duration
@@ -8842,7 +8923,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     if (posSec < 3) return;
     _emitWatchSync();
-    if (!await isLoggedIn()) return;
     final item = WatchItem(
       movieId: widget.movie.id,
       slug: widget.movie.slug,
@@ -8858,7 +8938,9 @@ class _PlayerScreenState extends State<PlayerScreen>
       updatedAtMs: DateTime.now().millisecondsSinceEpoch,
     );
     await LocalHistory.upsert(item);
-    await widget.repo.syncWatch(item);
+    if (Api.instance.hasAuthToken) {
+      await widget.repo.syncWatch(item);
+    }
   }
 
   void _scheduleControlsHide() {
