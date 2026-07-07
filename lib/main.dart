@@ -2135,6 +2135,43 @@ class LocalHistory {
   }
 }
 
+Future<List<WatchItem>> mergedWatchHistory(MovieRepository repo) async {
+  final local = await LocalHistory.items();
+  var cloud = const <WatchItem>[];
+  if (Api.instance.hasAuthToken) {
+    try {
+      cloud = await repo.cloudHistory();
+    } catch (error) {
+      debugPrint('CineViet cloud history merge error: $error');
+    }
+  }
+  final merged = <int, WatchItem>{};
+  for (final item in [...local, ...cloud]) {
+    if (!item.shouldShow || item.movieId <= 0) continue;
+    final existing = merged[item.movieId];
+    if (existing == null || item.updatedAtMs >= existing.updatedAtMs) {
+      merged[item.movieId] = item;
+    }
+  }
+  final list = merged.values.toList();
+  list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+  return list;
+}
+
+WatchItem? findWatchItemForMovie(List<WatchItem> items, Movie movie) {
+  WatchItem? match;
+  for (final item in items) {
+    final sameMovie =
+        (movie.id > 0 && item.movieId == movie.id) ||
+        (movie.slug.isNotEmpty && item.slug == movie.slug);
+    if (!sameMovie) continue;
+    if (match == null || item.updatedAtMs >= match.updatedAtMs) {
+      match = item;
+    }
+  }
+  return match;
+}
+
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -2406,7 +2443,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<HomeData> _load() async {
-    final showContinue = await isLoggedIn();
     final sectionLimit = isTvBuild ? 8 : 18;
     final results = await Future.wait<List<Movie>>([
       _safeMovies(
@@ -2427,7 +2463,7 @@ class _HomeScreenState extends State<HomeScreen> {
       single: results[4],
       anime: results[5],
       tvShows: results[6],
-      history: showContinue ? await _safeHistory() : const [],
+      history: await _safeHistory(),
     );
     // Ghi cache nền (không cache history vì thay đổi liên tục).
     unawaited(HomeCache.write(home));
@@ -2456,19 +2492,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<List<WatchItem>> _history() async {
-    final local = await LocalHistory.items();
-    final cloud = await widget.repo.cloudHistory();
-    final merged = <int, WatchItem>{};
-    for (final item in [...local, ...cloud]) {
-      if (!item.shouldShow || item.movieId <= 0) continue;
-      final existing = merged[item.movieId];
-      if (existing == null || item.updatedAtMs >= existing.updatedAtMs) {
-        merged[item.movieId] = item;
-      }
-    }
-    final list = merged.values.toList();
-    list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
-    return list;
+    return mergedWatchHistory(widget.repo);
   }
 
   Future<void> _removeHistory(WatchItem item) async {
@@ -4395,21 +4419,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<List<WatchItem>> _history() async {
-    final local = await LocalHistory.items();
-    final cloud = Api.instance.hasAuthToken
-        ? await widget.repo.cloudHistory()
-        : const <WatchItem>[];
-    final merged = <int, WatchItem>{};
-    for (final item in [...local, ...cloud]) {
-      if (!item.shouldShow || item.movieId <= 0) continue;
-      final existing = merged[item.movieId];
-      if (existing == null || item.updatedAtMs >= existing.updatedAtMs) {
-        merged[item.movieId] = item;
-      }
-    }
-    final list = merged.values.toList();
-    list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
-    return list;
+    return mergedWatchHistory(widget.repo);
   }
 
   Future<void> _remove(WatchItem item) async {
@@ -6688,6 +6698,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   int? favoriteMovieId;
   bool isFavorite = false;
   bool favoriteBusy = false;
+  WatchItem? resumeItem;
 
   @override
   void initState() {
@@ -6695,7 +6706,9 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     future = widget.repo.detail(widget.initial.routeKey);
     favoriteMovieId = widget.initial.id;
     refreshFavoriteState(widget.initial);
+    refreshResumeState(widget.initial);
     future.then(refreshFavoriteState).catchError((_) {});
+    future.then(refreshResumeState).catchError((_) {});
     if (widget.autoplay) {
       future.then((movie) {
         if (!mounted) return;
@@ -6729,6 +6742,46 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       isFavorite = favorited;
       favoriteBusy = false;
     });
+  }
+
+  Future<void> refreshResumeState(Movie movie) async {
+    final history = await mergedWatchHistory(widget.repo);
+    final item = findWatchItemForMovie(history, movie);
+    if (!mounted) return;
+    setState(() => resumeItem = item);
+  }
+
+  Future<void> openResume(WatchItem item) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ResumeLoaderScreen(repo: widget.repo, item: item),
+      ),
+    );
+    if (!mounted) return;
+    final movie = await future.catchError((_) => widget.initial);
+    if (mounted) unawaited(refreshResumeState(movie));
+  }
+
+  Future<void> openEpisode(
+    Movie movie,
+    EpisodeServer server,
+    EpisodeItem episode,
+    int selectedServerIndex, {
+    Duration? resume,
+  }) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => PlayerScreen(
+          repo: widget.repo,
+          movie: movie,
+          server: server,
+          episode: episode,
+          serverIndex: selectedServerIndex,
+          resume: resume,
+        ),
+      ),
+    );
+    if (mounted) unawaited(refreshResumeState(movie));
   }
 
   Future<void> toggleFavorite(Movie movie) async {
@@ -6890,17 +6943,26 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                   spacing: useLeanbackControls ? 12 : 10,
                                   runSpacing: useLeanbackControls ? 12 : 10,
                                   children: [
+                                    if (resumeItem != null)
+                                      detailAction(
+                                        icon: Icons.play_circle_fill_rounded,
+                                        label:
+                                            'Xem tiếp ${resumeItem!.progressPercent}%',
+                                        primary: true,
+                                        onPressed: () =>
+                                            openResume(resumeItem!),
+                                      ),
                                     detailAction(
                                       icon: Icons.play_arrow_rounded,
-                                      label: 'Phát',
-                                      primary: true,
+                                      label: resumeItem == null
+                                          ? 'Phát'
+                                          : 'Xem từ đầu',
+                                      primary: resumeItem == null,
                                       onPressed:
                                           selectedServer == null ||
                                               selectedServer.items.isEmpty
                                           ? null
-                                          : () => openPlayer(
-                                              context,
-                                              widget.repo,
+                                          : () => openEpisode(
                                               movie,
                                               selectedServer,
                                               selectedServer.items.first,
@@ -7030,8 +7092,10 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                           repo: widget.repo,
                           servers: servers,
                           serverIndex: serverIndex,
+                          resumeItem: resumeItem,
                           onServerChanged: (value) =>
                               setState(() => serverIndex = value),
+                          onEpisodeSelected: openEpisode,
                         ),
                       ] else if (snapshot.hasData)
                         const EmptyState(
@@ -7113,13 +7177,24 @@ class EpisodeSection extends StatelessWidget {
     required this.repo,
     required this.servers,
     required this.serverIndex,
+    required this.resumeItem,
     required this.onServerChanged,
+    required this.onEpisodeSelected,
   });
   final Movie movie;
   final MovieRepository repo;
   final List<EpisodeServer> servers;
   final int serverIndex;
+  final WatchItem? resumeItem;
   final ValueChanged<int> onServerChanged;
+  final Future<void> Function(
+    Movie movie,
+    EpisodeServer server,
+    EpisodeItem episode,
+    int selectedServerIndex, {
+    Duration? resume,
+  })
+  onEpisodeSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -7177,29 +7252,63 @@ class EpisodeSection extends StatelessWidget {
             ),
             itemBuilder: (context, index) {
               final episode = server.items[index];
+              final isResumeEpisode =
+                  resumeItem != null &&
+                  resumeItem!.serverIndex == selectedIndex &&
+                  (resumeItem!.episodeName == episode.name ||
+                      resumeItem!.episodeName == episode.displayName);
               return FocusButton(
-                onPressed: () => openPlayer(
-                  context,
-                  repo,
+                onPressed: () => onEpisodeSelected(
                   movie,
                   server,
                   episode,
                   selectedIndex,
+                  resume: isResumeEpisode
+                      ? Duration(milliseconds: resumeItem!.positionMs)
+                      : null,
                 ),
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: Text(
-                      episode.displayName,
-                      textAlign: TextAlign.center,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: isTvBuild ? 16 : 14,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (isResumeEpisode)
+                      Positioned.fill(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: CvColors.accent),
+                          ),
+                        ),
+                      ),
+                    Center(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          episode.displayName,
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: isResumeEpisode ? CvColors.accent : null,
+                            fontSize: isTvBuild ? 16 : 14,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    if (isResumeEpisode)
+                      Positioned(
+                        top: 5,
+                        right: 7,
+                        child: Text(
+                          '${resumeItem!.progressPercent}%',
+                          style: const TextStyle(
+                            color: CvColors.accent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               );
             },
@@ -10976,12 +11085,15 @@ class ContinueCard extends StatelessWidget {
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      item.episodeName,
-                      style: const TextStyle(
-                        color: CvColors.muted,
-                        fontSize: 12,
-                      ),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        MiniBadge(item.episodeName),
+                        if (item.serverName.isNotEmpty)
+                          MiniBadge(item.serverName),
+                        MiniBadge('${item.progressPercent}%'),
+                      ],
                     ),
                     const SizedBox(height: 8),
                     LinearProgressIndicator(
@@ -10989,6 +11101,18 @@ class ContinueCard extends StatelessWidget {
                       minHeight: 4,
                       backgroundColor: Colors.white24,
                       color: CvColors.accent,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${fmtDuration(Duration(milliseconds: item.positionMs))}'
+                      ' / ${fmtDuration(Duration(milliseconds: item.durationMs))}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: CvColors.muted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ],
                 ),
@@ -11021,6 +11145,29 @@ class ContinueCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class MiniBadge extends StatelessWidget {
+  const MiniBadge(this.label, {super.key});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: Colors.black.withValues(alpha: .52),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(color: Colors.white.withValues(alpha: .12)),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      child: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+      ),
+    ),
+  );
 }
 
 class NetworkPoster extends StatelessWidget {
