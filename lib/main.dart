@@ -8806,6 +8806,20 @@ class _PlayerScreenState extends State<PlayerScreen>
     _scheduleControlsHide();
   }
 
+  void _moveTvOverlayFocus({required bool forward}) {
+    _showControls();
+    if (!isTvBuild) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final scope = FocusScope.of(context);
+      if (forward) {
+        scope.nextFocus();
+      } else {
+        scope.previousFocus();
+      }
+    });
+  }
+
   void _toggleControlsLock() {
     setState(() {
       controlsLocked = !controlsLocked;
@@ -9586,6 +9600,8 @@ class _PlayerScreenState extends State<PlayerScreen>
             if (key == LogicalKeyboardKey.select ||
                 key == LogicalKeyboardKey.enter ||
                 key == LogicalKeyboardKey.space ||
+                key == LogicalKeyboardKey.mediaPlayPause ||
+                key == LogicalKeyboardKey.mediaPlay ||
                 key == LogicalKeyboardKey.keyK) {
               if (playerHasPrimaryFocus || key == LogicalKeyboardKey.keyK) {
                 _togglePlay();
@@ -9602,21 +9618,25 @@ class _PlayerScreenState extends State<PlayerScreen>
               _seekBy(const Duration(seconds: -10));
             }
             if (key == LogicalKeyboardKey.arrowUp) {
-              _showControls();
               if (isTvBuild && playerHasPrimaryFocus) {
-                FocusScope.of(context).previousFocus();
+                _moveTvOverlayFocus(forward: false);
+              } else {
+                _showControls();
               }
             }
             if (key == LogicalKeyboardKey.arrowDown) {
-              _showControls();
               if (isTvBuild && playerHasPrimaryFocus) {
-                FocusScope.of(context).nextFocus();
+                _moveTvOverlayFocus(forward: true);
+              } else {
+                _showControls();
               }
             }
-            if (key == LogicalKeyboardKey.keyN) {
+            if (key == LogicalKeyboardKey.keyN ||
+                key == LogicalKeyboardKey.mediaTrackNext) {
               _playSibling(1);
             }
-            if (key == LogicalKeyboardKey.keyP) {
+            if (key == LogicalKeyboardKey.keyP ||
+                key == LogicalKeyboardKey.mediaTrackPrevious) {
               _playSibling(-1);
             }
             if (!isTvBuild) {
@@ -9909,6 +9929,7 @@ class AutoNextPrompt extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     FilledButton.icon(
+                      autofocus: isTvBuild,
                       onPressed: onPlayNow,
                       icon: const Icon(Icons.play_arrow_rounded, size: 18),
                       label: const Text('Xem ngay'),
@@ -10203,6 +10224,7 @@ class PlayerOverlay extends StatelessWidget {
                               onPressed: onReplay,
                             ),
                             FocusButton(
+                              autofocus: isTvBuild,
                               onPressed: onPlayPause,
                               child: SizedBox.square(
                                 dimension: compact ? 54 : 62,
@@ -10922,103 +10944,115 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
       620.0,
     );
     return SafeArea(
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: maxHeight),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  const Expanded(child: SectionTitle('Chọn tập')),
-                  IconButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Đang xem: ${widget.currentEpisode.displayName} • ${widget.currentServer.displayName}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: CvColors.muted,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 12),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
+      child: FocusTraversalGroup(
+        policy: OrderedTraversalPolicy(),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxHeight: maxHeight),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 0, 18, 22),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
                   children: [
-                    for (var i = 0; i < servers.length; i++)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                          label: Text(servers[i].displayName),
-                          selected: i == serverIndex,
-                          onSelected: (_) => setState(() => serverIndex = i),
-                        ),
-                      ),
+                    const Expanded(child: SectionTitle('Chọn tập')),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 14),
-              Expanded(
-                child: GridView.builder(
-                  itemCount: server.items.length,
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: columns,
-                    mainAxisSpacing: 10,
-                    crossAxisSpacing: 10,
-                    childAspectRatio: isTvBuild ? 2.8 : 2.35,
+                const SizedBox(height: 4),
+                Text(
+                  'Đang xem: ${widget.currentEpisode.displayName} • ${widget.currentServer.displayName}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: CvColors.muted,
+                    fontWeight: FontWeight.w700,
                   ),
-                  itemBuilder: (context, index) {
-                    final episode = server.items[index];
-                    final selected = _isCurrent(server, episode);
-                    return FocusButton(
-                      selected: selected,
-                      onPressed: () => widget.onSelect(server, episode),
-                      child: Center(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                episode.displayName,
-                                textAlign: TextAlign.center,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w800,
-                                  color: selected ? Colors.white : null,
+                ),
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < servers.length; i++)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: useLeanbackControls
+                              ? TvFilterChip(
+                                  label: servers[i].displayName,
+                                  selected: i == serverIndex,
+                                  onPressed: () =>
+                                      setState(() => serverIndex = i),
+                                )
+                              : ChoiceChip(
+                                  label: Text(servers[i].displayName),
+                                  selected: i == serverIndex,
+                                  onSelected: (_) =>
+                                      setState(() => serverIndex = i),
                                 ),
-                              ),
-                              if (selected) ...[
-                                const SizedBox(height: 2),
-                                const Text(
-                                  'Đang xem',
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Expanded(
+                  child: GridView.builder(
+                    itemCount: server.items.length,
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: columns,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      childAspectRatio: isTvBuild ? 2.8 : 2.35,
+                    ),
+                    itemBuilder: (context, index) {
+                      final episode = server.items[index];
+                      final selected = _isCurrent(server, episode);
+                      return FocusButton(
+                        selected: selected,
+                        autofocus: selected && isTvBuild,
+                        onPressed: () => widget.onSelect(server, episode),
+                        child: Center(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  episode.displayName,
+                                  textAlign: TextAlign.center,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: CvColors.accent,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w900,
+                                    fontWeight: FontWeight.w800,
+                                    color: selected ? Colors.white : null,
                                   ),
                                 ),
+                                if (selected) ...[
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    'Đang xem',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: CvColors.accent,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w900,
+                                    ),
+                                  ),
+                                ],
                               ],
-                            ],
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -11543,10 +11577,12 @@ class FocusButton extends StatefulWidget {
     required this.child,
     required this.onPressed,
     this.selected = false,
+    this.autofocus = false,
   });
   final Widget child;
   final VoidCallback onPressed;
   final bool selected;
+  final bool autofocus;
 
   @override
   State<FocusButton> createState() => _FocusButtonState();
@@ -11572,6 +11608,7 @@ class _FocusButtonState extends State<FocusButton> {
   @override
   Widget build(BuildContext context) {
     return Focus(
+      autofocus: widget.autofocus,
       onFocusChange: _handleFocusChange,
       onKeyEvent: (_, event) {
         if (event is KeyDownEvent &&
