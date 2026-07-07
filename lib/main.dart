@@ -2444,6 +2444,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<HomeData> _load() async {
     final sectionLimit = isTvBuild ? 8 : 18;
+    final historyFuture = _safeHistory();
     final results = await Future.wait<List<Movie>>([
       _safeMovies(
         () => widget.repo.list(limit: isTvBuild ? 8 : 10, featured: '1'),
@@ -2463,7 +2464,7 @@ class _HomeScreenState extends State<HomeScreen> {
       single: results[4],
       anime: results[5],
       tvShows: results[6],
-      history: await _safeHistory(),
+      history: await historyFuture,
     );
     // Ghi cache nền (không cache history vì thay đổi liên tục).
     unawaited(HomeCache.write(home));
@@ -11175,14 +11176,33 @@ class NetworkPoster extends StatelessWidget {
   final String url;
 
   @override
-  Widget build(BuildContext context) => url.isEmpty
-      ? const PosterFallback()
-      : CachedNetworkImage(
-          imageUrl: url,
-          fit: BoxFit.cover,
-          placeholder: (_, _) => const PosterFallback(),
-          errorWidget: (_, _, _) => const PosterFallback(),
+  Widget build(BuildContext context) {
+    if (url.isEmpty) return const PosterFallback();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : cardExtent(context);
+        final height = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : width * 1.5;
+        return RepaintBoundary(
+          child: CachedNetworkImage(
+            imageUrl: url,
+            fit: BoxFit.cover,
+            memCacheWidth: cachePixels(context, width, max: 900),
+            memCacheHeight: cachePixels(context, height, max: 1400),
+            maxWidthDiskCache: cachePixels(context, width, max: 900),
+            maxHeightDiskCache: cachePixels(context, height, max: 1400),
+            fadeInDuration: const Duration(milliseconds: 120),
+            useOldImageOnUrlChange: true,
+            placeholder: (_, _) => const PosterFallback(),
+            errorWidget: (_, _, _) => const PosterFallback(),
+          ),
         );
+      },
+    );
+  }
 }
 
 class NetworkBackdrop extends StatelessWidget {
@@ -11191,14 +11211,34 @@ class NetworkBackdrop extends StatelessWidget {
   final BoxFit fit;
 
   @override
-  Widget build(BuildContext context) => url.isEmpty
-      ? const PosterFallback()
-      : CachedNetworkImage(
-          imageUrl: url,
-          fit: fit,
-          placeholder: (_, _) => const PosterFallback(),
-          errorWidget: (_, _, _) => const PosterFallback(),
+  Widget build(BuildContext context) {
+    if (url.isEmpty) return const PosterFallback();
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final size = MediaQuery.sizeOf(context);
+        final width = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : size.width;
+        final height = constraints.hasBoundedHeight
+            ? constraints.maxHeight
+            : math.max(width * 9 / 16, 180.0);
+        return RepaintBoundary(
+          child: CachedNetworkImage(
+            imageUrl: url,
+            fit: fit,
+            memCacheWidth: cachePixels(context, width, max: 1800),
+            memCacheHeight: cachePixels(context, height, max: 1100),
+            maxWidthDiskCache: cachePixels(context, width, max: 1800),
+            maxHeightDiskCache: cachePixels(context, height, max: 1100),
+            fadeInDuration: const Duration(milliseconds: 120),
+            useOldImageOnUrlChange: true,
+            placeholder: (_, _) => const PosterFallback(),
+            errorWidget: (_, _, _) => const PosterFallback(),
+          ),
         );
+      },
+    );
+  }
 }
 
 class TvActionButton extends StatelessWidget {
@@ -11819,6 +11859,16 @@ String fmtDuration(Duration d) {
     return '$h:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
   return '$m:${s.toString().padLeft(2, '0')}';
+}
+
+int cachePixels(
+  BuildContext context,
+  double logicalPixels, {
+  required int max,
+}) {
+  if (!logicalPixels.isFinite || logicalPixels <= 0) return max;
+  final dpr = MediaQuery.devicePixelRatioOf(context).clamp(1.0, 3.0);
+  return (logicalPixels * dpr).round().clamp(64, max).toInt();
 }
 
 int episodeNumber(String value) {
