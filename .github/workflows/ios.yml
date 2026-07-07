@@ -52,6 +52,17 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Cache SwiftPM packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/Library/Caches/org.swift.swiftpm
+            ~/Library/org.swift.swiftpm
+            ~/Library/Developer/Xcode/DerivedData/SourcePackages
+          key: ${{ runner.os }}-spm-${{ hashFiles('ios/**/*.xcodeproj/**', 'ios/**/*.xcworkspace/**', 'pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-spm-
+
       - name: Flutter clean/get
         run: |
           flutter clean
@@ -67,9 +78,43 @@ jobs:
           cd ios
           pod install --repo-update
 
+      - name: Resolve Swift packages
+        run: |
+          set -euo pipefail
+          retry() {
+            local attempt=1
+            local max_attempts=3
+            until "$@"; do
+              if [ "${attempt}" -ge "${max_attempts}" ]; then
+                return 1
+              fi
+              sleep_seconds=$((attempt * 30))
+              echo "SwiftPM resolve failed, retrying in ${sleep_seconds}s (${attempt}/${max_attempts})..."
+              sleep "${sleep_seconds}"
+              attempt=$((attempt + 1))
+            done
+          }
+          retry xcodebuild -resolvePackageDependencies \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner
+
       - name: Build unsigned iOS app
         run: |
-          flutter build ios --release --no-codesign \
+          set -euo pipefail
+          retry() {
+            local attempt=1
+            local max_attempts=3
+            until "$@"; do
+              if [ "${attempt}" -ge "${max_attempts}" ]; then
+                return 1
+              fi
+              sleep_seconds=$((attempt * 45))
+              echo "iOS build failed, retrying in ${sleep_seconds}s (${attempt}/${max_attempts})..."
+              sleep "${sleep_seconds}"
+              attempt=$((attempt + 1))
+            done
+          }
+          retry flutter build ios --release --no-codesign \
             --dart-define=APP_VARIANT=ios \
             --build-name="${VERSION_NAME}" \
             --build-number="${BUILD_NUMBER}"
