@@ -2255,6 +2255,11 @@ class _AppShellState extends State<AppShell> {
     } catch (_) {}
   }
 
+  void openProfileTab() {
+    if (!mounted) return;
+    setState(() => index = isTvBuild ? 2 : 3);
+  }
+
   Future<void> setTab(int value, List<AppDestination> destinations) async {
     final destination = destinations[value];
     if (destination.requiresLogin &&
@@ -3550,6 +3555,40 @@ class _WatchRowState extends State<WatchRow> {
   }
 }
 
+class SearchHistoryStore {
+  static const _key = 'cineviet_v2_recent_searches';
+  static const _limit = 8;
+
+  static Future<List<String>> items() async {
+    final prefs = await SharedPreferences.getInstance();
+    return (prefs.getStringList(_key) ?? const <String>[])
+        .map((value) => value.trim())
+        .where((value) => value.length >= 2)
+        .toList(growable: false);
+  }
+
+  static Future<List<String>> add(String query) async {
+    final value = query.trim();
+    if (value.length < 2) return items();
+    final prefs = await SharedPreferences.getInstance();
+    final next = <String>[value];
+    for (final item in prefs.getStringList(_key) ?? const <String>[]) {
+      if (item.trim().toLowerCase() != value.toLowerCase() &&
+          item.trim().length >= 2) {
+        next.add(item.trim());
+      }
+      if (next.length >= _limit) break;
+    }
+    await prefs.setStringList(_key, next);
+    return next;
+  }
+
+  static Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key);
+  }
+}
+
 class BrowseScreen extends StatefulWidget {
   const BrowseScreen({
     super.key,
@@ -3575,6 +3614,16 @@ class _BrowseScreenState extends State<BrowseScreen> {
   late Future<List<Movie>> results;
   late Future<BrowseMeta> meta;
   Timer? _searchDebounce;
+  List<String> recentSearches = const [];
+
+  static const quickSearches = <String>[
+    'phim mới',
+    'hành động',
+    'tình cảm',
+    'hoạt hình',
+    'Hàn Quốc',
+    'Trung Quốc',
+  ];
 
   static const defaultGenres = [
     ('', 'Tất cả thể loại'),
@@ -3627,6 +3676,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
     search.text = widget.initialSearch;
     results = widget.repo.list(limit: 36, search: widget.initialSearch);
     meta = _loadMeta();
+    unawaited(_loadRecentSearches());
   }
 
   Future<BrowseMeta> _loadMeta() async {
@@ -3642,12 +3692,32 @@ class _BrowseScreenState extends State<BrowseScreen> {
     return BrowseMeta(genres: rows[0], countries: rows[1], years: years);
   }
 
+  Future<void> _loadRecentSearches() async {
+    final items = await SearchHistoryStore.items();
+    if (!mounted) return;
+    setState(() => recentSearches = items);
+  }
+
+  void applySearchText(String value) {
+    search.text = value;
+    search.selection = TextSelection.collapsed(offset: search.text.length);
+    runSearch();
+  }
+
   void runSearch() {
     _searchDebounce?.cancel();
+    final query = search.text.trim();
+    if (query.length >= 2) {
+      unawaited(
+        SearchHistoryStore.add(query).then((items) {
+          if (mounted) setState(() => recentSearches = items);
+        }),
+      );
+    }
     setState(() {
       results = widget.repo.list(
         limit: 48,
-        search: search.text,
+        search: query,
         type: type,
         genre: genre,
         country: country,
@@ -3743,6 +3813,23 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       ),
                   ],
                 ),
+                if (recentSearches.isNotEmpty ||
+                    search.text.trim().isEmpty) ...[
+                  SizedBox(height: largeControls ? 14 : 10),
+                  SearchSuggestionChips(
+                    recent: recentSearches,
+                    quick: quickSearches,
+                    onSelect: applySearchText,
+                    onClearRecent: recentSearches.isEmpty
+                        ? null
+                        : () async {
+                            await SearchHistoryStore.clear();
+                            if (mounted) {
+                              setState(() => recentSearches = const []);
+                            }
+                          },
+                  ),
+                ],
                 SizedBox(height: largeControls ? 18 : 14),
                 Wrap(
                   spacing: largeControls ? 12 : 8,
@@ -3839,6 +3926,82 @@ class _BrowseScreenState extends State<BrowseScreen> {
       label: Text(label),
       selected: type == value,
       onSelected: (_) => select(),
+    );
+  }
+}
+
+class SearchSuggestionChips extends StatelessWidget {
+  const SearchSuggestionChips({
+    super.key,
+    required this.recent,
+    required this.quick,
+    required this.onSelect,
+    this.onClearRecent,
+  });
+
+  final List<String> recent;
+  final List<String> quick;
+  final ValueChanged<String> onSelect;
+  final VoidCallback? onClearRecent;
+
+  @override
+  Widget build(BuildContext context) {
+    final suggestions = <String>[
+      ...recent,
+      for (final item in quick)
+        if (!recent.any((r) => r.toLowerCase() == item.toLowerCase())) item,
+    ].take(10).toList(growable: false);
+    if (suggestions.isEmpty) return const SizedBox.shrink();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              recent.isEmpty ? 'Gợi ý nhanh' : 'Tìm gần đây',
+              style: const TextStyle(
+                color: CvColors.muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const Spacer(),
+            if (onClearRecent != null)
+              TextButton.icon(
+                onPressed: onClearRecent,
+                icon: const Icon(Icons.close_rounded, size: 14),
+                label: const Text('Xoá'),
+                style: TextButton.styleFrom(
+                  foregroundColor: CvColors.muted,
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              for (final item in suggestions)
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: ActionChip(
+                    avatar: Icon(
+                      recent.contains(item)
+                          ? Icons.history_rounded
+                          : Icons.local_fire_department_rounded,
+                      size: 16,
+                    ),
+                    label: Text(item),
+                    onPressed: () => onSelect(item),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -11470,8 +11633,33 @@ Map<String, dynamic>? userMapFromAuthResponse(dynamic data) {
 
 Future<bool> requireLogin(BuildContext context, String feature) async {
   if (await isLoggedIn()) return true;
-  if (context.mounted) {
-    showSnack(context, '$feature cần đăng nhập tài khoản CineViet');
+  if (!context.mounted) return false;
+  final openLogin = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('$feature cần đăng nhập'),
+      content: const Text(
+        'Đăng nhập tài khoản CineViet để đồng bộ yêu thích, lịch sử xem và dùng tính năng này trên mọi thiết bị.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: const Text('Để sau'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: const Text('Đăng nhập'),
+        ),
+      ],
+    ),
+  );
+  if (openLogin == true && context.mounted) {
+    final shell = context.findAncestorStateOfType<_AppShellState>();
+    if (shell != null) {
+      shell.openProfileTab();
+    } else {
+      showSnack(context, 'Mở tab Tài khoản để đăng nhập CineViet');
+    }
   }
   return false;
 }
