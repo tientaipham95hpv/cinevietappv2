@@ -7814,6 +7814,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool controls = true;
   bool controlsLocked = false;
   bool autoNextEpisode = true;
+  bool autoNextCancelledForEpisode = false;
   double playbackSpeed = 1.0;
   double appVolume = 1.0;
   double screenBrightness = 1.0;
@@ -7845,6 +7846,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool reportingPlaybackIssue = false;
   bool androidBrightnessSettingsPrompted = false;
   bool introSkipped = false;
+  int lastAutoNextPromptSecond = -1;
   int runtimeRecoveryAttempts = 0;
   Duration? lastGoodPosition;
   static const introSkipSeconds = 72;
@@ -8354,6 +8356,11 @@ class _PlayerScreenState extends State<PlayerScreen>
       unawaited(_recoverPlayback(c.value.errorDescription));
       return;
     }
+    final remaining = _autoNextRemainingSeconds;
+    if (_shouldShowAutoNextPrompt && remaining != lastAutoNextPromptSecond) {
+      lastAutoNextPromptSecond = remaining;
+      if (mounted) setState(() {});
+    }
     _maybeAutoNext();
   }
 
@@ -8571,9 +8578,34 @@ class _PlayerScreenState extends State<PlayerScreen>
     _clearGestureHintSoon();
   }
 
+  int get _autoNextRemainingSeconds {
+    final c = controller;
+    if (c == null || !c.value.isInitialized || c.value.hasError) return 0;
+    final duration = c.value.duration;
+    if (duration.inSeconds <= 20) return 0;
+    final remaining = duration - c.value.position;
+    return remaining.inSeconds.clamp(0, 999).toInt();
+  }
+
+  bool get _shouldShowAutoNextPrompt {
+    final index = _currentEpisodeIndex;
+    return autoNextEpisode &&
+        !autoNextCancelledForEpisode &&
+        index >= 0 &&
+        index < currentServer.items.length - 1 &&
+        _autoNextRemainingSeconds > 0 &&
+        _autoNextRemainingSeconds <= 18;
+  }
+
+  void _cancelAutoNextForEpisode() {
+    setState(() => autoNextCancelledForEpisode = true);
+    _showControls();
+  }
+
   void _maybeAutoNext() {
     final c = controller;
     if (!autoNextEpisode ||
+        autoNextCancelledForEpisode ||
         c == null ||
         !c.value.isInitialized ||
         c.value.hasError) {
@@ -9044,17 +9076,27 @@ class _PlayerScreenState extends State<PlayerScreen>
       controls = true;
       error = null;
       introSkipped = false;
+      autoNextCancelledForEpisode = false;
+      lastAutoNextPromptSecond = -1;
     });
     runtimeRecoveryAttempts = 0;
     lastGoodPosition = null;
     await _init();
   }
 
-  void _playSibling(int offset) {
+  EpisodeItem? _siblingEpisode(int offset) {
     final index = _currentEpisodeIndex;
     final next = index + offset;
-    if (index < 0 || next < 0 || next >= currentServer.items.length) return;
-    _switchTo(currentServer, currentServer.items[next]);
+    if (index < 0 || next < 0 || next >= currentServer.items.length) {
+      return null;
+    }
+    return currentServer.items[next];
+  }
+
+  void _playSibling(int offset) {
+    final episode = _siblingEpisode(offset);
+    if (episode == null) return;
+    _switchTo(currentServer, episode);
   }
 
   void _cycleFitMode() {
@@ -9304,9 +9346,16 @@ class _PlayerScreenState extends State<PlayerScreen>
                   if (error != null)
                     PlayerErrorView(
                       message: error!,
+                      movieTitle: widget.movie.title,
+                      episodeLabel: currentEpisode.displayName,
+                      serverLabel: currentServer.displayName,
                       reporting: reportingPlaybackIssue,
+                      canPrevious: _siblingEpisode(-1) != null,
+                      canNext: _siblingEpisode(1) != null,
                       onRetry: _retryPlayback,
                       onChangeSource: _showEpisodeSheet,
+                      onPrevious: () => _playSibling(-1),
+                      onNext: () => _playSibling(1),
                       onReport: _reportPlaybackIssue,
                     )
                   else if (activeWebViewUrl != null &&
@@ -9396,6 +9445,13 @@ class _PlayerScreenState extends State<PlayerScreen>
                       gestureMode != null &&
                       gestureValue != null)
                     GestureLevelHint(mode: gestureMode!, value: gestureValue!),
+                  if (_shouldShowAutoNextPrompt && c != null)
+                    AutoNextPrompt(
+                      nextEpisode: _siblingEpisode(1)?.displayName ?? 'Tập sau',
+                      remainingSeconds: _autoNextRemainingSeconds,
+                      onPlayNow: () => _playSibling(1),
+                      onCancel: _cancelAutoNextForEpisode,
+                    ),
                   if (playbackNotice != null && error == null)
                     PlaybackNotice(message: playbackNotice!),
                 ],
@@ -9482,6 +9538,89 @@ class IntroSkipButton extends StatelessWidget {
   );
 }
 
+class AutoNextPrompt extends StatelessWidget {
+  const AutoNextPrompt({
+    super.key,
+    required this.nextEpisode,
+    required this.remainingSeconds,
+    required this.onPlayNow,
+    required this.onCancel,
+  });
+
+  final String nextEpisode;
+  final int remainingSeconds;
+  final VoidCallback onPlayNow;
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) => Positioned(
+    right: 20,
+    bottom: 118,
+    child: SafeArea(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .78),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: CvColors.accent.withValues(alpha: .38)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: .32),
+                blurRadius: 22,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.skip_next_rounded, color: CvColors.accent),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Tự chuyển sau ${remainingSeconds}s',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  nextEpisode,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: CvColors.muted),
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    FilledButton.icon(
+                      onPressed: onPlayNow,
+                      icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                      label: const Text('Xem ngay'),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(onPressed: onCancel, child: const Text('Huỷ')),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 class PlaybackNotice extends StatelessWidget {
   const PlaybackNotice({super.key, required this.message});
   final String message;
@@ -9534,16 +9673,30 @@ class PlayerErrorView extends StatelessWidget {
   const PlayerErrorView({
     super.key,
     required this.message,
+    required this.movieTitle,
+    required this.episodeLabel,
+    required this.serverLabel,
     required this.reporting,
+    required this.canPrevious,
+    required this.canNext,
     required this.onRetry,
     required this.onChangeSource,
+    required this.onPrevious,
+    required this.onNext,
     required this.onReport,
   });
 
   final String message;
+  final String movieTitle;
+  final String episodeLabel;
+  final String serverLabel;
   final bool reporting;
+  final bool canPrevious;
+  final bool canNext;
   final VoidCallback onRetry;
   final VoidCallback onChangeSource;
+  final VoidCallback onPrevious;
+  final VoidCallback onNext;
   final VoidCallback onReport;
 
   @override
@@ -9556,9 +9709,19 @@ class PlayerErrorView extends StatelessWidget {
         label: const Text('Thử lại'),
       ),
       OutlinedButton.icon(
+        onPressed: canPrevious ? onPrevious : null,
+        icon: const Icon(Icons.skip_previous_rounded),
+        label: const Text('Tập trước'),
+      ),
+      OutlinedButton.icon(
+        onPressed: canNext ? onNext : null,
+        icon: const Icon(Icons.skip_next_rounded),
+        label: const Text('Tập sau'),
+      ),
+      OutlinedButton.icon(
         onPressed: onChangeSource,
         icon: const Icon(Icons.video_library_rounded),
-        label: Text(compact ? 'Tập' : 'Chọn tập'),
+        label: Text(compact ? 'Tập' : 'Chọn tập/server'),
       ),
       OutlinedButton.icon(
         onPressed: reporting ? null : onReport,
@@ -9594,6 +9757,14 @@ class PlayerErrorView extends StatelessWidget {
                   fontWeight: FontWeight.w900,
                   fontSize: 18,
                 ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '$movieTitle • $episodeLabel • $serverLabel',
+                textAlign: TextAlign.center,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: CvColors.muted),
               ),
               const SizedBox(height: 18),
               Wrap(
