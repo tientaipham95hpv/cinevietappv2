@@ -1542,6 +1542,26 @@ class MovieRepository {
     } catch (_) {}
   }
 
+  Future<int> syncLocalHistoryToCloud() async {
+    if (!api.hasAuthToken) return 0;
+    final local = await LocalHistory.items();
+    var synced = 0;
+    for (final item in local) {
+      if (!item.shouldShow || item.movieId <= 0) continue;
+      try {
+        await api.dio.post(
+          '/movies/${item.movieId}/watch',
+          data: item.toCloudJson(),
+        );
+        await api.dio.post('/history', data: item.toCloudJson());
+        synced += 1;
+      } catch (_) {
+        // Keep local history intact; retry on next login/startup.
+      }
+    }
+    return synced;
+  }
+
   Future<void> reportPlaybackEvent({
     required Movie movie,
     required EpisodeServer server,
@@ -1808,7 +1828,10 @@ class MovieRepository {
       if (data['ok'] != true || data['status'] != 'confirmed') return false;
       final token = cleanText(data['accessToken'] ?? data['token']);
       final refreshToken = cleanText(data['refreshToken']);
-      if (token.isNotEmpty) await api.saveSession(token, refreshToken);
+      if (token.isNotEmpty) {
+        await api.saveSession(token, refreshToken);
+        await syncLocalHistoryToCloud();
+      }
       return token.isNotEmpty;
     } on DioException catch (e) {
       if (e.response?.statusCode == 428 || e.response?.statusCode == 404) {
@@ -2133,6 +2156,9 @@ class _AppShellState extends State<AppShell> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _checkStartupUpdate();
         unawaited(DeepLinkService.start(repo));
+        if (Api.instance.hasAuthToken) {
+          unawaited(repo.syncLocalHistoryToCloud());
+        }
       });
     });
   }
@@ -4373,8 +4399,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final refreshToken = cleanText(res.data['refreshToken']);
       if (token.isEmpty) throw Exception('Không nhận được token');
       await Api.instance.saveSession(token, refreshToken);
+      final synced = await MovieRepository(
+        Api.instance,
+      ).syncLocalHistoryToCloud();
       setState(() => meFuture = _me());
-      if (mounted) showSnack(context, 'Đăng nhập thành công');
+      if (mounted) {
+        showSnack(
+          context,
+          synced > 0
+              ? 'Đăng nhập thành công • đã đồng bộ $synced phim đang xem'
+              : 'Đăng nhập thành công',
+        );
+      }
     } catch (e) {
       if (mounted) showSnack(context, 'Đăng nhập chưa thành công');
     } finally {
@@ -4428,8 +4464,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final refreshToken = cleanText(res.data['refreshToken']);
       if (token.isEmpty) throw Exception('Không nhận được token Google');
       await Api.instance.saveSession(token, refreshToken);
+      final synced = await MovieRepository(
+        Api.instance,
+      ).syncLocalHistoryToCloud();
       setState(() => meFuture = _me());
-      if (mounted) showSnack(context, 'Đăng nhập Google thành công');
+      if (mounted) {
+        showSnack(
+          context,
+          synced > 0
+              ? 'Đăng nhập Google thành công • đã đồng bộ $synced phim đang xem'
+              : 'Đăng nhập Google thành công',
+        );
+      }
     } catch (e) {
       if (mounted) showSnack(context, 'Đăng nhập Google chưa thành công');
     } finally {
@@ -4491,9 +4537,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final refreshToken = cleanText(res.data['refreshToken']);
       if (token.isEmpty) throw Exception('Không nhận được token Google');
       await Api.instance.saveSession(token, refreshToken);
+      final synced = await MovieRepository(
+        Api.instance,
+      ).syncLocalHistoryToCloud();
       if (!mounted) return;
       setState(() => meFuture = _me());
-      showSnack(context, 'Đăng nhập Google thành công');
+      showSnack(
+        context,
+        synced > 0
+            ? 'Đăng nhập Google thành công • đã đồng bộ $synced phim đang xem'
+            : 'Đăng nhập Google thành công',
+      );
     } catch (_) {
       if (mounted) showSnack(context, 'Không hoàn tất được đăng nhập Google');
     }
@@ -10245,6 +10299,16 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                   ),
                 ],
               ),
+              const SizedBox(height: 4),
+              Text(
+                'Đang xem: ${widget.currentEpisode.displayName} • ${widget.currentServer.displayName}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  color: CvColors.muted,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               const SizedBox(height: 12),
               SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
@@ -10281,15 +10345,33 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                       child: Center(
                         child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 8),
-                          child: Text(
-                            episode.displayName,
-                            textAlign: TextAlign.center,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: selected ? Colors.white : null,
-                            ),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                episode.displayName,
+                                textAlign: TextAlign.center,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                  color: selected ? Colors.white : null,
+                                ),
+                              ),
+                              if (selected) ...[
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'Đang xem',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    color: CvColors.accent,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w900,
+                                  ),
+                                ),
+                              ],
+                            ],
                           ),
                         ),
                       ),
