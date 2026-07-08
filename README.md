@@ -34,13 +34,13 @@ flutter test
 flutter build apk --debug
 export VERSION_NAME=2.0.0
 export BUILD_NUMBER=$(date -u +%Y%m%d%H)
-flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi --dart-define=APP_VARIANT=mobile --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
-flutter build apk --release --dart-define=APP_VARIANT=tv --dart-define=APP_IS_TV=true --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
+flutter build apk --release --flavor mobile --dart-define=APP_VARIANT=mobile --dart-define=APP_IS_TV=false --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
+flutter build apk --release --flavor tv --dart-define=APP_VARIANT=tv --dart-define=APP_IS_TV=true --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
 ```
 
 Codemagic workflows are defined in `codemagic.yaml`.
 
-- `android-v2-release`: runs analyze/test, then builds signed direct-install APKs for mobile/tablet and Android TV.
+- `android-v2-release`: runs analyze/test, then builds signed universal direct-install APKs for mobile/tablet and Android TV.
 - `ios-v2-release`: runs analyze/test, builds unsigned iOS app, and packages an unsigned IPA.
 - `windows-v2-release`: runs analyze/test, builds Windows release, and packages a portable ZIP.
 

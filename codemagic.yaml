@@ -70,17 +70,17 @@ workflows:
               exit 1
             fi
           fi
-      - name: Build mobile/tablet direct APKs
+      - name: Build mobile/tablet universal APK
         script: |
           set -euo pipefail
           CV_VERSION_NAME="${VERSION_NAME:-2.0.0}"
           CV_BUILD_NUMBER="${BUILD_NUMBER:-${PROJECT_BUILD_NUMBER:-$(date -u +%Y%m%d%H)}}"
           CV_RELEASE_CHANNEL="${RELEASE_CHANNEL:-release}"
-          echo "Building CineViet ${CV_RELEASE_CHANNEL} mobile/tablet ${CV_VERSION_NAME}+${CV_BUILD_NUMBER}"
+          echo "Building CineViet ${CV_RELEASE_CHANNEL} mobile/tablet universal ${CV_VERSION_NAME}+${CV_BUILD_NUMBER}"
           flutter build apk --release \
-            --target-platform android-arm,android-arm64 \
-            --split-per-abi \
+            --flavor mobile \
             --dart-define=APP_VARIANT=mobile \
+            --dart-define=APP_IS_TV=false \
             --build-name="${CV_VERSION_NAME}" \
             --build-number="${CV_BUILD_NUMBER}"
       - name: Build Android TV APK
@@ -91,7 +91,7 @@ workflows:
           CV_RELEASE_CHANNEL="${RELEASE_CHANNEL:-release}"
           echo "Building CineViet ${CV_RELEASE_CHANNEL} Android TV ${CV_VERSION_NAME}+${CV_BUILD_NUMBER}"
           flutter build apk --release \
-            --target-platform android-arm,android-arm64 \
+            --flavor tv \
             --dart-define=APP_VARIANT=tv \
             --dart-define=APP_IS_TV=true \
             --build-name="${CV_VERSION_NAME}" \
@@ -104,9 +104,8 @@ workflows:
           CV_RELEASE_CHANNEL="${RELEASE_CHANNEL:-release}"
           OUT_DIR="build/app/outputs/cineviet-v2-release"
           mkdir -p "${OUT_DIR}"
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "${OUT_DIR}/CineViet-v2-${CV_RELEASE_CHANNEL}-Mobile-Tablet-arm64-v8a-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "${OUT_DIR}/CineViet-v2-${CV_RELEASE_CHANNEL}-Mobile-Tablet-armeabi-v7a-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"
-          cp build/app/outputs/flutter-apk/app-release.apk "${OUT_DIR}/CineViet-v2-${CV_RELEASE_CHANNEL}-Android-TV-universal-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"
+          cp build/app/outputs/flutter-apk/app-mobile-release.apk "${OUT_DIR}/CineViet-v2-${CV_RELEASE_CHANNEL}-Mobile-Tablet-universal-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"
+          cp build/app/outputs/flutter-apk/app-tv-release.apk "${OUT_DIR}/CineViet-v2-${CV_RELEASE_CHANNEL}-Android-TV-universal-${CV_VERSION_NAME}+${CV_BUILD_NUMBER}.apk"
           {
             echo "app=CineViet v2"
             echo "platform=android"

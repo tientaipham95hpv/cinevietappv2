@@ -29,7 +29,7 @@ CineViet-v2-<channel>-<platform-or-target>-<version>+<build>.<ext>
 Examples:
 
 ```text
-CineViet-v2-release-Mobile-Tablet-arm64-v8a-2.0.0+2026062915.apk
+CineViet-v2-release-Mobile-Tablet-universal-2.0.0+2026062915.apk
 CineViet-v2-staging-Android-TV-universal-2.0.0+2026062915.apk
 CineViet-v2-internal-Windows-2.0.0+2026062915.zip
 ```

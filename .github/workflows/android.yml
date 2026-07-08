@@ -14,7 +14,7 @@ on:
       build_number:
         description: App build number / version code
         required: false
-        default: "9211"
+        default: "9212"
       require_signing:
         description: Fail when Android signing secrets are missing
         required: false
@@ -40,7 +40,7 @@ jobs:
     env:
       VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.1' }}
       RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'release' }}
-      BUILD_NUMBER: ${{ github.event.inputs.build_number || '9211' }}
+      BUILD_NUMBER: ${{ github.event.inputs.build_number || '9212' }}
       REQUIRE_ANDROID_SIGNING: ${{ github.event.inputs.require_signing || 'false' }}
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -98,15 +98,13 @@ jobs:
             fi
           fi
 
-      - name: Build mobile/tablet direct APKs
+      - name: Build mobile/tablet universal APK
         shell: bash
         run: |
           set -euo pipefail
           build_number="${BUILD_NUMBER}"
           flutter build apk --release \
             --flavor mobile \
-            --target-platform android-arm,android-arm64 \
-            --split-per-abi \
             --dart-define=APP_VARIANT=mobile \
             --dart-define=APP_IS_TV=false \
             --build-name="${VERSION_NAME}" \
@@ -119,7 +117,6 @@ jobs:
           build_number="${BUILD_NUMBER}"
           flutter build apk --release \
             --flavor tv \
-            --target-platform android-arm,android-arm64 \
             --dart-define=APP_VARIANT=tv \
             --dart-define=APP_IS_TV=true \
             --build-name="${VERSION_NAME}" \
@@ -132,8 +129,7 @@ jobs:
           build_number="${BUILD_NUMBER}"
           out_dir="build/app/outputs/cineviet-v2-github-release"
           mkdir -p "${out_dir}"
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-mobile-release.apk "${out_dir}/CineViet-v2-${RELEASE_CHANNEL}-Mobile-Tablet-arm64-v8a-${VERSION_NAME}+${build_number}.apk"
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-mobile-release.apk "${out_dir}/CineViet-v2-${RELEASE_CHANNEL}-Mobile-Tablet-armeabi-v7a-${VERSION_NAME}+${build_number}.apk"
+          cp build/app/outputs/flutter-apk/app-mobile-release.apk "${out_dir}/CineViet-v2-${RELEASE_CHANNEL}-Mobile-Tablet-universal-${VERSION_NAME}+${build_number}.apk"
           cp build/app/outputs/flutter-apk/app-tv-release.apk "${out_dir}/CineViet-v2-${RELEASE_CHANNEL}-Android-TV-universal-${VERSION_NAME}+${build_number}.apk"
           {
             echo "app=CineViet v2"

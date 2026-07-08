@@ -39,8 +39,8 @@ keyPassword=your-key-password
 4. Build:
 
 ```bash
-flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi --build-name=2.0.0 --build-number=2026063001
-flutter build apk --release --dart-define=APP_VARIANT=tv --dart-define=APP_IS_TV=true --build-name=2.0.0 --build-number=2026063001
+flutter build apk --release --flavor mobile --dart-define=APP_VARIANT=mobile --dart-define=APP_IS_TV=false --build-name=2.0.0 --build-number=2026063001
+flutter build apk --release --flavor tv --dart-define=APP_VARIANT=tv --dart-define=APP_IS_TV=true --build-name=2.0.0 --build-number=2026063001
 ```
 
 ## Codemagic Secrets
