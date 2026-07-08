@@ -842,10 +842,10 @@ class Movie {
 
     int serverPriority(EpisodeServer server) {
       final name = server.name.toLowerCase();
-      // Thứ tự ưu tiên nguồn phát: OPhim → KKPhim/PhimAPI → NguồnC.
+      // Thứ tự ưu tiên nguồn phát: KKPhim/PhimAPI → OPhim → NguồnC.
       // NguồnC/StreamC chỉ là dự phòng embed/WebView, không đứng trước m3u8 sạch.
-      if (name.contains('ophim')) return 0;
-      if (name.contains('kkphim') || name.contains('phimapi')) return 1;
+      if (name.contains('kkphim') || name.contains('phimapi')) return 0;
+      if (name.contains('ophim')) return 1;
       if (name.contains('nguồn c') ||
           name.contains('nguồnc') ||
           name.contains('nguonc') ||
@@ -8394,18 +8394,23 @@ class _PlayerScreenState extends State<PlayerScreen>
         rawPath.contains('/api/stream');
     final rawIsKnownEmbedOnly =
         rawHost.contains('streamc.xyz') && rawPath.contains('/embed');
-    if (rawLooksPlayable && !rawIsKnownEmbedOnly) add(raw);
-
     final nested = parsed?.queryParameters['url'];
-    if (nested != null && nested.isNotEmpty) add(Uri.decodeFull(nested));
+    final decodedNested =
+        nested != null && nested.isNotEmpty ? Uri.decodeFull(nested) : '';
+    final directM3u8 = rawPath.contains('.m3u8')
+        ? raw
+        : (Uri.tryParse(decodedNested)?.path.toLowerCase().contains('.m3u8') ??
+                false)
+            ? decodedNested
+            : '';
 
-    final m3u8 = urls.firstWhere(
-      (e) => Uri.tryParse(e)?.path.toLowerCase().contains('.m3u8') ?? false,
-      orElse: () => '',
-    );
-    if (m3u8.isNotEmpty && !m3u8.contains('/api/stream')) {
-      add('$apiBase/stream?url=${Uri.encodeComponent(m3u8)}');
+    // Prefer the backend stream proxy for HLS so KKPhim ad segments are
+    // stripped server-side before the native player receives the manifest.
+    if (directM3u8.isNotEmpty && !directM3u8.contains('/api/stream')) {
+      add('$apiBase/stream?url=${Uri.encodeComponent(directM3u8)}');
     }
+    if (rawLooksPlayable && !rawIsKnownEmbedOnly) add(raw);
+    if (decodedNested.isNotEmpty) add(decodedNested);
 
     return urls;
   }
