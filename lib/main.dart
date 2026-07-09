@@ -8751,6 +8751,206 @@ class _PlayerScreenState extends State<PlayerScreen>
               '.play',
               '.play-button'
             ];
+            var tvFocusIndex = Number.isFinite(window.__cvTvFocusIndex)
+              ? window.__cvTvFocusIndex
+              : -1;
+            function isVisible(el) {
+              try {
+                var rect = el.getBoundingClientRect();
+                var style = window.getComputedStyle(el);
+                return rect.width > 2 && rect.height > 2 &&
+                  style.visibility !== 'hidden' &&
+                  style.display !== 'none' &&
+                  style.opacity !== '0';
+              } catch (_) {
+                return false;
+              }
+            }
+            function labelOf(el) {
+              try {
+                return [
+                  el.innerText,
+                  el.textContent,
+                  el.getAttribute('aria-label'),
+                  el.getAttribute('title'),
+                  el.getAttribute('data-title'),
+                  el.getAttribute('data-text'),
+                  el.value,
+                  el.className
+                ].join(' ').toLowerCase();
+              } catch (_) {
+                return '';
+              }
+            }
+            function focusables() {
+              var selector = [
+                'button',
+                'a[href]',
+                '[role="button"]',
+                '[tabindex]',
+                '[onclick]',
+                '[aria-label]',
+                  'input[type="button"]',
+                  'input[type="submit"]',
+                '.btn',
+                '.button',
+                '.skip',
+                '.skip-ad',
+                '.continue',
+                '.resume',
+                '.restart',
+                '.modal button',
+                '.dialog button',
+                '.jw-button-color',
+                '.jw-icon',
+                '.jw-display-icon-container',
+                '.vjs-big-play-button',
+                '.plyr__control'
+              ].join(',');
+              var nodes = Array.prototype.slice.call(document.querySelectorAll(selector))
+                .filter(isVisible);
+              var seen = [];
+              return nodes.filter(function (el) {
+                if (seen.indexOf(el) >= 0) return false;
+                seen.push(el);
+                return true;
+              });
+            }
+            function preferredIndex(items) {
+              var preferred = [
+                /(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip)/i,
+                /(xem tiếp|xem tiep|continue|resume)/i,
+                /(xem lại|xem lai|từ đầu|tu dau|restart)/i,
+                /(phát|play|watch)/i
+              ];
+              for (var p = 0; p < preferred.length; p += 1) {
+                for (var i = 0; i < items.length; i += 1) {
+                  if (preferred[p].test(labelOf(items[i]))) return i;
+                }
+              }
+              return items.length ? 0 : -1;
+            }
+            function setFocusIndex(index, items) {
+              if (!items || !items.length) return false;
+              tvFocusIndex = (index + items.length) % items.length;
+              window.__cvTvFocusIndex = tvFocusIndex;
+              markFocus(items[tvFocusIndex]);
+              return true;
+            }
+            function keyForAction(action) {
+              if (action === 'select') return { key: 'Enter', code: 'Enter', keyCode: 13, which: 13 };
+              if (action === 'left') return { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37, which: 37 };
+              if (action === 'up') return { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38, which: 38 };
+              if (action === 'right') return { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39, which: 39 };
+              return { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40, which: 40 };
+            }
+            function dispatchKey(target, action) {
+              var data = keyForAction(action);
+              ['keydown','keypress','keyup'].forEach(function (type) {
+                try {
+                  target.dispatchEvent(new KeyboardEvent(type, {
+                    key: data.key,
+                    code: data.code,
+                    keyCode: data.keyCode,
+                    which: data.which,
+                    bubbles: true,
+                    cancelable: true
+                  }));
+                } catch (_) {}
+              });
+            }
+            function activate(el) {
+              if (!el) return false;
+              try { markFocus(el); } catch (_) {}
+              ['pointerdown','mousedown','mouseup','pointerup','click'].forEach(function (type) {
+                try {
+                  el.dispatchEvent(new MouseEvent(type, {
+                    view: window,
+                    bubbles: true,
+                    cancelable: true
+                  }));
+                } catch (_) {}
+              });
+              try { el.click(); } catch (_) {}
+              return true;
+            }
+            function directPreferredAction() {
+              var items = focusables();
+              for (var i = 0; i < items.length; i += 1) {
+                if (/(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip)/i.test(labelOf(items[i]))) {
+                  return activate(items[i]);
+                }
+              }
+              return false;
+            }
+            function markFocus(el) {
+              try {
+                document.querySelectorAll('[data-cv-tv-focus="1"]').forEach(function (old) {
+                  old.removeAttribute('data-cv-tv-focus');
+                  old.style.outline = old.dataset.cvOldOutline || '';
+                  old.style.boxShadow = old.dataset.cvOldBoxShadow || '';
+                });
+                if (!el) return;
+                el.dataset.cvOldOutline = el.style.outline || '';
+                el.dataset.cvOldBoxShadow = el.style.boxShadow || '';
+                el.dataset.cvTvFocus = '1';
+                el.style.outline = '4px solid #f6c453';
+                el.style.boxShadow = '0 0 0 6px rgba(246,196,83,.28)';
+                try { el.focus({ preventScroll: false }); } catch (_) { try { el.focus(); } catch (__) {} }
+                try { el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' }); } catch (_) {}
+              } catch (_) {}
+            }
+            window.__cvTvRemote = function (action) {
+              try {
+                window.__cvTvDispatching = true;
+                dispatchKey(document, action);
+                dispatchKey(window, action);
+                window.__cvTvDispatching = false;
+                var items = focusables();
+                if (!items.length) {
+                  clickPlayControls(document);
+                  return false;
+                }
+                if (tvFocusIndex < 0 || tvFocusIndex >= items.length || !isVisible(items[tvFocusIndex])) {
+                  tvFocusIndex = preferredIndex(items);
+                  setFocusIndex(tvFocusIndex, items);
+                }
+                if (action === 'right' || action === 'down') {
+                  return setFocusIndex(tvFocusIndex + 1, items);
+                }
+                if (action === 'left' || action === 'up') {
+                  return setFocusIndex(tvFocusIndex - 1, items);
+                }
+                if (action === 'select') {
+                  var target = items[tvFocusIndex] || items[preferredIndex(items)];
+                  return activate(target);
+                }
+                } catch (_) {}
+                window.__cvTvDispatching = false;
+              return false;
+            };
+            if (!window.__cvTvRemoteListenerInstalled) {
+              window.__cvTvRemoteListenerInstalled = true;
+              document.addEventListener('keydown', function (event) {
+                try {
+                  if (window.__cvTvDispatching) return;
+                  var map = {
+                    ArrowRight: 'right',
+                    ArrowLeft: 'left',
+                    ArrowUp: 'up',
+                    ArrowDown: 'down',
+                    Enter: 'select',
+                    ' ': 'select'
+                  };
+                  var action = map[event.key] || map[event.code];
+                  if (!action) return;
+                  if (window.__cvTvRemote(action)) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                  }
+                } catch (_) {}
+              }, true);
+            }
             function setupVideo(v) {
               try {
                 v.setAttribute('playsinline', '');
@@ -8802,6 +9002,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               tries += 1;
               try {
                 document.querySelectorAll('video').forEach(setupVideo);
+                directPreferredAction();
                 clickPlayControls(document);
                 document.querySelectorAll('iframe').forEach(function (frame) {
                   try {
@@ -8821,6 +9022,16 @@ class _PlayerScreenState extends State<PlayerScreen>
               if (tries < 24) setTimeout(attempt, 500);
             }
             attempt();
+            setTimeout(function () {
+              try {
+                var items = focusables();
+                var index = preferredIndex(items);
+                if (index >= 0) {
+                  tvFocusIndex = index;
+                  markFocus(items[index]);
+                }
+              } catch (_) {}
+            }, 800);
           } catch (_) {}
         })();
       ''';
@@ -8831,6 +9042,23 @@ class _PlayerScreenState extends State<PlayerScreen>
         await wwc!.executeScript(script);
       }
     } catch (_) {}
+  }
+
+  Future<void> _sendWebViewTvRemoteKey(String action) async {
+    final wc = webViewController;
+    final wwc = windowsWebViewController;
+    if (wc == null && wwc == null) return;
+    final script =
+        "try { window.__cvTvRemote && window.__cvTvRemote('$action'); } catch (_) {}";
+    try {
+      if (wc != null) {
+        await wc.runJavaScript(script);
+      } else {
+        await wwc!.executeScript(script);
+      }
+    } catch (_) {
+      await _injectWebViewPlaybackAssist();
+    }
   }
 
   Future<void> _openWebViewSource(PlaybackSourceCandidate source) async {
@@ -8859,6 +9087,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
       _trackPlaybackEvent('webview_windows_start');
       if (mounted) setState(() {});
+      _scheduleControlsHide();
       unawaited(
         Future<void>.delayed(
           const Duration(milliseconds: 700),
@@ -8940,6 +9169,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
     _trackPlaybackEvent('webview_start');
     if (mounted) setState(() {});
+    _scheduleControlsHide();
     unawaited(
       Future<void>.delayed(
         const Duration(milliseconds: 900),
@@ -9251,7 +9481,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _scheduleControlsHide() {
     controlsTimer?.cancel();
     controlsTimer = Timer(const Duration(seconds: 5), () {
-      if (mounted && controller?.value.isPlaying == true && !controlsLocked) {
+      if (mounted &&
+          (controller?.value.isPlaying == true || activeWebViewUrl != null) &&
+          !controlsLocked) {
         setState(() => controls = false);
       }
     });
@@ -10072,6 +10304,35 @@ class _PlayerScreenState extends State<PlayerScreen>
               _exitPlayer();
               return;
             }
+            if (activeWebViewUrl != null && isTvBuild) {
+              final webViewAction = key == LogicalKeyboardKey.arrowRight
+                  ? 'right'
+                  : key == LogicalKeyboardKey.arrowLeft
+                  ? 'left'
+                  : key == LogicalKeyboardKey.arrowUp
+                  ? 'up'
+                  : key == LogicalKeyboardKey.arrowDown
+                  ? 'down'
+                  : key == LogicalKeyboardKey.select ||
+                        key == LogicalKeyboardKey.enter ||
+                        key == LogicalKeyboardKey.space
+                  ? 'select'
+                  : null;
+              if (webViewAction != null) {
+                if (controls && !controlsLocked) {
+                  controlsTimer?.cancel();
+                  setState(() => controls = false);
+                }
+                unawaited(_sendWebViewTvRemoteKey(webViewAction));
+                return;
+              }
+              if (key == LogicalKeyboardKey.mediaPlayPause ||
+                  key == LogicalKeyboardKey.mediaPlay ||
+                  key == LogicalKeyboardKey.keyK) {
+                unawaited(_injectWebViewPlaybackAssist());
+                return;
+              }
+            }
             if (c == null) return;
             final primaryFocus = FocusManager.instance.primaryFocus;
             final playerHasPrimaryFocus =
@@ -10215,20 +10476,6 @@ class _PlayerScreenState extends State<PlayerScreen>
                             onPressed: _exitPlayer,
                             icon: const Icon(Icons.arrow_back_rounded),
                           ),
-                        ),
-                      ),
-                    ),
-                  if (activeWebViewUrl != null && isTvBuild && !controlsLocked)
-                    Positioned(
-                      left: 24,
-                      bottom: 28,
-                      child: SafeArea(
-                        child: TvActionButton(
-                          icon: Icons.play_arrow_rounded,
-                          label: 'Phát nguồn C',
-                          primary: true,
-                          onPressed: () =>
-                              unawaited(_injectWebViewPlaybackAssist()),
                         ),
                       ),
                     ),
