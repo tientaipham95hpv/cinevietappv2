@@ -8486,8 +8486,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool reportingPlaybackIssue = false;
   bool androidBrightnessSettingsPrompted = false;
   bool introSkipped = false;
+  bool savedCurrentEpisodeProgress = false;
   int lastAutoNextPromptSecond = -1;
   int runtimeRecoveryAttempts = 0;
+  int lastHistorySaveAtMs = 0;
   Duration? lastGoodPosition;
   static const introSkipSeconds = 72;
   String? playbackNotice;
@@ -8557,6 +8559,19 @@ class _PlayerScreenState extends State<PlayerScreen>
     final play = episode.playUrl.trim();
     if (_isStreamCEmbedUrl(play)) return play;
     return null;
+  }
+
+  bool _isInitialEpisodeForResume() {
+    return currentServerIndex == widget.serverIndex &&
+        currentEpisode.name == widget.episode.name &&
+        currentEpisode.linkM3u8 == widget.episode.linkM3u8 &&
+        currentEpisode.linkEmbed == widget.episode.linkEmbed;
+  }
+
+  Duration? _initialResumeForCurrentEpisode() {
+    final resume = widget.resume;
+    if (resume == null || resume.inSeconds <= 3) return null;
+    return _isInitialEpisodeForResume() ? resume : null;
   }
 
   List<String> _playableUrls(String raw) {
@@ -8711,6 +8726,113 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  Future<void> _injectWebViewPlaybackAssist({Duration? resume}) async {
+    final wc = webViewController;
+    final wwc = windowsWebViewController;
+    if (wc == null && wwc == null) return;
+    final resumeSec =
+        (resume ?? lastGoodPosition ?? _initialResumeForCurrentEpisode())
+            ?.inSeconds ??
+        0;
+    final script =
+        '''
+        (function () {
+          try {
+            var resumeAt = $resumeSec;
+            var tries = 0;
+            var selectors = [
+              '.jw-icon-playback',
+              '.jw-display-icon-container',
+              '.jwplayer .jw-display-icon-display',
+              '.vjs-big-play-button',
+              '.plyr__control[data-plyr="play"]',
+              'button[aria-label*="Play"]',
+              'button[title*="Play"]',
+              '.play',
+              '.play-button'
+            ];
+            function setupVideo(v) {
+              try {
+                v.setAttribute('playsinline', '');
+                v.setAttribute('webkit-playsinline', '');
+                v.autoplay = true;
+                v.preload = 'auto';
+                try { v.webkitEnterFullscreen = function () {}; } catch (_) {}
+                try { v.webkitEnterFullScreen = function () {}; } catch (_) {}
+                if (resumeAt > 3 && !v.dataset.cvResumed) {
+                  var doSeek = function () {
+                    try {
+                      if (isFinite(v.duration) && v.duration > 0 && resumeAt < v.duration - 5) {
+                        v.currentTime = resumeAt;
+                        v.dataset.cvResumed = '1';
+                      }
+                    } catch (_) {}
+                  };
+                  if (isFinite(v.duration) && v.duration > 0) { doSeek(); }
+                  else { v.addEventListener('loadedmetadata', doSeek, { once: true }); }
+                }
+                var playPromise = v.play && v.play();
+                if (playPromise && playPromise.catch) {
+                  playPromise.catch(function () {
+                    try {
+                      v.muted = true;
+                      var mutedPlay = v.play && v.play();
+                      if (mutedPlay && mutedPlay.then) {
+                        mutedPlay.then(function () {
+                          setTimeout(function () {
+                            try { v.muted = false; v.volume = 1; } catch (_) {}
+                          }, 900);
+                        }).catch(function () {});
+                      }
+                    } catch (_) {}
+                  });
+                }
+              } catch (_) {}
+            }
+            function clickPlayControls(root) {
+              selectors.forEach(function (selector) {
+                try {
+                  root.querySelectorAll(selector).forEach(function (el) {
+                    try { el.click(); } catch (_) {}
+                  });
+                } catch (_) {}
+              });
+            }
+            function attempt() {
+              tries += 1;
+              try {
+                document.querySelectorAll('video').forEach(setupVideo);
+                clickPlayControls(document);
+                document.querySelectorAll('iframe').forEach(function (frame) {
+                  try {
+                    var doc = frame.contentDocument || frame.contentWindow.document;
+                    if (doc) {
+                      doc.querySelectorAll('video').forEach(setupVideo);
+                      clickPlayControls(doc);
+                    }
+                  } catch (_) {}
+                });
+                ['requestFullscreen','webkitRequestFullscreen','webkitEnterFullscreen','webkitEnterFullScreen','mozRequestFullScreen','msRequestFullscreen'].forEach(function (name) {
+                  try {
+                    if (Element.prototype[name]) Element.prototype[name] = function () { return Promise.resolve && Promise.resolve(); };
+                  } catch (_) {}
+                });
+              } catch (_) {}
+              if (tries < 24) setTimeout(attempt, 500);
+            }
+            attempt();
+          } catch (_) {}
+        })();
+      ''';
+    try {
+      if (wc != null) {
+        await wc.runJavaScript(script);
+      } else {
+        await wwc!.executeScript(script);
+      }
+    } catch (_) {}
+  }
+
   Future<void> _openWebViewSource(PlaybackSourceCandidate source) async {
     final url = source.webViewUrl;
     if (url == null || url.isEmpty) return;
@@ -8737,6 +8859,12 @@ class _PlayerScreenState extends State<PlayerScreen>
       saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
       _trackPlaybackEvent('webview_windows_start');
       if (mounted) setState(() {});
+      unawaited(
+        Future<void>.delayed(
+          const Duration(milliseconds: 700),
+          () => _injectWebViewPlaybackAssist(),
+        ),
+      );
       return;
     }
     late final PlatformWebViewControllerCreationParams params;
@@ -8775,40 +8903,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             // StreamC/JWPlayer có fullscreen HTML riêng; khi vào fullscreen đó
             // Flutter không còn vẽ được nút back của app. Giữ video inline để
             // nút back native overlay bên dưới luôn hoạt động.
-            final resumeSec =
-                (lastGoodPosition ?? widget.resume)?.inSeconds ?? 0;
-            unawaited(
-              webViewController?.runJavaScript('''
-                (function () {
-                  try {
-                    var resumeAt = $resumeSec;
-                    document.querySelectorAll('video').forEach(function (v) {
-                      v.setAttribute('playsinline', '');
-                      v.setAttribute('webkit-playsinline', '');
-                      try { v.webkitEnterFullscreen = function () {}; } catch (_) {}
-                      try { v.webkitEnterFullScreen = function () {}; } catch (_) {}
-                      if (resumeAt > 3 && !v.dataset.cvResumed) {
-                        v.dataset.cvResumed = '1';
-                        var doSeek = function () {
-                          try {
-                            if (isFinite(v.duration) && v.duration > 0 && resumeAt < v.duration - 5) {
-                              v.currentTime = resumeAt;
-                            }
-                          } catch (_) {}
-                        };
-                        if (isFinite(v.duration) && v.duration > 0) { doSeek(); }
-                        else { v.addEventListener('loadedmetadata', doSeek, { once: true }); }
-                      }
-                    });
-                    ['requestFullscreen','webkitRequestFullscreen','webkitEnterFullscreen','webkitEnterFullScreen','mozRequestFullScreen','msRequestFullscreen'].forEach(function (name) {
-                      try {
-                        if (Element.prototype[name]) Element.prototype[name] = function () { return Promise.resolve && Promise.resolve(); };
-                      } catch (_) {}
-                    });
-                  } catch (_) {}
-                })();
-              '''),
-            );
+            unawaited(_injectWebViewPlaybackAssist());
           },
           onWebResourceError: (error) {
             lastPlaybackError = '${error.errorCode}: ${error.description}';
@@ -8845,6 +8940,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
     _trackPlaybackEvent('webview_start');
     if (mounted) setState(() {});
+    unawaited(
+      Future<void>.delayed(
+        const Duration(milliseconds: 900),
+        () => _injectWebViewPlaybackAssist(),
+      ),
+    );
   }
 
   Future<void> _init({int startUrlIndex = 0, Duration? startAt}) async {
@@ -8928,7 +9029,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           );
           if (target > Duration.zero) await next.seekTo(target);
         }
-        final resume = widget.resume;
+        final resume = _initialResumeForCurrentEpisode();
         final recoveryPosition = startAt ?? lastGoodPosition;
         if (!isWatchTogether &&
             recoveryPosition != null &&
@@ -9004,6 +9105,13 @@ class _PlayerScreenState extends State<PlayerScreen>
     final c = controller;
     if (c == null || !c.value.isInitialized) return;
     lastGoodPosition = c.value.position;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (c.value.position.inSeconds >= 3 &&
+        (!savedCurrentEpisodeProgress || now - lastHistorySaveAtMs >= 5000)) {
+      savedCurrentEpisodeProgress = true;
+      lastHistorySaveAtMs = now;
+      unawaited(_save());
+    }
     if (c.value.hasError) {
       unawaited(_recoverPlayback(c.value.errorDescription));
       return;
@@ -9218,6 +9326,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (c == null || !c.value.isInitialized) return;
     await c.seekTo(_clampPosition(c.value.position + offset, c.value.duration));
     _emitWatchSync(force: true);
+    unawaited(_save());
     if (showControls) _showControls();
   }
 
@@ -9235,6 +9344,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     final target = Duration(seconds: introSkipSeconds);
     await c.seekTo(_clampPosition(target, c.value.duration));
     _emitWatchSync(force: true);
+    unawaited(_save());
     if (mounted) setState(() {});
   }
 
@@ -9422,6 +9532,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (c == null || !c.value.isInitialized) return;
     c.value.isPlaying ? c.pause() : c.play();
     _emitWatchSync(force: true);
+    unawaited(_save());
     _showControls();
   }
 
@@ -9680,6 +9791,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (dragMode == 'seek' && target != null) {
       controller?.seekTo(target);
       _emitWatchSync(force: true);
+      unawaited(_save());
     }
     unawaited(_applyPendingLevels(settle: true));
     setState(() {
@@ -9758,10 +9870,12 @@ class _PlayerScreenState extends State<PlayerScreen>
       controls = true;
       error = null;
       introSkipped = false;
+      savedCurrentEpisodeProgress = false;
       autoNextCancelledForEpisode = false;
       lastAutoNextPromptSecond = -1;
     });
     runtimeRecoveryAttempts = 0;
+    lastHistorySaveAtMs = 0;
     lastGoodPosition = null;
     await _init();
   }
@@ -10101,6 +10215,20 @@ class _PlayerScreenState extends State<PlayerScreen>
                             onPressed: _exitPlayer,
                             icon: const Icon(Icons.arrow_back_rounded),
                           ),
+                        ),
+                      ),
+                    ),
+                  if (activeWebViewUrl != null && isTvBuild && !controlsLocked)
+                    Positioned(
+                      left: 24,
+                      bottom: 28,
+                      child: SafeArea(
+                        child: TvActionButton(
+                          icon: Icons.play_arrow_rounded,
+                          label: 'Phát nguồn C',
+                          primary: true,
+                          onPressed: () =>
+                              unawaited(_injectWebViewPlaybackAssist()),
                         ),
                       ),
                     ),
