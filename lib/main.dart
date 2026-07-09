@@ -2685,79 +2685,75 @@ class _HomeScreenState extends State<HomeScreen> {
         ? home.featured
         : home.latest.take(8).toList();
     if (isTvBuild) {
-      return Column(
-        children: [
-          SizedBox(
-            height: heroBannerHeight(context),
-            child: featured.isEmpty
-                ? const HomeEmptyHero()
-                : FeaturedHeroCarousel(movies: featured, repo: widget.repo),
+      return CustomScrollView(
+        key: const PageStorageKey('home-tv-scroll'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(
+            child: SizedBox(
+              height: heroBannerHeight(context),
+              child: featured.isEmpty
+                  ? const HomeEmptyHero()
+                  : FeaturedHeroCarousel(movies: featured, repo: widget.repo),
+            ),
           ),
-          Expanded(
-            child: CustomScrollView(
-              key: const PageStorageKey('home-tv-scroll'),
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                SliverPadding(
-                  padding: pagePadding(context).copyWith(top: 22, bottom: 72),
-                  sliver: SliverList(
-                    delegate: SliverChildListDelegate([
-                      if (home.history.isNotEmpty)
-                        WatchRow(
-                          title: 'Xem tiếp',
-                          items: home.history,
-                          repo: widget.repo,
-                          padded: false,
-                          onRemove: _removeHistory,
-                        ),
-                      MovieRow(
-                        title: 'Top CineViet',
-                        movies: featured.length > 1
-                            ? featured.skip(1).toList()
-                            : featured,
-                        repo: widget.repo,
-                        padded: false,
-                      ),
-                      MovieRow(
-                        title: 'Mới cập nhật hôm nay',
-                        movies: home.latest,
-                        repo: widget.repo,
-                        padded: false,
-                      ),
-                      MovieRow(
-                        title: 'Phim chiếu rạp',
-                        movies: home.cinema,
-                        repo: widget.repo,
-                        padded: false,
-                      ),
-                      MovieRow(
-                        title: 'Phim bộ',
-                        movies: home.series,
-                        repo: widget.repo,
-                        padded: false,
-                      ),
-                      MovieRow(
-                        title: 'Phim lẻ',
-                        movies: home.single,
-                        repo: widget.repo,
-                        padded: false,
-                      ),
-                      MovieRow(
-                        title: 'Anime',
-                        movies: home.anime,
-                        repo: widget.repo,
-                        padded: false,
-                      ),
-                      MovieRow(
-                        title: 'TV Shows',
-                        movies: home.tvShows,
-                        repo: widget.repo,
-                        padded: false,
-                      ),
-                    ]),
+          SliverPadding(
+            padding: pagePadding(context).copyWith(top: 22, bottom: 72),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                if (home.history.isNotEmpty)
+                  WatchRow(
+                    title: 'Xem tiếp',
+                    items: home.history,
+                    repo: widget.repo,
+                    padded: false,
+                    onRemove: _removeHistory,
                   ),
+                MovieRow(
+                  title: 'Top CineViet',
+                  movies: featured.length > 1
+                      ? featured.skip(1).toList()
+                      : featured,
+                  repo: widget.repo,
+                  padded: false,
                 ),
-              ],
+                MovieRow(
+                  title: 'Mới cập nhật hôm nay',
+                  movies: home.latest,
+                  repo: widget.repo,
+                  padded: false,
+                ),
+                MovieRow(
+                  title: 'Phim chiếu rạp',
+                  movies: home.cinema,
+                  repo: widget.repo,
+                  padded: false,
+                ),
+                MovieRow(
+                  title: 'Phim bộ',
+                  movies: home.series,
+                  repo: widget.repo,
+                  padded: false,
+                ),
+                MovieRow(
+                  title: 'Phim lẻ',
+                  movies: home.single,
+                  repo: widget.repo,
+                  padded: false,
+                ),
+                MovieRow(
+                  title: 'Anime',
+                  movies: home.anime,
+                  repo: widget.repo,
+                  padded: false,
+                ),
+                MovieRow(
+                  title: 'TV Shows',
+                  movies: home.tvShows,
+                  repo: widget.repo,
+                  padded: false,
+                ),
+              ]),
             ),
           ),
         ],
@@ -9792,6 +9788,20 @@ class _PlayerScreenState extends State<PlayerScreen>
                 key == LogicalKeyboardKey.arrowDown;
             if (isTvBuild && !playerHasPrimaryFocus && directionalKey) {
               _showControls();
+              return;
+            }
+            if (isTvBuild &&
+                controls &&
+                !controlsLocked &&
+                key == LogicalKeyboardKey.arrowRight) {
+              _moveTvOverlayFocus(forward: true);
+              return;
+            }
+            if (isTvBuild &&
+                controls &&
+                !controlsLocked &&
+                key == LogicalKeyboardKey.arrowLeft) {
+              _moveTvOverlayFocus(forward: false);
               return;
             }
             if (key == LogicalKeyboardKey.select ||
