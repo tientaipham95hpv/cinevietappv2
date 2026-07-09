@@ -7576,14 +7576,14 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                           ),
                         ),
                       if (detailTabs.isNotEmpty) ...[
-                        const SizedBox(height: 24),
+                        SizedBox(height: isTvBuild ? 30 : 24),
                         DetailSectionTabs(
                           tabs: detailTabs,
                           selectedIndex: activeDetailSectionIndex,
                           onSelected: (value) =>
                               setState(() => detailSectionIndex = value),
                         ),
-                        const SizedBox(height: 16),
+                        SizedBox(height: isTvBuild ? 20 : 16),
                         detailTabs[activeDetailSectionIndex].builder(context),
                       ],
                     ],
@@ -7666,11 +7666,12 @@ class DetailSectionTabs extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: isTvBuild ? 58 : 48,
+      height: isTvBuild ? 64 : 52,
       child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 1),
         scrollDirection: Axis.horizontal,
         itemCount: tabs.length,
-        separatorBuilder: (_, _) => SizedBox(width: isTvBuild ? 12 : 10),
+        separatorBuilder: (_, _) => SizedBox(width: isTvBuild ? 10 : 8),
         itemBuilder: (context, index) {
           final tab = tabs[index];
           final selected = index == selectedIndex;
@@ -7682,27 +7683,89 @@ class DetailSectionTabs extends StatelessWidget {
               onPressed: () => onSelected(index),
             );
           }
-          return ChoiceChip(
-            avatar: Icon(
-              tab.icon,
-              size: 18,
-              color: selected ? CvColors.black : CvColors.muted,
-            ),
-            label: Text(tab.label),
-            selected: selected,
-            showCheckmark: false,
-            selectedColor: CvColors.accent,
-            backgroundColor: CvColors.panel,
-            labelStyle: TextStyle(
-              color: selected ? CvColors.black : CvColors.text,
-              fontWeight: FontWeight.w900,
-            ),
-            side: BorderSide(
-              color: selected ? CvColors.accent : CvColors.borderLight,
-            ),
-            onSelected: (_) => onSelected(index),
+          return _DetailSectionTabButton(
+            tab: tab,
+            selected: index == selectedIndex,
+            onPressed: () => onSelected(index),
           );
         },
+      ),
+    );
+  }
+}
+
+class _DetailSectionTabButton extends StatelessWidget {
+  const _DetailSectionTabButton({
+    required this.tab,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final DetailSectionTab tab;
+  final bool selected;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = selected ? CvColors.accent : CvColors.text;
+    final background = selected
+        ? CvColors.accent.withValues(alpha: .15)
+        : CvColors.panel2.withValues(alpha: .72);
+    final border = selected
+        ? CvColors.accent.withValues(alpha: .72)
+        : CvColors.borderLight.withValues(alpha: .72);
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(8),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 160),
+          curve: Curves.easeOutCubic,
+          constraints: const BoxConstraints(minWidth: 112),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: border),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(tab.icon, size: 17, color: foreground),
+                  const SizedBox(width: 7),
+                  Text(
+                    tab.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: foreground,
+                      fontWeight: FontWeight.w900,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              AnimatedContainer(
+                duration: const Duration(milliseconds: 160),
+                width: selected ? 34 : 16,
+                height: 2,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? CvColors.accent
+                      : CvColors.borderLight.withValues(alpha: .35),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -7996,8 +8059,25 @@ class _EpisodeSectionState extends State<EpisodeSection> {
                         Positioned.fill(
                           child: DecoratedBox(
                             decoration: BoxDecoration(
+                              color: CvColors.accent.withValues(alpha: .1),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: CvColors.accent),
+                              border: Border.all(
+                                color: CvColors.accent.withValues(alpha: .74),
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: CvColors.panel2.withValues(alpha: .74),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(
+                                color: CvColors.borderLight.withValues(
+                                  alpha: .48,
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -8010,9 +8090,13 @@ class _EpisodeSectionState extends State<EpisodeSection> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              color: isResumeEpisode ? CvColors.accent : null,
-                              fontSize: isTvBuild ? 16 : 14,
+                              fontWeight: isResumeEpisode
+                                  ? FontWeight.w900
+                                  : FontWeight.w800,
+                              color: isResumeEpisode
+                                  ? CvColors.accent
+                                  : CvColors.text,
+                              fontSize: isTvBuild ? 16 : 13.5,
                             ),
                           ),
                         ),
@@ -12822,7 +12906,6 @@ class TvFilterChip extends StatelessWidget {
     icon: icon,
     label: label,
     selected: selected,
-    primary: selected,
     onPressed: onPressed,
     width: 166,
   );
