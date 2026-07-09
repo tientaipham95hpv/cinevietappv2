@@ -124,6 +124,46 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.byType(MoviePosterCard), findsWidgets);
   });
+
+  testWidgets('EpisodeSection filters long episode lists', (tester) async {
+    final episodes = [
+      for (var i = 1; i <= 120; i++)
+        EpisodeItem(name: '$i', linkM3u8: 'https://example.com/$i.m3u8'),
+    ];
+    final movie = Movie(
+      id: 90,
+      title: 'Phim dài tập',
+      slug: 'phim-dai-tap',
+      episodes: [EpisodeServer(name: 'Server A', items: episodes)],
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        SingleChildScrollView(
+          child: EpisodeSection(
+            movie: movie,
+            repo: repo,
+            servers: movie.episodes,
+            serverIndex: 0,
+            resumeItem: null,
+            onServerChanged: (_) {},
+            onEpisodeSelected: (_, _, _, _, {resume}) async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('1-50'), findsOneWidget);
+    expect(find.text('51-100'), findsOneWidget);
+    expect(find.text('101-120'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), '120');
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(find.text('Tập 120'), findsOneWidget);
+    expect(find.text('Tập 1'), findsNothing);
+  });
 }
 
 class _Swap extends StatefulWidget {

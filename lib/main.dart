@@ -7516,7 +7516,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   }
 }
 
-class EpisodeSection extends StatelessWidget {
+class EpisodeSection extends StatefulWidget {
   const EpisodeSection({
     super.key,
     required this.movie,
@@ -7543,9 +7543,74 @@ class EpisodeSection extends StatelessWidget {
   onEpisodeSelected;
 
   @override
+  State<EpisodeSection> createState() => _EpisodeSectionState();
+}
+
+class _EpisodeSectionState extends State<EpisodeSection> {
+  final searchController = TextEditingController();
+  int? selectedRangeStart;
+
+  @override
+  void didUpdateWidget(covariant EpisodeSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.serverIndex != widget.serverIndex ||
+        oldWidget.servers != widget.servers) {
+      selectedRangeStart = null;
+      searchController.clear();
+    }
+  }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
+  List<int> _rangeStarts(List<EpisodeItem> episodes) {
+    if (episodes.length <= 50) return const [];
+    final maxEpisode = episodes.indexed.fold<int>(0, (max, entry) {
+      final number = episodeNumber(entry.$2.displayName);
+      return math.max(max, number <= 1 ? entry.$1 + 1 : number);
+    });
+    final maxValue = math.max(maxEpisode, episodes.length);
+    return [for (var start = 1; start <= maxValue; start += 50) start];
+  }
+
+  bool _matchesQuery(EpisodeItem episode, String query) {
+    final value = query.trim().toLowerCase();
+    if (value.isEmpty) return true;
+    final number = episodeNumber(episode.displayName).toString();
+    return episode.displayName.toLowerCase().contains(value) ||
+        episode.name.toLowerCase().contains(value) ||
+        number == value ||
+        'tap $number'.contains(value) ||
+        'tập $number'.contains(value);
+  }
+
+  bool _matchesRange(EpisodeItem episode, int index) {
+    final start = selectedRangeStart;
+    if (start == null) return true;
+    final number = episodeNumber(episode.displayName);
+    final value = number <= 1 ? index + 1 : number;
+    return value >= start && value < start + 50;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final selectedIndex = serverIndex.clamp(0, servers.length - 1);
-    final server = servers[selectedIndex];
+    final selectedIndex = widget.serverIndex.clamp(
+      0,
+      widget.servers.length - 1,
+    );
+    final server = widget.servers[selectedIndex];
+    final ranges = _rangeStarts(server.items);
+    final query = searchController.text;
+    final visibleEntries = server.items.indexed
+        .where(
+          (entry) =>
+              _matchesRange(entry.$2, entry.$1) &&
+              _matchesQuery(entry.$2, query),
+        )
+        .toList();
     final width = MediaQuery.sizeOf(context).width;
     final columns = isTvBuild
         ? 5
@@ -7558,107 +7623,223 @@ class EpisodeSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const SectionTitle('Tập phim'),
+          Row(
+            children: [
+              const Expanded(child: SectionTitle('Tập phim')),
+              if (widget.resumeItem != null)
+                TextButton.icon(
+                  onPressed: () {
+                    final resumeServerIndex = widget.resumeItem!.serverIndex
+                        .clamp(0, widget.servers.length - 1);
+                    final resumeServer = widget.servers[resumeServerIndex];
+                    if (resumeServer.items.isEmpty) return;
+                    final resumeEpisode = resumeServer.items.firstWhere(
+                      (episode) =>
+                          episode.name == widget.resumeItem!.episodeName ||
+                          episode.displayName == widget.resumeItem!.episodeName,
+                      orElse: () => resumeServer.items.first,
+                    );
+                    widget.onServerChanged(resumeServerIndex);
+                    widget.onEpisodeSelected(
+                      widget.movie,
+                      resumeServer,
+                      resumeEpisode,
+                      resumeServerIndex,
+                      resume: Duration(
+                        milliseconds: widget.resumeItem!.positionMs,
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.play_circle_fill_rounded),
+                  label: Text(
+                    'Xem tiếp ${widget.resumeItem!.progressPercent}%',
+                  ),
+                ),
+            ],
+          ),
           const SizedBox(height: 12),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                for (var i = 0; i < servers.length; i++)
+                for (var i = 0; i < widget.servers.length; i++)
                   Padding(
                     padding: EdgeInsets.only(
                       right: useLeanbackControls ? 12 : 8,
                     ),
                     child: useLeanbackControls
                         ? TvFilterChip(
-                            label: servers[i].displayName,
+                            label: widget.servers[i].displayName,
                             icon: Icons.storage_rounded,
                             selected: i == selectedIndex,
-                            onPressed: () => onServerChanged(i),
+                            onPressed: () => widget.onServerChanged(i),
                           )
                         : ChoiceChip(
-                            label: Text(servers[i].displayName),
+                            label: Text(widget.servers[i].displayName),
                             selected: i == selectedIndex,
-                            onSelected: (_) => onServerChanged(i),
+                            onSelected: (_) => widget.onServerChanged(i),
                           ),
                   ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: server.items.length,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              childAspectRatio: isTvBuild ? 2.8 : 2.35,
+          if (server.items.length > 12) ...[
+            const SizedBox(height: 14),
+            TextField(
+              controller: searchController,
+              onChanged: (_) => setState(() {}),
+              textInputAction: TextInputAction.search,
+              keyboardType: TextInputType.text,
+              decoration: InputDecoration(
+                hintText: isTvBuild
+                    ? 'Tìm tập bằng số hoặc tên'
+                    : 'Tìm tập, ví dụ: 120',
+                prefixIcon: const Icon(Icons.search_rounded),
+                suffixIcon: query.trim().isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Xóa tìm kiếm',
+                        onPressed: () {
+                          searchController.clear();
+                          setState(() {});
+                        },
+                        icon: const Icon(Icons.close_rounded),
+                      ),
+                isDense: true,
+                filled: true,
+                fillColor: Colors.white.withValues(alpha: .06),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide.none,
+                ),
+              ),
             ),
-            itemBuilder: (context, index) {
-              final episode = server.items[index];
-              final isResumeEpisode =
-                  resumeItem != null &&
-                  resumeItem!.serverIndex == selectedIndex &&
-                  (resumeItem!.episodeName == episode.name ||
-                      resumeItem!.episodeName == episode.displayName);
-              return FocusButton(
-                onPressed: () => onEpisodeSelected(
-                  movie,
-                  server,
-                  episode,
-                  selectedIndex,
-                  resume: isResumeEpisode
-                      ? Duration(milliseconds: resumeItem!.positionMs)
-                      : null,
-                ),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    if (isResumeEpisode)
-                      Positioned.fill(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: CvColors.accent),
+          ],
+          if (ranges.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: useLeanbackControls
+                        ? TvFilterChip(
+                            label: 'Tất cả',
+                            icon: Icons.grid_view_rounded,
+                            selected: selectedRangeStart == null,
+                            onPressed: () =>
+                                setState(() => selectedRangeStart = null),
+                          )
+                        : ChoiceChip(
+                            label: const Text('Tất cả'),
+                            selected: selectedRangeStart == null,
+                            onSelected: (_) =>
+                                setState(() => selectedRangeStart = null),
                           ),
-                        ),
-                      ),
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: Text(
-                          episode.displayName,
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            color: isResumeEpisode ? CvColors.accent : null,
-                            fontSize: isTvBuild ? 16 : 14,
-                          ),
-                        ),
-                      ),
+                  ),
+                  for (final start in ranges)
+                    Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: useLeanbackControls
+                          ? TvFilterChip(
+                              label:
+                                  '$start-${math.min(start + 49, server.items.length)}',
+                              icon: Icons.view_week_rounded,
+                              selected: selectedRangeStart == start,
+                              onPressed: () =>
+                                  setState(() => selectedRangeStart = start),
+                            )
+                          : ChoiceChip(
+                              label: Text(
+                                '$start-${math.min(start + 49, server.items.length)}',
+                              ),
+                              selected: selectedRangeStart == start,
+                              onSelected: (_) =>
+                                  setState(() => selectedRangeStart = start),
+                            ),
                     ),
-                    if (isResumeEpisode)
-                      Positioned(
-                        top: 5,
-                        right: 7,
-                        child: Text(
-                          '${resumeItem!.progressPercent}%',
-                          style: const TextStyle(
-                            color: CvColors.accent,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w900,
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 16),
+          if (visibleEntries.isEmpty)
+            const EmptyState('Không tìm thấy tập phù hợp')
+          else
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: visibleEntries.length,
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: columns,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                childAspectRatio: isTvBuild ? 2.8 : 2.35,
+              ),
+              itemBuilder: (context, index) {
+                final episode = visibleEntries[index].$2;
+                final isResumeEpisode =
+                    widget.resumeItem != null &&
+                    widget.resumeItem!.serverIndex == selectedIndex &&
+                    (widget.resumeItem!.episodeName == episode.name ||
+                        widget.resumeItem!.episodeName == episode.displayName);
+                return FocusButton(
+                  onPressed: () => widget.onEpisodeSelected(
+                    widget.movie,
+                    server,
+                    episode,
+                    selectedIndex,
+                    resume: isResumeEpisode
+                        ? Duration(milliseconds: widget.resumeItem!.positionMs)
+                        : null,
+                  ),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      if (isResumeEpisode)
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: CvColors.accent),
+                            ),
+                          ),
+                        ),
+                      Center(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          child: Text(
+                            episode.displayName,
+                            textAlign: TextAlign.center,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              color: isResumeEpisode ? CvColors.accent : null,
+                              fontSize: isTvBuild ? 16 : 14,
+                            ),
                           ),
                         ),
                       ),
-                  ],
-                ),
-              );
-            },
-          ),
+                      if (isResumeEpisode)
+                        Positioned(
+                          top: 5,
+                          right: 7,
+                          child: Text(
+                            '${widget.resumeItem!.progressPercent}%',
+                            style: const TextStyle(
+                              color: CvColors.accent,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );
@@ -10016,8 +10197,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                 code: watchRoomCode,
                 messages: watchMessages,
                 inputController: watchChatController,
-                onSend: _sendWatchMessage,
-                onHide: () => setState(() => watchChatVisible = false),
+                onSend: () {
+                  _sendWatchMessage();
+                  FocusManager.instance.primaryFocus?.unfocus();
+                },
+                onHide: () {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                  setState(() => watchChatVisible = false);
+                },
               )
             : Align(
                 key: const ValueKey('watch-chat-toggle'),
@@ -10025,7 +10212,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                 child: WatchChatToggleButton(
                   code: watchRoomCode,
                   count: watchMessages.length,
-                  onTap: () => setState(() => watchChatVisible = true),
+                  onTap: () {
+                    FocusManager.instance.primaryFocus?.unfocus();
+                    setState(() => watchChatVisible = true);
+                  },
                 ),
               ),
       ),
@@ -10749,6 +10939,8 @@ class WatchTogetherChatPanel extends StatelessWidget {
                         maxLines: 2,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => onSend(),
+                        onTapOutside: (_) =>
+                            FocusManager.instance.primaryFocus?.unfocus(),
                         decoration: InputDecoration(
                           hintText: 'Nhắn tin...',
                           isDense: true,
@@ -11127,6 +11319,8 @@ class PlayerEpisodeSheet extends StatefulWidget {
 
 class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
   late int serverIndex;
+  final searchController = TextEditingController();
+  int? selectedRangeStart;
 
   @override
   void initState() {
@@ -11135,16 +11329,60 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
     serverIndex = found < 0 ? 0 : found;
   }
 
+  @override
+  void dispose() {
+    searchController.dispose();
+    super.dispose();
+  }
+
   bool _isCurrent(EpisodeServer server, EpisodeItem episode) =>
       server.name == widget.currentServer.name &&
       episode.name == widget.currentEpisode.name &&
       episode.linkM3u8 == widget.currentEpisode.linkM3u8 &&
       episode.linkEmbed == widget.currentEpisode.linkEmbed;
 
+  List<int> _rangeStarts(List<EpisodeItem> episodes) {
+    if (episodes.length <= 50) return const [];
+    final maxEpisode = episodes.indexed.fold<int>(0, (max, entry) {
+      final number = episodeNumber(entry.$2.displayName);
+      return math.max(max, number <= 1 ? entry.$1 + 1 : number);
+    });
+    final maxValue = math.max(maxEpisode, episodes.length);
+    return [for (var start = 1; start <= maxValue; start += 50) start];
+  }
+
+  bool _matchesQuery(EpisodeItem episode, String query) {
+    final value = query.trim().toLowerCase();
+    if (value.isEmpty) return true;
+    final number = episodeNumber(episode.displayName).toString();
+    return episode.displayName.toLowerCase().contains(value) ||
+        episode.name.toLowerCase().contains(value) ||
+        number == value ||
+        'tap $number'.contains(value) ||
+        'tập $number'.contains(value);
+  }
+
+  bool _matchesRange(EpisodeItem episode, int index) {
+    final start = selectedRangeStart;
+    if (start == null) return true;
+    final number = episodeNumber(episode.displayName);
+    final value = number <= 1 ? index + 1 : number;
+    return value >= start && value < start + 50;
+  }
+
   @override
   Widget build(BuildContext context) {
     final servers = widget.movie.episodes;
     final server = servers[serverIndex.clamp(0, servers.length - 1)];
+    final ranges = _rangeStarts(server.items);
+    final query = searchController.text;
+    final visibleEntries = server.items.indexed
+        .where(
+          (entry) =>
+              _matchesRange(entry.$2, entry.$1) &&
+              _matchesQuery(entry.$2, query),
+        )
+        .toList();
     final width = MediaQuery.sizeOf(context).width;
     final columns = isTvBuild
         ? 5
@@ -11198,72 +11436,162 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                               ? TvFilterChip(
                                   label: servers[i].displayName,
                                   selected: i == serverIndex,
-                                  onPressed: () =>
-                                      setState(() => serverIndex = i),
+                                  onPressed: () => setState(() {
+                                    serverIndex = i;
+                                    selectedRangeStart = null;
+                                    searchController.clear();
+                                  }),
                                 )
                               : ChoiceChip(
                                   label: Text(servers[i].displayName),
                                   selected: i == serverIndex,
-                                  onSelected: (_) =>
-                                      setState(() => serverIndex = i),
+                                  onSelected: (_) => setState(() {
+                                    serverIndex = i;
+                                    selectedRangeStart = null;
+                                    searchController.clear();
+                                  }),
                                 ),
                         ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 14),
-                Expanded(
-                  child: GridView.builder(
-                    itemCount: server.items.length,
-                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: columns,
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: isTvBuild ? 2.8 : 2.35,
+                if (server.items.length > 12) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: searchController,
+                    onChanged: (_) => setState(() {}),
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      hintText: isTvBuild
+                          ? 'Tìm tập bằng số hoặc tên'
+                          : 'Tìm tập, ví dụ: 120',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: query.trim().isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'Xóa tìm kiếm',
+                              onPressed: () {
+                                searchController.clear();
+                                setState(() {});
+                              },
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                      isDense: true,
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: .06),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: BorderSide.none,
+                      ),
                     ),
-                    itemBuilder: (context, index) {
-                      final episode = server.items[index];
-                      final selected = _isCurrent(server, episode);
-                      return FocusButton(
-                        selected: selected,
-                        autofocus: selected && isTvBuild,
-                        onPressed: () => widget.onSelect(server, episode),
-                        child: Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 8),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  episode.displayName,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    color: selected ? Colors.white : null,
-                                  ),
+                  ),
+                ],
+                if (ranges.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: useLeanbackControls
+                              ? TvFilterChip(
+                                  label: 'Tất cả',
+                                  selected: selectedRangeStart == null,
+                                  onPressed: () =>
+                                      setState(() => selectedRangeStart = null),
+                                )
+                              : ChoiceChip(
+                                  label: const Text('Tất cả'),
+                                  selected: selectedRangeStart == null,
+                                  onSelected: (_) =>
+                                      setState(() => selectedRangeStart = null),
                                 ),
-                                if (selected) ...[
-                                  const SizedBox(height: 2),
-                                  const Text(
-                                    'Đang xem',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: CvColors.accent,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w900,
+                        ),
+                        for (final start in ranges)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: useLeanbackControls
+                                ? TvFilterChip(
+                                    label:
+                                        '$start-${math.min(start + 49, server.items.length)}',
+                                    selected: selectedRangeStart == start,
+                                    onPressed: () => setState(
+                                      () => selectedRangeStart = start,
+                                    ),
+                                  )
+                                : ChoiceChip(
+                                    label: Text(
+                                      '$start-${math.min(start + 49, server.items.length)}',
+                                    ),
+                                    selected: selectedRangeStart == start,
+                                    onSelected: (_) => setState(
+                                      () => selectedRangeStart = start,
                                     ),
                                   ),
-                                ],
-                              ],
-                            ),
                           ),
-                        ),
-                      );
-                    },
+                      ],
+                    ),
                   ),
+                ],
+                const SizedBox(height: 14),
+                Expanded(
+                  child: visibleEntries.isEmpty
+                      ? const EmptyState('Không tìm thấy tập phù hợp')
+                      : GridView.builder(
+                          itemCount: visibleEntries.length,
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: columns,
+                                mainAxisSpacing: 10,
+                                crossAxisSpacing: 10,
+                                childAspectRatio: isTvBuild ? 2.8 : 2.35,
+                              ),
+                          itemBuilder: (context, index) {
+                            final episode = visibleEntries[index].$2;
+                            final selected = _isCurrent(server, episode);
+                            return FocusButton(
+                              selected: selected,
+                              autofocus: selected && isTvBuild,
+                              onPressed: () => widget.onSelect(server, episode),
+                              child: Center(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        episode.displayName,
+                                        textAlign: TextAlign.center,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          color: selected ? Colors.white : null,
+                                        ),
+                                      ),
+                                      if (selected) ...[
+                                        const SizedBox(height: 2),
+                                        const Text(
+                                          'Đang xem',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            color: CvColors.accent,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                 ),
               ],
             ),
