@@ -7027,6 +7027,80 @@ class LoginRequiredPanel extends StatelessWidget {
   }
 }
 
+class CollapsibleMovieDescription extends StatelessWidget {
+  const CollapsibleMovieDescription({
+    super.key,
+    required this.description,
+    required this.expanded,
+    required this.onToggle,
+    required this.collapsedLines,
+  });
+
+  final String description;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final int collapsedLines;
+
+  @override
+  Widget build(BuildContext context) {
+    final textScaler = MediaQuery.textScalerOf(context);
+    final textStyle = DefaultTextStyle.of(context).style.merge(
+      const TextStyle(fontSize: 16, height: 1.48, color: CvColors.text),
+    );
+    final direction = Directionality.of(context);
+    final width =
+        MediaQuery.sizeOf(context).width - pagePadding(context).horizontal;
+    final painter = TextPainter(
+      text: TextSpan(text: description, style: textStyle),
+      maxLines: collapsedLines,
+      textDirection: direction,
+      textScaler: textScaler,
+    )..layout(maxWidth: width.clamp(240.0, 920.0));
+    final canCollapse = painter.didExceedMaxLines;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AnimatedSize(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOutCubic,
+          alignment: Alignment.topCenter,
+          child: Text(
+            description,
+            maxLines: expanded ? null : collapsedLines,
+            overflow: expanded ? TextOverflow.visible : TextOverflow.ellipsis,
+            style: textStyle,
+          ),
+        ),
+        if (canCollapse) ...[
+          const SizedBox(height: 6),
+          TextButton.icon(
+            onPressed: onToggle,
+            icon: Icon(
+              expanded
+                  ? Icons.keyboard_arrow_up_rounded
+                  : Icons.keyboard_arrow_down_rounded,
+              size: 20,
+            ),
+            label: Text(expanded ? 'Ẩn bớt' : 'Hiện nội dung'),
+            style: TextButton.styleFrom(
+              foregroundColor: CvColors.accent,
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(0, 36),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              visualDensity: VisualDensity.compact,
+              textStyle: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class MovieDetailScreen extends StatefulWidget {
   const MovieDetailScreen({
     super.key,
@@ -7050,6 +7124,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   int? favoriteMovieId;
   bool isFavorite = false;
   bool favoriteBusy = false;
+  bool descriptionExpanded = false;
   WatchItem? resumeItem;
 
   @override
@@ -7415,9 +7490,17 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       if (movie.description.isNotEmpty)
-                        Text(
-                          movie.description,
-                          style: const TextStyle(fontSize: 16, height: 1.48),
+                        CollapsibleMovieDescription(
+                          description: movie.description,
+                          expanded: descriptionExpanded,
+                          collapsedLines: isTvBuild
+                              ? 6
+                              : detailWidth < 600
+                              ? 4
+                              : 5,
+                          onToggle: () => setState(
+                            () => descriptionExpanded = !descriptionExpanded,
+                          ),
                         ),
                       if (movie.genres.isNotEmpty) ...[
                         const SizedBox(height: 18),
