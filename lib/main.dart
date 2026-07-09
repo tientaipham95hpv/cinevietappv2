@@ -2707,6 +2707,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           title: 'Xem tiếp',
                           items: home.history,
                           repo: widget.repo,
+                          padded: false,
                           onRemove: _removeHistory,
                         ),
                       MovieRow(
@@ -3660,11 +3661,13 @@ class WatchRow extends StatefulWidget {
     required this.title,
     required this.items,
     required this.repo,
+    this.padded = true,
     this.onRemove,
   });
   final String title;
   final List<WatchItem> items;
   final MovieRepository repo;
+  final bool padded;
   final Future<void> Function(WatchItem item)? onRemove;
 
   @override
@@ -3700,7 +3703,8 @@ class _WatchRowState extends State<WatchRow> {
     if (visibleItems.isEmpty) return const SizedBox.shrink();
     final width = landscapeExtent(context);
     return Padding(
-      padding: pagePadding(context).copyWith(top: 30),
+      padding: (widget.padded ? pagePadding(context) : EdgeInsets.zero)
+          .copyWith(top: 30),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -8262,6 +8266,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   Timer? deviceLevelSyncTimer;
   Timer? gestureHintTimer;
   final focusNode = FocusNode();
+  final overlayFocusScopeNode = FocusScopeNode(
+    debugLabel: 'player-overlay-controls',
+  );
+  final playButtonFocusNode = FocusNode(debugLabel: 'player-play-toggle');
   late EpisodeServer currentServer;
   late EpisodeItem currentEpisode;
   late int currentServerIndex;
@@ -8395,14 +8403,15 @@ class _PlayerScreenState extends State<PlayerScreen>
     final rawIsKnownEmbedOnly =
         rawHost.contains('streamc.xyz') && rawPath.contains('/embed');
     final nested = parsed?.queryParameters['url'];
-    final decodedNested =
-        nested != null && nested.isNotEmpty ? Uri.decodeFull(nested) : '';
+    final decodedNested = nested != null && nested.isNotEmpty
+        ? Uri.decodeFull(nested)
+        : '';
     final directM3u8 = rawPath.contains('.m3u8')
         ? raw
         : (Uri.tryParse(decodedNested)?.path.toLowerCase().contains('.m3u8') ??
-                false)
-            ? decodedNested
-            : '';
+              false)
+        ? decodedNested
+        : '';
 
     // Prefer the backend stream proxy for HLS so KKPhim ad segments are
     // stripped server-side before the native player receives the manifest.
@@ -8770,6 +8779,12 @@ class _PlayerScreenState extends State<PlayerScreen>
         _trackPlaybackEvent('playback_start');
         playbackNotice = null;
         if (mounted) setState(() {});
+        if (isTvBuild) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || !controls || controlsLocked) return;
+            playButtonFocusNode.requestFocus();
+          });
+        }
         return;
       } on TimeoutException catch (e) {
         lastError = e;
@@ -8960,6 +8975,15 @@ class _PlayerScreenState extends State<PlayerScreen>
   void _showControls() {
     if (controlsLocked) return;
     setState(() => controls = true);
+    if (isTvBuild) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !controls || controlsLocked) return;
+        final primaryFocus = FocusManager.instance.primaryFocus;
+        if (primaryFocus == null || primaryFocus == focusNode) {
+          playButtonFocusNode.requestFocus();
+        }
+      });
+    }
     _scheduleControlsHide();
   }
 
@@ -8968,7 +8992,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (!isTvBuild) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final scope = FocusScope.of(context);
+      final primaryFocus = FocusManager.instance.primaryFocus;
+      if (primaryFocus == null || primaryFocus == focusNode) {
+        playButtonFocusNode.requestFocus();
+        return;
+      }
+      final scope = overlayFocusScopeNode;
       if (forward) {
         scope.nextFocus();
       } else {
@@ -9709,6 +9738,8 @@ class _PlayerScreenState extends State<PlayerScreen>
       widget.repo.closeWatchRoom(forceDelete: isWatchHost);
     }
     focusNode.dispose();
+    overlayFocusScopeNode.dispose();
+    playButtonFocusNode.dispose();
     watchChatController.dispose();
     controller?.removeListener(_handlePlayerTick);
     controller?.dispose();
@@ -9754,6 +9785,15 @@ class _PlayerScreenState extends State<PlayerScreen>
             final primaryFocus = FocusManager.instance.primaryFocus;
             final playerHasPrimaryFocus =
                 primaryFocus == null || primaryFocus == focusNode;
+            final directionalKey =
+                key == LogicalKeyboardKey.arrowRight ||
+                key == LogicalKeyboardKey.arrowLeft ||
+                key == LogicalKeyboardKey.arrowUp ||
+                key == LogicalKeyboardKey.arrowDown;
+            if (isTvBuild && !playerHasPrimaryFocus && directionalKey) {
+              _showControls();
+              return;
+            }
             if (key == LogicalKeyboardKey.select ||
                 key == LogicalKeyboardKey.enter ||
                 key == LogicalKeyboardKey.space ||
@@ -9884,29 +9924,33 @@ class _PlayerScreenState extends State<PlayerScreen>
                   if (_shouldShowIntroSkip(c) && !controlsLocked)
                     IntroSkipButton(onPressed: _skipIntro),
                   if (controls && !controlsLocked)
-                    FocusTraversalGroup(
-                      policy: OrderedTraversalPolicy(),
-                      child: PlayerOverlay(
-                        controller: c,
-                        title: widget.movie.title,
-                        episode:
-                            '${currentServer.displayName} • ${currentEpisode.displayName}',
-                        sourceLabel: _activeSourceLabel,
-                        fitLabel: fitMode.label,
-                        canPrevious: _currentEpisodeIndex > 0,
-                        canNext:
-                            _currentEpisodeIndex >= 0 &&
-                            _currentEpisodeIndex <
-                                currentServer.items.length - 1,
-                        onPlayPause: _togglePlay,
-                        onReplay: () => _seekBy(const Duration(seconds: -10)),
-                        onForward: () => _seekBy(const Duration(seconds: 10)),
-                        onPrevious: () => _playSibling(-1),
-                        onNext: () => _playSibling(1),
-                        onEpisodes: _showEpisodeSheet,
-                        onSettings: _showSettingsSheet,
-                        onFit: _cycleFitMode,
-                        onBack: _exitPlayer,
+                    FocusScope(
+                      node: overlayFocusScopeNode,
+                      child: FocusTraversalGroup(
+                        policy: OrderedTraversalPolicy(),
+                        child: PlayerOverlay(
+                          controller: c,
+                          title: widget.movie.title,
+                          episode:
+                              '${currentServer.displayName} • ${currentEpisode.displayName}',
+                          sourceLabel: _activeSourceLabel,
+                          fitLabel: fitMode.label,
+                          canPrevious: _currentEpisodeIndex > 0,
+                          canNext:
+                              _currentEpisodeIndex >= 0 &&
+                              _currentEpisodeIndex <
+                                  currentServer.items.length - 1,
+                          onPlayPause: _togglePlay,
+                          onReplay: () => _seekBy(const Duration(seconds: -10)),
+                          onForward: () => _seekBy(const Duration(seconds: 10)),
+                          onPrevious: () => _playSibling(-1),
+                          onNext: () => _playSibling(1),
+                          onEpisodes: _showEpisodeSheet,
+                          onSettings: _showSettingsSheet,
+                          onFit: _cycleFitMode,
+                          onBack: _exitPlayer,
+                          playFocusNode: playButtonFocusNode,
+                        ),
                       ),
                     ),
                   if (supportsTouchLevels && controls && !controlsLocked)
@@ -10282,6 +10326,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.onEpisodes,
     required this.onSettings,
     required this.onFit,
+    this.playFocusNode,
     this.onBack,
   });
   final VideoPlayerController? controller;
@@ -10299,6 +10344,7 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onEpisodes;
   final VoidCallback onSettings;
   final VoidCallback onFit;
+  final FocusNode? playFocusNode;
   final VoidCallback? onBack;
 
   @override
@@ -10381,6 +10427,7 @@ class PlayerOverlay extends StatelessWidget {
                               onPressed: onReplay,
                             ),
                             FocusButton(
+                              focusNode: playFocusNode,
                               autofocus: isTvBuild,
                               onPressed: onPlayPause,
                               child: SizedBox.square(
@@ -11245,6 +11292,122 @@ class MoviePosterCard extends StatelessWidget {
               ? movie.backdropFallbackUrl
               : movie.posterFallbackUrl)
         : movie.posterFallbackUrl;
+    if (useLandscapeArt) {
+      return SizedBox(
+        width: width,
+        child: FocusButton(
+          onPressed: onTap,
+          child: SizedBox(
+            height: moviePosterCardHeight(width),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  NetworkBackdrop(
+                    url: artUrl,
+                    fallbackUrl: artFallbackUrl,
+                    fit: BoxFit.cover,
+                  ),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: .18),
+                          Colors.black.withValues(alpha: .88),
+                        ],
+                        stops: const [.42, .68, 1],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 10,
+                    top: 10,
+                    child: MetaPill(movie.availabilityBadgeLabel),
+                  ),
+                  if (movie.qualityBadgeLabel.isNotEmpty && onRemove == null)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: MetaPill(movie.qualityBadgeLabel),
+                    ),
+                  if (onRemove != null)
+                    Positioned(
+                      top: 10,
+                      right: 10,
+                      child: _PosterRemoveButton(
+                        tooltip: removeTooltip ?? 'Xoá',
+                        onPressed: onRemove!,
+                      ),
+                    ),
+                  Center(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withValues(alpha: .36),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Padding(
+                        padding: EdgeInsets.all(8),
+                        child: Icon(
+                          Icons.play_arrow_rounded,
+                          size: 38,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 14,
+                    right: 14,
+                    bottom: 14,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          movie.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          textScaler: TextScaler.noScaling,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w900,
+                            height: 1.12,
+                            shadows: [
+                              Shadow(color: Colors.black, blurRadius: 8),
+                            ],
+                          ),
+                        ),
+                        if (movie.metaLine.isNotEmpty) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            movie.metaLine,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            textScaler: TextScaler.noScaling,
+                            style: TextStyle(
+                              color: Colors.white.withValues(alpha: .82),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              shadows: const [
+                                Shadow(color: Colors.black, blurRadius: 6),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     return SizedBox(
       width: width,
       child: FocusButton(
@@ -11766,11 +11929,13 @@ class FocusButton extends StatefulWidget {
     required this.onPressed,
     this.selected = false,
     this.autofocus = false,
+    this.focusNode,
   });
   final Widget child;
   final VoidCallback onPressed;
   final bool selected;
   final bool autofocus;
+  final FocusNode? focusNode;
 
   @override
   State<FocusButton> createState() => _FocusButtonState();
@@ -11796,6 +11961,7 @@ class _FocusButtonState extends State<FocusButton> {
   @override
   Widget build(BuildContext context) {
     return Focus(
+      focusNode: widget.focusNode,
       autofocus: widget.autofocus,
       onFocusChange: _handleFocusChange,
       onKeyEvent: (_, event) {
@@ -12341,10 +12507,10 @@ double movieCardExtent(BuildContext context) =>
     isTvBuild ? landscapeExtent(context) : cardExtent(context);
 
 double moviePosterCardHeight(double width) =>
-    isTvBuild ? (width * 9 / 16 + 12) : (width * 1.5 + 72);
+    isTvBuild ? (width * .68) : (width * 1.5 + 72);
 
 double moviePosterRowHeight(double width) =>
-    moviePosterCardHeight(width) + (isTvBuild ? 28 : 0);
+    moviePosterCardHeight(width) + (isTvBuild ? 34 : 0);
 
 double landscapeExtent(BuildContext context) {
   final width = MediaQuery.sizeOf(context).width;
