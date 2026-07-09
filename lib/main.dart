@@ -8902,13 +8902,8 @@ class _PlayerScreenState extends State<PlayerScreen>
             }
             window.__cvTvRemote = function (action) {
               try {
-                window.__cvTvDispatching = true;
-                dispatchKey(document, action);
-                dispatchKey(window, action);
-                window.__cvTvDispatching = false;
                 var items = focusables();
                 if (!items.length) {
-                  clickPlayControls(document);
                   return false;
                 }
                 if (tvFocusIndex < 0 || tvFocusIndex >= items.length || !isVisible(items[tvFocusIndex])) {
@@ -8925,8 +8920,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   var target = items[tvFocusIndex] || items[preferredIndex(items)];
                   return activate(target);
                 }
-                } catch (_) {}
-                window.__cvTvDispatching = false;
+              } catch (_) {}
               return false;
             };
             if (!window.__cvTvRemoteListenerInstalled) {
@@ -8973,43 +8967,41 @@ class _PlayerScreenState extends State<PlayerScreen>
                 }
                 var playPromise = v.play && v.play();
                 if (playPromise && playPromise.catch) {
-                  playPromise.catch(function () {
-                    try {
-                      v.muted = true;
-                      var mutedPlay = v.play && v.play();
-                      if (mutedPlay && mutedPlay.then) {
-                        mutedPlay.then(function () {
-                          setTimeout(function () {
-                            try { v.muted = false; v.volume = 1; } catch (_) {}
-                          }, 900);
-                        }).catch(function () {});
-                      }
-                    } catch (_) {}
-                  });
+                  playPromise.catch(function () {});
                 }
               } catch (_) {}
             }
             function clickPlayControls(root) {
-              selectors.forEach(function (selector) {
+              var clicked = false;
+              selectors.some(function (selector) {
                 try {
-                  root.querySelectorAll(selector).forEach(function (el) {
+                  return Array.prototype.slice.call(root.querySelectorAll(selector)).some(function (el) {
+                    if (!isVisible(el)) return false;
                     try { el.click(); } catch (_) {}
+                    clicked = true;
+                    return true;
                   });
                 } catch (_) {}
+                return false;
               });
+              return clicked;
             }
             function attempt() {
               tries += 1;
               try {
                 document.querySelectorAll('video').forEach(setupVideo);
                 directPreferredAction();
-                clickPlayControls(document);
+                if (!window.__cvClickedInitialPlay) {
+                  window.__cvClickedInitialPlay = clickPlayControls(document);
+                }
                 document.querySelectorAll('iframe').forEach(function (frame) {
                   try {
                     var doc = frame.contentDocument || frame.contentWindow.document;
                     if (doc) {
                       doc.querySelectorAll('video').forEach(setupVideo);
-                      clickPlayControls(doc);
+                      if (!window.__cvClickedInitialPlay) {
+                        window.__cvClickedInitialPlay = clickPlayControls(doc);
+                      }
                     }
                   } catch (_) {}
                 });
