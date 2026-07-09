@@ -7125,6 +7125,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   bool isFavorite = false;
   bool favoriteBusy = false;
   bool descriptionExpanded = false;
+  int detailSectionIndex = 0;
   WatchItem? resumeItem;
 
   @override
@@ -7268,6 +7269,59 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
             if (movie.duration != null && movie.duration! > 0)
               '${movie.duration} phút',
           ];
+          final detailTabs = <DetailSectionTab>[
+            if (servers.isNotEmpty)
+              DetailSectionTab(
+                label: 'Tập phim',
+                icon: Icons.playlist_play_rounded,
+                builder: (_) => EpisodeSection(
+                  movie: movie,
+                  repo: widget.repo,
+                  servers: servers,
+                  serverIndex: serverIndex,
+                  resumeItem: resumeItem,
+                  onServerChanged: (value) =>
+                      setState(() => serverIndex = value),
+                  onEpisodeSelected: openEpisode,
+                ),
+              )
+            else if (snapshot.hasData)
+              const DetailSectionTab(
+                label: 'Tập phim',
+                icon: Icons.playlist_play_rounded,
+                builder: _emptyEpisodeSection,
+              ),
+            if (directors.isNotEmpty || cast.isNotEmpty)
+              DetailSectionTab(
+                label: 'Diễn viên',
+                icon: Icons.groups_rounded,
+                builder: (_) => CrewSection(
+                  repo: widget.repo,
+                  directors: directors,
+                  cast: cast.take(30).toList(),
+                ),
+              ),
+            if (snapshot.hasData && !isTvBuild)
+              DetailSectionTab(
+                label: 'Bình luận',
+                icon: Icons.forum_rounded,
+                builder: (_) => SocialSection(repo: widget.repo, movie: movie),
+              ),
+            if (movie.related.isNotEmpty)
+              DetailSectionTab(
+                label: 'Đề xuất',
+                icon: Icons.auto_awesome_rounded,
+                builder: (_) => MovieRow(
+                  title: 'Có thể bạn thích',
+                  movies: movie.related,
+                  repo: widget.repo,
+                  padded: false,
+                ),
+              ),
+          ];
+          final activeDetailSectionIndex = detailTabs.isEmpty
+              ? 0
+              : detailSectionIndex.clamp(0, detailTabs.length - 1);
           return CustomScrollView(
             key: PageStorageKey('detail-scroll-${movie.id}'),
             slivers: [
@@ -7512,48 +7566,28 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                               .toList(),
                         ),
                       ],
-                      const SizedBox(height: 28),
                       if (!snapshot.hasData)
-                        const LinearProgressIndicator(color: CvColors.accent),
-                      if (servers.isNotEmpty) ...[
-                        EpisodeSection(
-                          movie: movie,
-                          repo: widget.repo,
-                          servers: servers,
-                          serverIndex: serverIndex,
-                          resumeItem: resumeItem,
-                          onServerChanged: (value) =>
-                              setState(() => serverIndex = value),
-                          onEpisodeSelected: openEpisode,
+                        const Padding(
+                          padding: EdgeInsets.only(top: 24),
+                          child: LinearProgressIndicator(
+                            color: CvColors.accent,
+                          ),
                         ),
-                      ] else if (snapshot.hasData)
-                        const EmptyState(
-                          'Phim này chưa có nguồn phát trong API',
+                      if (detailTabs.isNotEmpty) ...[
+                        const SizedBox(height: 24),
+                        DetailSectionTabs(
+                          tabs: detailTabs,
+                          selectedIndex: activeDetailSectionIndex,
+                          onSelected: (value) =>
+                              setState(() => detailSectionIndex = value),
                         ),
-                      if (directors.isNotEmpty || cast.isNotEmpty) ...[
-                        const SizedBox(height: 30),
-                        CrewSection(
-                          repo: widget.repo,
-                          directors: directors,
-                          cast: cast.take(30).toList(),
-                        ),
-                      ],
-                      if (snapshot.hasData && !isTvBuild) ...[
-                        const SizedBox(height: 30),
-                        SocialSection(repo: widget.repo, movie: movie),
+                        const SizedBox(height: 16),
+                        detailTabs[activeDetailSectionIndex].builder(context),
                       ],
                     ],
                   ),
                 ),
               ),
-              if (movie.related.isNotEmpty)
-                SliverToBoxAdapter(
-                  child: MovieRow(
-                    title: 'Có thể bạn thích',
-                    movies: movie.related,
-                    repo: widget.repo,
-                  ),
-                ),
               const SliverToBoxAdapter(child: SizedBox(height: 36)),
             ],
           );
@@ -7595,6 +7629,78 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
             ),
       icon: Icon(icon),
       label: Text(label),
+    );
+  }
+}
+
+Widget _emptyEpisodeSection(BuildContext context) {
+  return const EmptyState('Phim này chưa có nguồn phát trong API');
+}
+
+class DetailSectionTab {
+  const DetailSectionTab({
+    required this.label,
+    required this.icon,
+    required this.builder,
+  });
+
+  final String label;
+  final IconData icon;
+  final WidgetBuilder builder;
+}
+
+class DetailSectionTabs extends StatelessWidget {
+  const DetailSectionTabs({
+    super.key,
+    required this.tabs,
+    required this.selectedIndex,
+    required this.onSelected,
+  });
+
+  final List<DetailSectionTab> tabs;
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: isTvBuild ? 58 : 48,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: tabs.length,
+        separatorBuilder: (_, _) => SizedBox(width: isTvBuild ? 12 : 10),
+        itemBuilder: (context, index) {
+          final tab = tabs[index];
+          final selected = index == selectedIndex;
+          if (useLeanbackControls) {
+            return TvFilterChip(
+              label: tab.label,
+              icon: tab.icon,
+              selected: selected,
+              onPressed: () => onSelected(index),
+            );
+          }
+          return ChoiceChip(
+            avatar: Icon(
+              tab.icon,
+              size: 18,
+              color: selected ? CvColors.black : CvColors.muted,
+            ),
+            label: Text(tab.label),
+            selected: selected,
+            selectedColor: CvColors.accent,
+            backgroundColor: CvColors.panel,
+            labelStyle: TextStyle(
+              color: selected ? CvColors.black : CvColors.text,
+              fontWeight: FontWeight.w900,
+            ),
+            side: BorderSide(
+              color: selected ? CvColors.accent : CvColors.borderLight,
+            ),
+            onSelected: (_) => onSelected(index),
+          );
+        },
+      ),
     );
   }
 }
