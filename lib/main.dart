@@ -4197,6 +4197,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
     return ChoiceChip(
       label: Text(label),
       selected: type == value,
+      showCheckmark: false,
       onSelected: (_) => select(),
     );
   }
@@ -6918,6 +6919,7 @@ class _WatchTogetherScreenState extends State<WatchTogetherScreen> {
                               ChoiceChip(
                                 label: Text('$value'),
                                 selected: maxMembers == value,
+                                showCheckmark: false,
                                 onSelected: busy
                                     ? null
                                     : (_) => setState(() => maxMembers = value),
@@ -7688,6 +7690,7 @@ class DetailSectionTabs extends StatelessWidget {
             ),
             label: Text(tab.label),
             selected: selected,
+            showCheckmark: false,
             selectedColor: CvColors.accent,
             backgroundColor: CvColors.panel,
             labelStyle: TextStyle(
@@ -7866,6 +7869,7 @@ class _EpisodeSectionState extends State<EpisodeSection> {
                         : ChoiceChip(
                             label: Text(widget.servers[i].displayName),
                             selected: i == selectedIndex,
+                            showCheckmark: false,
                             onSelected: (_) => widget.onServerChanged(i),
                           ),
                   ),
@@ -7923,6 +7927,7 @@ class _EpisodeSectionState extends State<EpisodeSection> {
                         : ChoiceChip(
                             label: const Text('Tất cả'),
                             selected: selectedRangeStart == null,
+                            showCheckmark: false,
                             onSelected: (_) =>
                                 setState(() => selectedRangeStart = null),
                           ),
@@ -7944,6 +7949,7 @@ class _EpisodeSectionState extends State<EpisodeSection> {
                                 '$start-${math.min(start + 49, server.items.length)}',
                               ),
                               selected: selectedRangeStart == start,
+                              showCheckmark: false,
                               onSelected: (_) =>
                                   setState(() => selectedRangeStart = start),
                             ),
@@ -10401,6 +10407,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                                   ),
                                 ),
                                 selected: playbackSpeed == speed,
+                                showCheckmark: false,
                                 onSelected: (_) async {
                                   await _setPlaybackSpeed(speed);
                                   setSheetState(() {});
@@ -12001,6 +12008,7 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                               : ChoiceChip(
                                   label: Text(servers[i].displayName),
                                   selected: i == serverIndex,
+                                  showCheckmark: false,
                                   onSelected: (_) => setState(() {
                                     serverIndex = i;
                                     selectedRangeStart = null;
@@ -12060,6 +12068,7 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                               : ChoiceChip(
                                   label: const Text('Tất cả'),
                                   selected: selectedRangeStart == null,
+                                  showCheckmark: false,
                                   onSelected: (_) =>
                                       setState(() => selectedRangeStart = null),
                                 ),
@@ -12081,6 +12090,7 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                                       '$start-${math.min(start + 49, server.items.length)}',
                                     ),
                                     selected: selectedRangeStart == start,
+                                    showCheckmark: false,
                                     onSelected: (_) => setState(
                                       () => selectedRangeStart = start,
                                     ),
@@ -12718,7 +12728,7 @@ class NetworkBackdrop extends StatelessWidget {
 class TvActionButton extends StatelessWidget {
   const TvActionButton({
     super.key,
-    required this.icon,
+    this.icon,
     required this.label,
     required this.onPressed,
     this.selected = false,
@@ -12727,7 +12737,7 @@ class TvActionButton extends StatelessWidget {
     this.width,
   });
 
-  final IconData icon;
+  final IconData? icon;
   final String label;
   final VoidCallback? onPressed;
   final bool selected;
@@ -12763,8 +12773,10 @@ class TvActionButton extends StatelessWidget {
         mainAxisSize: width == null ? MainAxisSize.min : MainAxisSize.max,
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: danger ? CvColors.danger : foreground, size: 25),
-          const SizedBox(width: 10),
+          if (icon != null) ...[
+            Icon(icon, color: danger ? CvColors.danger : foreground, size: 25),
+            const SizedBox(width: 10),
+          ],
           Flexible(
             child: Text(
               label,
@@ -12807,7 +12819,7 @@ class TvFilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => TvActionButton(
-    icon: icon ?? Icons.check_rounded,
+    icon: icon,
     label: label,
     selected: selected,
     primary: selected,
