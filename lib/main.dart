@@ -8863,6 +8863,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   windows_webview.WebviewController? windowsWebViewController;
   String? activeWebViewUrl;
   bool recoveringPlayback = false;
+  bool savingProgress = false;
   bool reportingPlaybackIssue = false;
   bool androidBrightnessSettingsPrompted = false;
   bool introSkipped = false;
@@ -9439,7 +9440,15 @@ class _PlayerScreenState extends State<PlayerScreen>
             attempt();
             if (!window.__cvAutoSkipObserver) {
               try {
-                window.__cvAutoSkipObserver = new MutationObserver(function () { directPreferredAction(); });
+                var skipScheduled = false;
+                window.__cvAutoSkipObserver = new MutationObserver(function () {
+                  if (skipScheduled) return;
+                  skipScheduled = true;
+                  setTimeout(function () {
+                    skipScheduled = false;
+                    directPreferredAction();
+                  }, 250);
+                });
                 window.__cvAutoSkipObserver.observe(document.documentElement || document.body, {
                   childList: true,
                   subtree: true,
@@ -9447,6 +9456,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                   attributeFilter: ['style', 'class', 'aria-label', 'title']
                 });
               } catch (_) {}
+              setTimeout(function () {
+                try {
+                  if (window.__cvAutoSkipObserver) {
+                    window.__cvAutoSkipObserver.disconnect();
+                    window.__cvAutoSkipObserver = null;
+                  }
+                } catch (_) {}
+              }, 20000);
             }
             setTimeout(function () {
               try {
@@ -9629,7 +9646,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       playbackNotice = null;
       error = null;
       saveTimer?.cancel();
-      saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
+      saveTimer = Timer.periodic(const Duration(seconds: 20), (_) => _save());
       _trackPlaybackEvent('webview_windows_start');
       if (mounted) setState(() {});
       _scheduleControlsHide();
@@ -9711,7 +9728,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     error = null;
     // WebView không có controller native nên cần timer riêng để lưu "Xem tiếp".
     saveTimer?.cancel();
-    saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
+    saveTimer = Timer.periodic(const Duration(seconds: 20), (_) => _save());
     _trackPlaybackEvent('webview_start');
     if (mounted) setState(() {});
     if (isTvBuild) {
@@ -9832,7 +9849,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         currentServerIndex = candidate.source.serverIndex;
         recoveringPlayback = false;
         next.addListener(_handlePlayerTick);
-        saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
+        saveTimer = Timer.periodic(const Duration(seconds: 20), (_) => _save());
         _scheduleControlsHide();
         _trackPlaybackEvent('playback_start');
         playbackNotice = null;
@@ -9946,6 +9963,16 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _save() async {
+    if (savingProgress) return;
+    savingProgress = true;
+    try {
+      await _saveUnlocked();
+    } finally {
+      savingProgress = false;
+    }
+  }
+
+  Future<void> _saveUnlocked() async {
     final c = controller;
     if (c == null || !c.value.isInitialized) {
       // Nguồn WebView (NguồnC/StreamC) không có controller native -> đọc tiến độ
