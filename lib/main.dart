@@ -11173,6 +11173,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                             controlsTimer?.cancel();
                             if (mounted) setState(() => controls = false);
                           },
+                          onFocusPrimaryControl: () =>
+                              playButtonFocusNode.requestFocus(),
                           onPrevious: () => _playSibling(-1),
                           onNext: () => _playSibling(1),
                           onEpisodes: _showEpisodeSheet,
@@ -11681,6 +11683,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.onReplay,
     required this.onForward,
     required this.onHideControls,
+    required this.onFocusPrimaryControl,
     required this.onPrevious,
     required this.onNext,
     required this.onEpisodes,
@@ -11700,6 +11703,7 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onReplay;
   final VoidCallback onForward;
   final VoidCallback onHideControls;
+  final VoidCallback onFocusPrimaryControl;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onEpisodes;
@@ -11767,6 +11771,7 @@ class PlayerOverlay extends StatelessWidget {
                         onSeekBackward: onReplay,
                         onSeekForward: onForward,
                         onHideControls: onHideControls,
+                        onFocusPrimaryControl: onFocusPrimaryControl,
                       ),
                       const SizedBox(height: 12),
                       LayoutBuilder(
@@ -11874,12 +11879,14 @@ class PlayerSeekBar extends StatefulWidget {
     required this.onSeekBackward,
     required this.onSeekForward,
     required this.onHideControls,
+    required this.onFocusPrimaryControl,
   });
 
   final VideoPlayerController controller;
   final VoidCallback onSeekBackward;
   final VoidCallback onSeekForward;
   final VoidCallback onHideControls;
+  final VoidCallback onFocusPrimaryControl;
 
   @override
   State<PlayerSeekBar> createState() => _PlayerSeekBarState();
@@ -11909,6 +11916,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
           return KeyEventResult.handled;
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
+          widget.onFocusPrimaryControl();
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
