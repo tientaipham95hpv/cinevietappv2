@@ -8836,7 +8836,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     debugLabel: 'player-overlay-controls',
   );
   final playButtonFocusNode = FocusNode(debugLabel: 'player-play-toggle');
-  final webViewSelectFocusNode = FocusNode(debugLabel: 'streamc-select');
+  final webViewPlayFocusNode = FocusNode(debugLabel: 'streamc-play-toggle');
   late EpisodeServer currentServer;
   late EpisodeItem currentEpisode;
   late int currentServerIndex;
@@ -9304,7 +9304,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             function directPreferredAction() {
               var items = focusables();
               for (var i = 0; i < items.length; i += 1) {
-                if (/(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip|xem tiếp|xem tiep|continue|resume)/i.test(labelOf(items[i]))) {
+                if (/(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip quảng cáo|skip quang cao|skip|xem tiếp|xem tiep|continue|resume)/i.test(labelOf(items[i]))) {
                   return activate(items[i]);
                 }
               }
@@ -9438,9 +9438,20 @@ class _PlayerScreenState extends State<PlayerScreen>
                   } catch (_) {}
                 });
               } catch (_) {}
-              if (tries < 24) setTimeout(attempt, 500);
+              if (tries < 60) setTimeout(attempt, 500);
             }
             attempt();
+            if (!window.__cvAutoSkipObserver) {
+              try {
+                window.__cvAutoSkipObserver = new MutationObserver(function () { directPreferredAction(); });
+                window.__cvAutoSkipObserver.observe(document.documentElement || document.body, {
+                  childList: true,
+                  subtree: true,
+                  attributes: true,
+                  attributeFilter: ['style', 'class', 'aria-label', 'title']
+                });
+              } catch (_) {}
+            }
             setTimeout(function () {
               try {
                 var items = focusables();
@@ -9487,16 +9498,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       await _injectWebViewPlaybackAssist();
       return false;
     }
-  }
-
-  Future<void> _selectWebViewTvTarget() async {
-    final handled = await _sendWebViewTvRemoteKey('select');
-    if (!handled) {
-      // Nếu trang chưa dựng helper JS kịp, bơm lại rồi thử thêm một lần.
-      await _injectWebViewPlaybackAssist();
-      await _sendWebViewTvRemoteKey('select');
-    }
-    await _saveWebView();
   }
 
   Future<void> _runWebViewScript(String script) async {
@@ -9606,7 +9607,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       await _saveWebView();
     } else if (action == 'seek') {
       await _saveWebView();
-      if (mounted) _showControls();
     }
   }
 
@@ -10052,7 +10052,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         final primaryFocus = FocusManager.instance.primaryFocus;
         if (primaryFocus == null || primaryFocus == focusNode) {
           if (activeWebViewUrl != null) {
-            webViewSelectFocusNode.requestFocus();
+            webViewPlayFocusNode.requestFocus();
           } else {
             playButtonFocusNode.requestFocus();
           }
@@ -10114,7 +10114,6 @@ class _PlayerScreenState extends State<PlayerScreen>
   Future<void> _seekBy(Duration offset, {bool showControls = true}) async {
     if (activeWebViewUrl != null) {
       await _controlWebViewPlayback('seek', seconds: offset.inSeconds);
-      if (showControls) _showControls();
       return;
     }
     final c = controller;
@@ -10874,7 +10873,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     focusNode.dispose();
     overlayFocusScopeNode.dispose();
     playButtonFocusNode.dispose();
-    webViewSelectFocusNode.dispose();
+    webViewPlayFocusNode.dispose();
     watchChatController.dispose();
     controller?.removeListener(_handlePlayerTick);
     controller?.dispose();
@@ -10915,9 +10914,13 @@ class _PlayerScreenState extends State<PlayerScreen>
               return;
             }
             if (activeWebViewUrl != null && isTvBuild) {
+              final primaryFocus = FocusManager.instance.primaryFocus;
+              final playerHasPrimaryFocus =
+                  primaryFocus == null || primaryFocus == focusNode;
               if (key == LogicalKeyboardKey.select ||
                   key == LogicalKeyboardKey.enter) {
-                unawaited(_selectWebViewTvTarget());
+                if (controls && !playerHasPrimaryFocus) return;
+                _showControls();
                 return;
               }
               if (key == LogicalKeyboardKey.space ||
@@ -11204,16 +11207,8 @@ class _PlayerScreenState extends State<PlayerScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 FocusButton(
-                  focusNode: webViewSelectFocusNode,
+                  focusNode: webViewPlayFocusNode,
                   autofocus: true,
-                  onPressed: () => unawaited(_selectWebViewTvTarget()),
-                  child: const _WebViewTvControlTile(
-                    icon: Icons.ads_click_rounded,
-                    label: 'Chọn',
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FocusButton(
                   onPressed: _togglePlay,
                   child: const _WebViewTvControlTile(
                     icon: Icons.play_arrow_rounded,
