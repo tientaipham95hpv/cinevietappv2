@@ -7771,6 +7771,100 @@ class _DetailSectionTabButton extends StatelessWidget {
   }
 }
 
+Future<String?> showTvEpisodeSearchDialog(
+  BuildContext context,
+  String initialQuery,
+) {
+  final controller = TextEditingController(text: initialQuery);
+  return showDialog<String>(
+    context: context,
+    builder: (dialogContext) {
+      return AlertDialog(
+        backgroundColor: CvColors.panel,
+        title: const Text('Tìm tập'),
+        content: SizedBox(
+          width: 520,
+          child: TextField(
+            controller: controller,
+            autofocus: true,
+            textInputAction: TextInputAction.search,
+            keyboardType: TextInputType.text,
+            onSubmitted: (_) =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            decoration: InputDecoration(
+              hintText: 'Nhập số hoặc tên tập',
+              prefixIcon: const Icon(Icons.search_rounded),
+              suffixIcon: IconButton(
+                tooltip: 'Xóa tìm kiếm',
+                onPressed: () => controller.clear(),
+                icon: const Icon(Icons.close_rounded),
+              ),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(initialQuery),
+            child: const Text('Đóng'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(''),
+            child: const Text('Xóa'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(controller.text.trim()),
+            child: const Text('Áp dụng'),
+          ),
+        ],
+      );
+    },
+  ).whenComplete(controller.dispose);
+}
+
+Widget tvEpisodeSearchButton({
+  required String query,
+  required VoidCallback onPressed,
+}) {
+  final hasQuery = query.trim().isNotEmpty;
+  return FocusButton(
+    onPressed: onPressed,
+    selected: hasQuery,
+    child: Container(
+      constraints: const BoxConstraints(minHeight: 54),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: hasQuery ? .1 : .06),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: hasQuery
+              ? CvColors.accent.withValues(alpha: .62)
+              : CvColors.borderLight.withValues(alpha: .48),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.search_rounded, color: CvColors.muted),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              hasQuery ? 'Tìm: ${query.trim()}' : 'Tìm tập bằng số hoặc tên',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: hasQuery ? CvColors.text : CvColors.muted,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Icon(Icons.keyboard_return_rounded, color: CvColors.muted),
+        ],
+      ),
+    ),
+  );
+}
+
 class EpisodeSection extends StatefulWidget {
   const EpisodeSection({
     super.key,
@@ -7848,6 +7942,18 @@ class _EpisodeSectionState extends State<EpisodeSection> {
     final number = episodeNumber(episode.displayName);
     final value = number <= 1 ? index + 1 : number;
     return value >= start && value < start + 50;
+  }
+
+  Future<void> _openTvSearchDialog() async {
+    final next = await showTvEpisodeSearchDialog(
+      context,
+      searchController.text,
+    );
+    if (!mounted || next == null) return;
+    setState(() {
+      searchController.text = next;
+      if (next.trim().isNotEmpty) selectedRangeStart = null;
+    });
   }
 
   @override
@@ -7941,38 +8047,39 @@ class _EpisodeSectionState extends State<EpisodeSection> {
           ),
           if (server.items.length > 12) ...[
             const SizedBox(height: 14),
-            TextField(
-              controller: searchController,
-              canRequestFocus: !isTvBuild,
-              readOnly: isTvBuild,
-              enableInteractiveSelection: !isTvBuild,
-              onChanged: (_) => setState(() {}),
-              textInputAction: TextInputAction.search,
-              keyboardType: TextInputType.text,
-              decoration: InputDecoration(
-                hintText: isTvBuild
-                    ? 'Tìm tập bằng số hoặc tên'
-                    : 'Tìm tập, ví dụ: 120',
-                prefixIcon: const Icon(Icons.search_rounded),
-                suffixIcon: query.trim().isEmpty
-                    ? null
-                    : IconButton(
-                        tooltip: 'Xóa tìm kiếm',
-                        onPressed: () {
-                          searchController.clear();
-                          setState(() {});
-                        },
-                        icon: const Icon(Icons.close_rounded),
-                      ),
-                isDense: true,
-                filled: true,
-                fillColor: Colors.white.withValues(alpha: .06),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+            if (isTvBuild)
+              tvEpisodeSearchButton(
+                query: query,
+                onPressed: _openTvSearchDialog,
+              )
+            else
+              TextField(
+                controller: searchController,
+                onChanged: (_) => setState(() {}),
+                textInputAction: TextInputAction.search,
+                keyboardType: TextInputType.text,
+                decoration: InputDecoration(
+                  hintText: 'Tìm tập, ví dụ: 120',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: query.trim().isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'Xóa tìm kiếm',
+                          onPressed: () {
+                            searchController.clear();
+                            setState(() {});
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                  isDense: true,
+                  filled: true,
+                  fillColor: Colors.white.withValues(alpha: .06),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide.none,
+                  ),
                 ),
               ),
-            ),
           ],
           if (ranges.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -12148,6 +12255,18 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
     return value >= start && value < start + 50;
   }
 
+  Future<void> _openTvSearchDialog() async {
+    final next = await showTvEpisodeSearchDialog(
+      context,
+      searchController.text,
+    );
+    if (!mounted || next == null) return;
+    setState(() {
+      searchController.text = next;
+      if (next.trim().isNotEmpty) selectedRangeStart = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final servers = widget.movie.episodes;
@@ -12236,37 +12355,38 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                 ),
                 if (server.items.length > 12) ...[
                   const SizedBox(height: 12),
-                  TextField(
-                    controller: searchController,
-                    canRequestFocus: !isTvBuild,
-                    readOnly: isTvBuild,
-                    enableInteractiveSelection: !isTvBuild,
-                    onChanged: (_) => setState(() {}),
-                    textInputAction: TextInputAction.search,
-                    decoration: InputDecoration(
-                      hintText: isTvBuild
-                          ? 'Tìm tập bằng số hoặc tên'
-                          : 'Tìm tập, ví dụ: 120',
-                      prefixIcon: const Icon(Icons.search_rounded),
-                      suffixIcon: query.trim().isEmpty
-                          ? null
-                          : IconButton(
-                              tooltip: 'Xóa tìm kiếm',
-                              onPressed: () {
-                                searchController.clear();
-                                setState(() {});
-                              },
-                              icon: const Icon(Icons.close_rounded),
-                            ),
-                      isDense: true,
-                      filled: true,
-                      fillColor: Colors.white.withValues(alpha: .06),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide.none,
+                  if (isTvBuild)
+                    tvEpisodeSearchButton(
+                      query: query,
+                      onPressed: _openTvSearchDialog,
+                    )
+                  else
+                    TextField(
+                      controller: searchController,
+                      onChanged: (_) => setState(() {}),
+                      textInputAction: TextInputAction.search,
+                      decoration: InputDecoration(
+                        hintText: 'Tìm tập, ví dụ: 120',
+                        prefixIcon: const Icon(Icons.search_rounded),
+                        suffixIcon: query.trim().isEmpty
+                            ? null
+                            : IconButton(
+                                tooltip: 'Xóa tìm kiếm',
+                                onPressed: () {
+                                  searchController.clear();
+                                  setState(() {});
+                                },
+                                icon: const Icon(Icons.close_rounded),
+                              ),
+                        isDense: true,
+                        filled: true,
+                        fillColor: Colors.white.withValues(alpha: .06),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
+                        ),
                       ),
                     ),
-                  ),
                 ],
                 if (ranges.isNotEmpty) ...[
                   const SizedBox(height: 12),
