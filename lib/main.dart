@@ -8826,6 +8826,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     debugLabel: 'player-overlay-controls',
   );
   final playButtonFocusNode = FocusNode(debugLabel: 'player-play-toggle');
+  final seekBarFocusNode = FocusNode(debugLabel: 'player-seekbar');
   final webViewPlayFocusNode = FocusNode(debugLabel: 'streamc-play-toggle');
   late EpisodeServer currentServer;
   late EpisodeItem currentEpisode;
@@ -10896,6 +10897,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     focusNode.dispose();
     overlayFocusScopeNode.dispose();
     playButtonFocusNode.dispose();
+    seekBarFocusNode.dispose();
     webViewPlayFocusNode.dispose();
     watchChatController.dispose();
     controller?.removeListener(_handlePlayerTick);
@@ -11175,6 +11177,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                           },
                           onFocusPrimaryControl: () =>
                               playButtonFocusNode.requestFocus(),
+                          onFocusSeekBar: () => seekBarFocusNode.requestFocus(),
                           onPrevious: () => _playSibling(-1),
                           onNext: () => _playSibling(1),
                           onEpisodes: _showEpisodeSheet,
@@ -11182,6 +11185,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                           onFit: _cycleFitMode,
                           onBack: _exitPlayer,
                           playFocusNode: playButtonFocusNode,
+                          seekBarFocusNode: seekBarFocusNode,
                         ),
                       ),
                     ),
@@ -11684,12 +11688,14 @@ class PlayerOverlay extends StatelessWidget {
     required this.onForward,
     required this.onHideControls,
     required this.onFocusPrimaryControl,
+    required this.onFocusSeekBar,
     required this.onPrevious,
     required this.onNext,
     required this.onEpisodes,
     required this.onSettings,
     required this.onFit,
     this.playFocusNode,
+    this.seekBarFocusNode,
     this.onBack,
   });
   final VideoPlayerController? controller;
@@ -11704,12 +11710,14 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onForward;
   final VoidCallback onHideControls;
   final VoidCallback onFocusPrimaryControl;
+  final VoidCallback onFocusSeekBar;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onEpisodes;
   final VoidCallback onSettings;
   final VoidCallback onFit;
   final FocusNode? playFocusNode;
+  final FocusNode? seekBarFocusNode;
   final VoidCallback? onBack;
 
   @override
@@ -11771,6 +11779,7 @@ class PlayerOverlay extends StatelessWidget {
                         onSeekBackward: onReplay,
                         onSeekForward: onForward,
                         onHideControls: onHideControls,
+                        focusNode: seekBarFocusNode,
                         onFocusPrimaryControl: onFocusPrimaryControl,
                       ),
                       const SizedBox(height: 12),
@@ -11844,9 +11853,20 @@ class PlayerOverlay extends StatelessWidget {
                           return Row(
                             children: [
                               Expanded(
-                                child: SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: Row(children: visibleButtons),
+                                child: Focus(
+                                  onKeyEvent: (_, event) {
+                                    if (event is KeyDownEvent &&
+                                        event.logicalKey ==
+                                            LogicalKeyboardKey.arrowUp) {
+                                      onFocusSeekBar();
+                                      return KeyEventResult.handled;
+                                    }
+                                    return KeyEventResult.ignored;
+                                  },
+                                  child: SingleChildScrollView(
+                                    scrollDirection: Axis.horizontal,
+                                    child: Row(children: visibleButtons),
+                                  ),
                                 ),
                               ),
                               const SizedBox(width: 10),
@@ -11876,6 +11896,7 @@ class PlayerSeekBar extends StatefulWidget {
   const PlayerSeekBar({
     super.key,
     required this.controller,
+    this.focusNode,
     required this.onSeekBackward,
     required this.onSeekForward,
     required this.onHideControls,
@@ -11883,6 +11904,7 @@ class PlayerSeekBar extends StatefulWidget {
   });
 
   final VideoPlayerController controller;
+  final FocusNode? focusNode;
   final VoidCallback onSeekBackward;
   final VoidCallback onSeekForward;
   final VoidCallback onHideControls;
@@ -11898,6 +11920,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
   @override
   Widget build(BuildContext context) {
     return Focus(
+      focusNode: widget.focusNode,
       onFocusChange: (value) => setState(() => focused = value),
       onKeyEvent: (_, event) {
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
