@@ -8836,6 +8836,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     debugLabel: 'player-overlay-controls',
   );
   final playButtonFocusNode = FocusNode(debugLabel: 'player-play-toggle');
+  final webViewSelectFocusNode = FocusNode(debugLabel: 'streamc-select');
   late EpisodeServer currentServer;
   late EpisodeItem currentEpisode;
   late int currentServerIndex;
@@ -9187,9 +9188,15 @@ class _PlayerScreenState extends State<PlayerScreen>
                 '.skip-ad',
                 '.continue',
                 '.resume',
+                '.confirm',
+                '.close',
+                '.ok',
                 '.restart',
                 '.modal button',
                 '.dialog button',
+                '.swal2-confirm',
+                '.swal2-cancel',
+                '.swal-button',
                 '.jw-button-color',
                 '.jw-icon',
                 '.jw-display-icon-container',
@@ -9197,7 +9204,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                 '.plyr__control'
               ].join(',');
               var nodes = Array.prototype.slice.call(document.querySelectorAll(selector))
-                .filter(isVisible);
+                .filter(function (el) {
+                  if (!isVisible(el)) return false;
+                  var rect = el.getBoundingClientRect();
+                  return rect.left < window.innerWidth &&
+                    rect.right > 0 &&
+                    rect.top < window.innerHeight &&
+                    rect.bottom > 0;
+                });
               var seen = [];
               return nodes.filter(function (el) {
                 if (seen.indexOf(el) >= 0) return false;
@@ -9205,11 +9219,25 @@ class _PlayerScreenState extends State<PlayerScreen>
                 return true;
               });
             }
+            function centerScore(el) {
+              try {
+                var rect = el.getBoundingClientRect();
+                var cx = rect.left + rect.width / 2;
+                var cy = rect.top + rect.height / 2;
+                var dx = Math.abs(cx - window.innerWidth / 2) / Math.max(1, window.innerWidth);
+                var dy = Math.abs(cy - window.innerHeight / 2) / Math.max(1, window.innerHeight);
+                var area = Math.min(1, (rect.width * rect.height) / Math.max(1, window.innerWidth * window.innerHeight));
+                return (1 - dx) + (1 - dy) + area;
+              } catch (_) {
+                return 0;
+              }
+            }
             function preferredIndex(items) {
               var preferred = [
                 /(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip)/i,
                 /(xem tiếp|xem tiep|continue|resume)/i,
-                /(xem lại|xem lai|từ đầu|tu dau|restart)/i,
+                /(đồng ý|dong y|ok|okay|tiếp tục|tiep tuc|confirm|close)/i,
+                /(xem lại|xem lai|từ đầu|tu dau|restart|retry|thử lại|thu lai)/i,
                 /(phát|play|watch)/i
               ];
               for (var p = 0; p < preferred.length; p += 1) {
@@ -9217,7 +9245,17 @@ class _PlayerScreenState extends State<PlayerScreen>
                   if (preferred[p].test(labelOf(items[i]))) return i;
                 }
               }
-              return items.length ? 0 : -1;
+              if (!items.length) return -1;
+              var best = 0;
+              var bestScore = centerScore(items[0]);
+              for (var j = 1; j < items.length; j += 1) {
+                var score = centerScore(items[j]);
+                if (score > bestScore) {
+                  best = j;
+                  bestScore = score;
+                }
+              }
+              return best;
             }
             function setFocusIndex(index, items) {
               if (!items || !items.length) return false;
@@ -9266,7 +9304,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             function directPreferredAction() {
               var items = focusables();
               for (var i = 0; i < items.length; i += 1) {
-                if (/(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip)/i.test(labelOf(items[i]))) {
+                if (/(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip|xem tiếp|xem tiep|continue|resume)/i.test(labelOf(items[i]))) {
                   return activate(items[i]);
                 }
               }
@@ -9425,21 +9463,40 @@ class _PlayerScreenState extends State<PlayerScreen>
     } catch (_) {}
   }
 
-  Future<void> _sendWebViewTvRemoteKey(String action) async {
+  bool _webViewScriptResultAsBool(Object? raw) {
+    final text = raw?.toString().trim().toLowerCase() ?? '';
+    return text == 'true' || text == '"true"' || text == '1';
+  }
+
+  Future<bool> _sendWebViewTvRemoteKey(String action) async {
     final wc = webViewController;
     final wwc = windowsWebViewController;
-    if (wc == null && wwc == null) return;
+    if (wc == null && wwc == null) return false;
+    final safeAction = action.replaceAll(RegExp(r'[^a-z]'), '');
     final script =
-        "try { window.__cvTvRemote && window.__cvTvRemote('$action'); } catch (_) {}";
+        "(function () { try { return !!(window.__cvTvRemote && window.__cvTvRemote('$safeAction')); } catch (_) { return false; } })();";
     try {
       if (wc != null) {
-        await wc.runJavaScript(script);
+        return _webViewScriptResultAsBool(
+          await wc.runJavaScriptReturningResult(script),
+        );
       } else {
-        await wwc!.executeScript(script);
+        return _webViewScriptResultAsBool(await wwc!.executeScript(script));
       }
     } catch (_) {
       await _injectWebViewPlaybackAssist();
+      return false;
     }
+  }
+
+  Future<void> _selectWebViewTvTarget() async {
+    final handled = await _sendWebViewTvRemoteKey('select');
+    if (!handled) {
+      // Nếu trang chưa dựng helper JS kịp, bơm lại rồi thử thêm một lần.
+      await _injectWebViewPlaybackAssist();
+      await _sendWebViewTvRemoteKey('select');
+    }
+    await _saveWebView();
   }
 
   Future<void> _runWebViewScript(String script) async {
@@ -9661,6 +9718,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     saveTimer = Timer.periodic(const Duration(seconds: 8), (_) => _save());
     _trackPlaybackEvent('webview_start');
     if (mounted) setState(() {});
+    if (isTvBuild) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) focusNode.requestFocus();
+      });
+    }
     _scheduleControlsHide();
     unawaited(
       Future<void>.delayed(
@@ -9989,7 +10051,11 @@ class _PlayerScreenState extends State<PlayerScreen>
         if (!mounted || !controls || controlsLocked) return;
         final primaryFocus = FocusManager.instance.primaryFocus;
         if (primaryFocus == null || primaryFocus == focusNode) {
-          playButtonFocusNode.requestFocus();
+          if (activeWebViewUrl != null) {
+            webViewSelectFocusNode.requestFocus();
+          } else {
+            playButtonFocusNode.requestFocus();
+          }
         }
       });
     }
@@ -10385,14 +10451,55 @@ class _PlayerScreenState extends State<PlayerScreen>
     } catch (_) {}
   }
 
+  Future<void> _stopWebViewNow() async {
+    final wc = webViewController;
+    final wwc = windowsWebViewController;
+    if (wc == null && wwc == null) return;
+    const script = '''
+      (function () {
+        try {
+          document.querySelectorAll('video').forEach(function (v) {
+            try { v.pause(); } catch (_) {}
+            try { v.removeAttribute('src'); } catch (_) {}
+            try { v.load(); } catch (_) {}
+          });
+        } catch (_) {}
+      })();
+    ''';
+    try {
+      if (wc != null) {
+        await wc
+            .runJavaScript(script)
+            .timeout(const Duration(milliseconds: 700));
+        // Tránh load about:blank trên Android TV: một số WebView/Chromium
+        // vendor crash khi thoát khỏi embed đang giữ fullscreen/media session.
+        await wc
+            .runJavaScript('document.body.innerHTML = \"\";')
+            .timeout(const Duration(milliseconds: 700));
+      } else {
+        await wwc!
+            .executeScript(script)
+            .timeout(const Duration(milliseconds: 700));
+        await wwc
+            .loadUrl('about:blank')
+            .timeout(const Duration(milliseconds: 700));
+        await wwc.dispose().timeout(const Duration(milliseconds: 700));
+        windowsWebViewController = null;
+      }
+    } catch (_) {}
+    webViewController = null;
+    activeWebViewUrl = null;
+  }
+
   Future<void> _exitPlayer() async {
     if (leavingPlayer) return;
     leavingPlayer = true;
-    _stopPlaybackNow();
-    if (mounted) setState(() {});
     try {
       await _save().timeout(const Duration(seconds: 2));
     } catch (_) {}
+    _stopPlaybackNow();
+    await _stopWebViewNow();
+    if (mounted) setState(() {});
     if (isWatchTogether) {
       try {
         await _closeWatchRoomIfNeeded().timeout(const Duration(seconds: 2));
@@ -10753,6 +10860,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   @override
   void dispose() {
     _stopPlaybackNow();
+    unawaited(_stopWebViewNow());
     _save();
     controlsTimer?.cancel();
     levelApplyTimer?.cancel();
@@ -10766,6 +10874,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     focusNode.dispose();
     overlayFocusScopeNode.dispose();
     playButtonFocusNode.dispose();
+    webViewSelectFocusNode.dispose();
     watchChatController.dispose();
     controller?.removeListener(_handlePlayerTick);
     controller?.dispose();
@@ -10788,8 +10897,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
-        _stopPlaybackNow();
-        unawaited(_save());
         unawaited(_exitPlayer());
       },
       child: Scaffold(
@@ -10804,13 +10911,16 @@ class _PlayerScreenState extends State<PlayerScreen>
             if (key == LogicalKeyboardKey.escape ||
                 key == LogicalKeyboardKey.goBack ||
                 key == LogicalKeyboardKey.browserBack) {
-              _exitPlayer();
+              unawaited(_exitPlayer());
               return;
             }
             if (activeWebViewUrl != null && isTvBuild) {
               if (key == LogicalKeyboardKey.select ||
-                  key == LogicalKeyboardKey.enter ||
-                  key == LogicalKeyboardKey.space ||
+                  key == LogicalKeyboardKey.enter) {
+                unawaited(_selectWebViewTvTarget());
+                return;
+              }
+              if (key == LogicalKeyboardKey.space ||
                   key == LogicalKeyboardKey.mediaPlayPause ||
                   key == LogicalKeyboardKey.mediaPlay ||
                   key == LogicalKeyboardKey.keyK) {
@@ -10961,7 +11071,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                     windows_webview.Webview(windowsWebViewController!)
                   else if (activeWebViewUrl != null &&
                       webViewController != null)
-                    WebViewWidget(controller: webViewController!)
+                    Focus(
+                      canRequestFocus: false,
+                      descendantsAreFocusable: false,
+                      child: WebViewWidget(controller: webViewController!),
+                    )
                   else if (c == null || !c.value.isInitialized)
                     const Center(
                       child: CircularProgressIndicator(color: CvColors.accent),
@@ -11029,6 +11143,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                         ),
                       ),
                     ),
+                  if (activeWebViewUrl != null &&
+                      isTvBuild &&
+                      controls &&
+                      !controlsLocked)
+                    _buildWebViewTvControls(),
                   if (supportsTouchLevels && controls && !controlsLocked)
                     _buildLockButton(locked: false),
                   if (supportsTouchLevels && controlsLocked)
@@ -11064,6 +11183,82 @@ class _PlayerScreenState extends State<PlayerScreen>
       ),
     );
   }
+
+  Widget _buildWebViewTvControls() => Positioned(
+    left: 20,
+    right: 20,
+    bottom: 22,
+    child: SafeArea(
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .72),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.white.withValues(alpha: .12)),
+          ),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.all(10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                FocusButton(
+                  focusNode: webViewSelectFocusNode,
+                  autofocus: true,
+                  onPressed: () => unawaited(_selectWebViewTvTarget()),
+                  child: const _WebViewTvControlTile(
+                    icon: Icons.ads_click_rounded,
+                    label: 'Chọn',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FocusButton(
+                  onPressed: _togglePlay,
+                  child: const _WebViewTvControlTile(
+                    icon: Icons.play_arrow_rounded,
+                    label: 'Play/Pause',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FocusButton(
+                  onPressed: () => _seekBy(const Duration(seconds: -10)),
+                  child: const _WebViewTvControlTile(
+                    icon: Icons.replay_10_rounded,
+                    label: 'Lùi',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FocusButton(
+                  onPressed: () => _seekBy(const Duration(seconds: 10)),
+                  child: const _WebViewTvControlTile(
+                    icon: Icons.forward_10_rounded,
+                    label: 'Tới',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FocusButton(
+                  onPressed: _showEpisodeSheet,
+                  child: const _WebViewTvControlTile(
+                    icon: Icons.video_library_rounded,
+                    label: 'Tập',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FocusButton(
+                  onPressed: () => unawaited(_exitPlayer()),
+                  child: const _WebViewTvControlTile(
+                    icon: Icons.arrow_back_rounded,
+                    label: 'Thoát',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 
   Widget _buildWatchTogetherChatPanel() {
     final width = MediaQuery.sizeOf(context).width;
@@ -11145,6 +11340,45 @@ class IntroSkipButton extends StatelessWidget {
           style: TextStyle(fontWeight: FontWeight.w900),
         ),
       ),
+    ),
+  );
+}
+
+class _WebViewTvControlTile extends StatelessWidget {
+  const _WebViewTvControlTile({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    constraints: const BoxConstraints(minWidth: 96, minHeight: 54),
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    decoration: BoxDecoration(
+      color: Colors.white.withValues(alpha: .08),
+      borderRadius: BorderRadius.circular(8),
+      border: Border.all(color: Colors.white.withValues(alpha: .12)),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 22, color: CvColors.accent),
+        const SizedBox(width: 8),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textScaler: TextScaler.noScaling,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              fontSize: 15,
+            ),
+          ),
+        ),
+      ],
     ),
   );
 }
