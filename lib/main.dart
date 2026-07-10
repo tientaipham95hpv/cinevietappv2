@@ -7943,6 +7943,9 @@ class _EpisodeSectionState extends State<EpisodeSection> {
             const SizedBox(height: 14),
             TextField(
               controller: searchController,
+              canRequestFocus: !isTvBuild,
+              readOnly: isTvBuild,
+              enableInteractiveSelection: !isTvBuild,
               onChanged: (_) => setState(() {}),
               textInputAction: TextInputAction.search,
               keyboardType: TextInputType.text,
@@ -9332,6 +9335,117 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  Future<void> _runWebViewScript(String script) async {
+    final wc = webViewController;
+    final wwc = windowsWebViewController;
+    if (wc == null && wwc == null) return;
+    try {
+      if (wc != null) {
+        await wc.runJavaScript(script);
+      } else {
+        await wwc!.executeScript(script);
+      }
+    } catch (_) {
+      await _injectWebViewPlaybackAssist();
+    }
+  }
+
+  Future<void> _controlWebViewPlayback(String action, {int seconds = 0}) async {
+    final safeAction = action.replaceAll(RegExp(r'[^a-z_]'), '');
+    final safeSeconds = seconds.clamp(-600, 600).toInt();
+    await _runWebViewScript('''
+      (function () {
+        try {
+          function videos(root) {
+            var result = [];
+            try {
+              result = result.concat(Array.prototype.slice.call(root.querySelectorAll('video')));
+            } catch (_) {}
+            try {
+              Array.prototype.slice.call(root.querySelectorAll('iframe')).forEach(function (frame) {
+                try {
+                  var doc = frame.contentDocument || frame.contentWindow.document;
+                  if (doc) result = result.concat(videos(doc));
+                } catch (_) {}
+              });
+            } catch (_) {}
+            return result;
+          }
+          function firstVideo() {
+            var list = videos(document).filter(function (v) {
+              try { return isFinite(v.duration) || !v.paused || v.readyState > 0; } catch (_) { return false; }
+            });
+            return list[0] || null;
+          }
+          function clickPlaybackButton() {
+            var selectors = [
+              '.jw-icon-playback',
+              '.jw-display-icon-container',
+              '.jwplayer .jw-display-icon-display',
+              '.vjs-play-control',
+              '.vjs-big-play-button',
+              '.plyr__control[data-plyr="play"]',
+              'button[aria-label*="Play"]',
+              'button[aria-label*="Pause"]',
+              'button[title*="Play"]',
+              'button[title*="Pause"]'
+            ];
+            for (var i = 0; i < selectors.length; i += 1) {
+              var items = Array.prototype.slice.call(document.querySelectorAll(selectors[i]));
+              for (var j = 0; j < items.length; j += 1) {
+                try {
+                  var rect = items[j].getBoundingClientRect();
+                  if (rect.width > 2 && rect.height > 2) {
+                    items[j].click();
+                    return true;
+                  }
+                } catch (_) {}
+              }
+            }
+            return false;
+          }
+          var action = '$safeAction';
+          var v = firstVideo();
+          if (action === 'toggle') {
+            if (v) {
+              if (v.paused) { try { v.play(); } catch (_) {} }
+              else { try { v.pause(); } catch (_) {} }
+              return true;
+            }
+            return clickPlaybackButton();
+          }
+          if (action === 'seek') {
+            if (v && isFinite(v.duration) && v.duration > 0) {
+              var next = Math.max(0, Math.min(v.duration, (v.currentTime || 0) + $safeSeconds));
+              v.currentTime = next;
+              return true;
+            }
+            try {
+              var key = $safeSeconds >= 0 ? 'ArrowRight' : 'ArrowLeft';
+              ['keydown','keypress','keyup'].forEach(function (type) {
+                document.dispatchEvent(new KeyboardEvent(type, {
+                  key: key,
+                  code: key,
+                  keyCode: key === 'ArrowRight' ? 39 : 37,
+                  which: key === 'ArrowRight' ? 39 : 37,
+                  bubbles: true,
+                  cancelable: true
+                }));
+              });
+            } catch (_) {}
+          }
+        } catch (_) {}
+        return false;
+      })();
+    ''');
+    if (action == 'toggle') {
+      await _saveWebView();
+    } else if (action == 'seek') {
+      await _saveWebView();
+      if (mounted) _showControls();
+    }
+  }
+
   Future<void> _openWebViewSource(PlaybackSourceCandidate source) async {
     final url = source.webViewUrl;
     if (url == null || url.isEmpty) return;
@@ -9825,6 +9939,11 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _seekBy(Duration offset, {bool showControls = true}) async {
+    if (activeWebViewUrl != null) {
+      await _controlWebViewPlayback('seek', seconds: offset.inSeconds);
+      if (showControls) _showControls();
+      return;
+    }
     final c = controller;
     if (c == null || !c.value.isInitialized) return;
     await c.seekTo(_clampPosition(c.value.position + offset, c.value.duration));
@@ -10031,6 +10150,11 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   void _togglePlay() {
+    if (activeWebViewUrl != null) {
+      unawaited(_controlWebViewPlayback('toggle'));
+      _showControls();
+      return;
+    }
     final c = controller;
     if (c == null || !c.value.isInitialized) return;
     c.value.isPlaying ? c.pause() : c.play();
@@ -10577,18 +10701,31 @@ class _PlayerScreenState extends State<PlayerScreen>
               return;
             }
             if (activeWebViewUrl != null && isTvBuild) {
-              final webViewAction = key == LogicalKeyboardKey.arrowRight
-                  ? 'right'
-                  : key == LogicalKeyboardKey.arrowLeft
-                  ? 'left'
-                  : key == LogicalKeyboardKey.arrowUp
+              if (key == LogicalKeyboardKey.select ||
+                  key == LogicalKeyboardKey.enter ||
+                  key == LogicalKeyboardKey.space ||
+                  key == LogicalKeyboardKey.mediaPlayPause ||
+                  key == LogicalKeyboardKey.mediaPlay ||
+                  key == LogicalKeyboardKey.keyK) {
+                _togglePlay();
+                return;
+              }
+              if (key == LogicalKeyboardKey.arrowRight ||
+                  key == LogicalKeyboardKey.mediaFastForward ||
+                  key == LogicalKeyboardKey.keyL) {
+                _seekBy(const Duration(seconds: 10));
+                return;
+              }
+              if (key == LogicalKeyboardKey.arrowLeft ||
+                  key == LogicalKeyboardKey.mediaRewind ||
+                  key == LogicalKeyboardKey.keyJ) {
+                _seekBy(const Duration(seconds: -10));
+                return;
+              }
+              final webViewAction = key == LogicalKeyboardKey.arrowUp
                   ? 'up'
                   : key == LogicalKeyboardKey.arrowDown
                   ? 'down'
-                  : key == LogicalKeyboardKey.select ||
-                        key == LogicalKeyboardKey.enter ||
-                        key == LogicalKeyboardKey.space
-                  ? 'select'
                   : null;
               if (webViewAction != null) {
                 if (controls && !controlsLocked) {
@@ -10596,12 +10733,6 @@ class _PlayerScreenState extends State<PlayerScreen>
                   setState(() => controls = false);
                 }
                 unawaited(_sendWebViewTvRemoteKey(webViewAction));
-                return;
-              }
-              if (key == LogicalKeyboardKey.mediaPlayPause ||
-                  key == LogicalKeyboardKey.mediaPlay ||
-                  key == LogicalKeyboardKey.keyK) {
-                unawaited(_injectWebViewPlaybackAssist());
                 return;
               }
             }
@@ -12107,6 +12238,9 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: searchController,
+                    canRequestFocus: !isTvBuild,
+                    readOnly: isTvBuild,
+                    enableInteractiveSelection: !isTvBuild,
                     onChanged: (_) => setState(() {}),
                     textInputAction: TextInputAction.search,
                     decoration: InputDecoration(
