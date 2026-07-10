@@ -10474,7 +10474,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         // Tránh load about:blank trên Android TV: một số WebView/Chromium
         // vendor crash khi thoát khỏi embed đang giữ fullscreen/media session.
         await wc
-            .runJavaScript('document.body.innerHTML = \"\";')
+            .runJavaScript('document.body.innerHTML = "";')
             .timeout(const Duration(milliseconds: 700));
       } else {
         await wwc!
