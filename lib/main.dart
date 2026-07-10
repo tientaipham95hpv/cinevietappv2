@@ -10989,6 +10989,16 @@ class _PlayerScreenState extends State<PlayerScreen>
                 key == LogicalKeyboardKey.arrowUp ||
                 key == LogicalKeyboardKey.arrowDown;
             if (isTvBuild && !playerHasPrimaryFocus && directionalKey) {
+              if (key == LogicalKeyboardKey.arrowUp) {
+                if (controls && !controlsLocked) {
+                  controlsTimer?.cancel();
+                  setState(() => controls = false);
+                } else {
+                  _showControls();
+                }
+                return;
+              }
+              if (key == LogicalKeyboardKey.arrowDown) return;
               _showControls();
               return;
             }
@@ -11159,6 +11169,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                           onPlayPause: _togglePlay,
                           onReplay: () => _seekBy(const Duration(seconds: -10)),
                           onForward: () => _seekBy(const Duration(seconds: 10)),
+                          onHideControls: () {
+                            controlsTimer?.cancel();
+                            if (mounted) setState(() => controls = false);
+                          },
                           onPrevious: () => _playSibling(-1),
                           onNext: () => _playSibling(1),
                           onEpisodes: _showEpisodeSheet,
@@ -11666,6 +11680,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.onPlayPause,
     required this.onReplay,
     required this.onForward,
+    required this.onHideControls,
     required this.onPrevious,
     required this.onNext,
     required this.onEpisodes,
@@ -11684,6 +11699,7 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onPlayPause;
   final VoidCallback onReplay;
   final VoidCallback onForward;
+  final VoidCallback onHideControls;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onEpisodes;
@@ -11750,6 +11766,7 @@ class PlayerOverlay extends StatelessWidget {
                         controller: c,
                         onSeekBackward: onReplay,
                         onSeekForward: onForward,
+                        onHideControls: onHideControls,
                       ),
                       const SizedBox(height: 12),
                       LayoutBuilder(
@@ -11856,11 +11873,13 @@ class PlayerSeekBar extends StatefulWidget {
     required this.controller,
     required this.onSeekBackward,
     required this.onSeekForward,
+    required this.onHideControls,
   });
 
   final VideoPlayerController controller;
   final VoidCallback onSeekBackward;
   final VoidCallback onSeekForward;
+  final VoidCallback onHideControls;
 
   @override
   State<PlayerSeekBar> createState() => _PlayerSeekBarState();
@@ -11883,6 +11902,13 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
         if (event.logicalKey == LogicalKeyboardKey.arrowRight ||
             event.logicalKey == LogicalKeyboardKey.mediaFastForward) {
           widget.onSeekForward();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+          widget.onHideControls();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
           return KeyEventResult.handled;
         }
         return KeyEventResult.ignored;
