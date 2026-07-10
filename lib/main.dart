@@ -7549,11 +7549,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                         CollapsibleMovieDescription(
                           description: movie.description,
                           expanded: descriptionExpanded,
-                          collapsedLines: isTvBuild
-                              ? 6
-                              : detailWidth < 600
-                              ? 4
-                              : 5,
+                          collapsedLines: 2,
                           onToggle: () => setState(
                             () => descriptionExpanded = !descriptionExpanded,
                           ),
@@ -7904,7 +7900,8 @@ class _EpisodeSectionState extends State<EpisodeSection> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.serverIndex != widget.serverIndex ||
         oldWidget.servers != widget.servers) {
-      selectedRangeStart = null;
+      final safeIndex = widget.serverIndex.clamp(0, widget.servers.length - 1);
+      selectedRangeStart = _initialRangeStart(widget.servers[safeIndex].items);
       searchController.clear();
     }
   }
@@ -7914,6 +7911,9 @@ class _EpisodeSectionState extends State<EpisodeSection> {
     searchController.dispose();
     super.dispose();
   }
+
+  int? _initialRangeStart(List<EpisodeItem> episodes) =>
+      episodes.length > 50 ? 1 : null;
 
   List<int> _rangeStarts(List<EpisodeItem> episodes) {
     if (episodes.length <= 50) return const [];
@@ -7936,8 +7936,8 @@ class _EpisodeSectionState extends State<EpisodeSection> {
         'tập $number'.contains(value);
   }
 
-  bool _matchesRange(EpisodeItem episode, int index) {
-    final start = selectedRangeStart;
+  bool _matchesRange(EpisodeItem episode, int index, {int? rangeStart}) {
+    final start = rangeStart;
     if (start == null) return true;
     final number = episodeNumber(episode.displayName);
     final value = number <= 1 ? index + 1 : number;
@@ -7964,11 +7964,19 @@ class _EpisodeSectionState extends State<EpisodeSection> {
     );
     final server = widget.servers[selectedIndex];
     final ranges = _rangeStarts(server.items);
+    selectedRangeStart ??= _initialRangeStart(server.items);
     final query = searchController.text;
+    final effectiveRangeStart = query.trim().isEmpty
+        ? selectedRangeStart
+        : null;
     final visibleEntries = server.items.indexed
         .where(
           (entry) =>
-              _matchesRange(entry.$2, entry.$1) &&
+              _matchesRange(
+                entry.$2,
+                entry.$1,
+                rangeStart: effectiveRangeStart,
+              ) &&
               _matchesQuery(entry.$2, query),
         )
         .toList();
@@ -8087,24 +8095,6 @@ class _EpisodeSectionState extends State<EpisodeSection> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: useLeanbackControls
-                        ? TvFilterChip(
-                            label: 'Tất cả',
-                            icon: Icons.grid_view_rounded,
-                            selected: selectedRangeStart == null,
-                            onPressed: () =>
-                                setState(() => selectedRangeStart = null),
-                          )
-                        : ChoiceChip(
-                            label: const Text('Tất cả'),
-                            selected: selectedRangeStart == null,
-                            showCheckmark: false,
-                            onSelected: (_) =>
-                                setState(() => selectedRangeStart = null),
-                          ),
-                  ),
                   for (final start in ranges)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
@@ -9418,7 +9408,10 @@ class _PlayerScreenState extends State<PlayerScreen>
               try {
                 document.querySelectorAll('video').forEach(setupVideo);
                 directPreferredAction();
-                if (!window.__cvClickedInitialPlay) {
+                var hasActiveVideo = Array.prototype.slice.call(document.querySelectorAll('video')).some(function (v) {
+                  try { return !v.paused || v.readyState > 1; } catch (_) { return false; }
+                });
+                if (!window.__cvClickedInitialPlay && !hasActiveVideo) {
                   window.__cvClickedInitialPlay = clickPlayControls(document);
                 }
                 document.querySelectorAll('iframe').forEach(function (frame) {
@@ -9426,7 +9419,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                     var doc = frame.contentDocument || frame.contentWindow.document;
                     if (doc) {
                       doc.querySelectorAll('video').forEach(setupVideo);
-                      if (!window.__cvClickedInitialPlay) {
+                      var frameHasActiveVideo = Array.prototype.slice.call(doc.querySelectorAll('video')).some(function (v) {
+                        try { return !v.paused || v.readyState > 1; } catch (_) { return false; }
+                      });
+                      if (!window.__cvClickedInitialPlay && !frameHasActiveVideo) {
                         window.__cvClickedInitialPlay = clickPlayControls(doc);
                       }
                     }
@@ -9438,7 +9434,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   } catch (_) {}
                 });
               } catch (_) {}
-              if (tries < 60) setTimeout(attempt, 500);
+              if (tries < 12) setTimeout(attempt, 500);
             }
             attempt();
             if (!window.__cvAutoSkipObserver) {
@@ -11229,6 +11225,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                   child: const _WebViewTvControlTile(
                     icon: Icons.forward_10_rounded,
                     label: 'Tới',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FocusButton(
+                  onPressed: () => _playSibling(1),
+                  child: const _WebViewTvControlTile(
+                    icon: Icons.skip_next_rounded,
+                    label: 'Tập kế',
                   ),
                 ),
                 const SizedBox(width: 8),
