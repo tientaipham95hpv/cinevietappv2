@@ -8954,19 +8954,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     return _isInitialEpisodeForResume() ? resume : null;
   }
 
-  bool _shouldForceStreamProxy(String url) {
-    final parsed = Uri.tryParse(url);
-    final host = parsed?.host.toLowerCase() ?? '';
-    final path = parsed?.path.toLowerCase() ?? '';
-    final text = url.toLowerCase();
-    return path.contains('.m3u8') &&
-        (host.contains('phim1280') ||
-            host.contains('phimapi') ||
-            host.contains('kkphim') ||
-            text.contains('[phimapi]') ||
-            text.contains('[kkphim]'));
-  }
-
   List<String> _playableUrls(String raw) {
     final urls = <String>[];
 
@@ -8998,15 +8985,13 @@ class _PlayerScreenState extends State<PlayerScreen>
         ? decodedNested
         : '';
 
-    // Prefer the backend stream proxy for HLS so KKPhim/PhimAPI ad segments are
+    // Prefer the backend stream proxy for HLS so KKPhim ad segments are
     // stripped server-side before the native player receives the manifest.
-    final forceProxy =
-        directM3u8.isNotEmpty && _shouldForceStreamProxy(directM3u8);
     if (directM3u8.isNotEmpty && !directM3u8.contains('/api/stream')) {
       add('$apiBase/stream?url=${Uri.encodeComponent(directM3u8)}');
     }
-    if (!forceProxy && rawLooksPlayable && !rawIsKnownEmbedOnly) add(raw);
-    if (!forceProxy && decodedNested.isNotEmpty) add(decodedNested);
+    if (rawLooksPlayable && !rawIsKnownEmbedOnly) add(raw);
+    if (decodedNested.isNotEmpty) add(decodedNested);
 
     return urls;
   }
