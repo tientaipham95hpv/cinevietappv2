@@ -11168,7 +11168,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                         ),
                       ),
                     ),
-                  if (usesWindowsBrightnessOverlay && screenBrightness < .99)
+                  if (activeWebViewUrl == null &&
+                      usesWindowsBrightnessOverlay &&
+                      screenBrightness < .99)
                     IgnorePointer(
                       child: ColoredBox(
                         color: Colors.black.withValues(
@@ -11948,6 +11950,7 @@ class PlayerSeekBar extends StatefulWidget {
 
 class _PlayerSeekBarState extends State<PlayerSeekBar> {
   bool focused = false;
+  double? dragValueMs;
 
   @override
   Widget build(BuildContext context) {
@@ -12006,6 +12009,10 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
               durationMs > 0 ? durationMs : 1,
             );
             final max = durationMs > 0 ? durationMs.toDouble() : 1.0;
+            final sliderValue = (dragValueMs ?? positionMs.toDouble()).clamp(
+              0.0,
+              max,
+            );
             return SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: focused && isTvBuild ? 7 : 4,
@@ -12017,12 +12024,16 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                 overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
               ),
               child: Slider(
-                value: positionMs.toDouble(),
+                value: sliderValue,
                 min: 0,
                 max: max,
                 onChanged: durationMs <= 0
                     ? null
+                    : (nextMs) => setState(() => dragValueMs = nextMs),
+                onChangeEnd: durationMs <= 0
+                    ? null
                     : (nextMs) {
+                        setState(() => dragValueMs = null);
                         widget.controller.seekTo(
                           Duration(milliseconds: nextMs.round()),
                         );
