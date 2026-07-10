@@ -2414,20 +2414,32 @@ class _AppShellState extends State<AppShell> {
       final forceUpdate =
           remote['forceUpdate'] == true || remote['forced'] == true;
       final url = cleanText(remote['url'] ?? remote['downloadUrl']);
-      if (!updateAvailable || !forceUpdate || url.isEmpty) return;
+      if (!updateAvailable || url.isEmpty) return;
       await showDialog<void>(
         context: context,
-        barrierDismissible: false,
+        barrierDismissible: !forceUpdate,
         builder: (context) => AlertDialog(
-          title: const Text('Cần cập nhật ứng dụng'),
-          content: const Text(
-            'Phiên bản hiện tại đã cũ. Vui lòng cập nhật để tiếp tục sử dụng CineViet.',
+          title: Text(
+            forceUpdate ? 'Cần cập nhật ứng dụng' : 'Có bản cập nhật mới',
+          ),
+          content: Text(
+            forceUpdate
+                ? 'Phiên bản hiện tại đã cũ. Vui lòng cập nhật để tiếp tục sử dụng CineViet.'
+                : 'Đã có phiên bản CineViet mới. Bạn có thể cập nhật trực tiếp trong app.',
           ),
           actions: [
-            FilledButton.icon(
-              onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const UpdateInfoScreen()),
+            if (!forceUpdate)
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Để sau'),
               ),
+            FilledButton.icon(
+              onPressed: () {
+                Navigator.of(context).pop();
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const UpdateInfoScreen()),
+                );
+              },
               icon: const Icon(Icons.system_update_alt_rounded),
               label: const Text('Cập nhật'),
             ),
@@ -6004,8 +6016,17 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
     return {'local': info, 'remote': res.data, 'platform': platform};
   }
 
+  static String _absoluteDownloadUrl(String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty) return trimmed;
+    final uri = Uri.tryParse(trimmed);
+    if (uri != null && uri.hasScheme) return trimmed;
+    return Uri.parse(siteBase).resolve(trimmed).toString();
+  }
+
   Future<void> _downloadAndInstall(String url) async {
     if (downloading) return;
+    final downloadUrl = _absoluteDownloadUrl(url);
     setState(() {
       downloading = true;
       progress = 0;
@@ -6017,7 +6038,7 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
         final file = File('${dir.path}/cineviet-update.apk');
         if (await file.exists()) await file.delete();
         await Dio().download(
-          url,
+          downloadUrl,
           file.path,
           onReceiveProgress: (received, total) {
             if (!mounted || total <= 0) return;
@@ -6033,7 +6054,7 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
         final file = File('${dir.path}\\cineviet-update-setup.exe');
         if (await file.exists()) await file.delete();
         await Dio().download(
-          url,
+          downloadUrl,
           file.path,
           onReceiveProgress: (received, total) {
             if (!mounted || total <= 0) return;
@@ -6047,14 +6068,20 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
           mode: ProcessStartMode.detached,
         );
       } else {
-        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        await launchUrl(
+          Uri.parse(downloadUrl),
+          mode: LaunchMode.externalApplication,
+        );
       }
     } catch (e) {
       if (!mounted) return;
       setState(
         () => statusMessage = 'Không cài được tự động. Đang mở link tải...',
       );
-      await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      await launchUrl(
+        Uri.parse(downloadUrl),
+        mode: LaunchMode.externalApplication,
+      );
     } finally {
       if (mounted) setState(() => downloading = false);
     }
@@ -6166,7 +6193,7 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
                               )
                             : const Icon(Icons.download_rounded),
                         label: Text(
-                          downloading ? 'Đang tải...' : 'Tải bản mới',
+                          downloading ? 'Đang tải...' : 'Cập nhật trong app',
                         ),
                       ),
                       if (statusMessage != null) ...[
@@ -11162,6 +11189,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                           episode:
                               '${currentServer.displayName} • ${currentEpisode.displayName}',
                           sourceLabel: _activeSourceLabel,
+                          dimBackground: activeWebViewUrl == null,
                           fitLabel: fitMode.label,
                           canPrevious: _currentEpisodeIndex > 0,
                           canNext:
@@ -11680,6 +11708,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.title,
     required this.episode,
     required this.sourceLabel,
+    this.dimBackground = true,
     required this.fitLabel,
     required this.canPrevious,
     required this.canNext,
@@ -11702,6 +11731,7 @@ class PlayerOverlay extends StatelessWidget {
   final String title;
   final String episode;
   final String sourceLabel;
+  final bool dimBackground;
   final String fitLabel;
   final bool canPrevious;
   final bool canNext;
@@ -11725,15 +11755,17 @@ class PlayerOverlay extends StatelessWidget {
     final c = controller;
     return DecoratedBox(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [
-            Colors.black.withValues(alpha: .72),
-            Colors.transparent,
-            Colors.black.withValues(alpha: .82),
-          ],
-        ),
+        gradient: dimBackground
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  Colors.black.withValues(alpha: .72),
+                  Colors.transparent,
+                  Colors.black.withValues(alpha: .82),
+                ],
+              )
+            : null,
       ),
       child: SafeArea(
         child: Padding(
