@@ -1047,6 +1047,33 @@ class PlaybackUrlCandidate {
   final String url;
 }
 
+class ServerCheckResult {
+  const ServerCheckResult({
+    required this.serverIndex,
+    required this.label,
+    required this.ok,
+    required this.status,
+    required this.responseMs,
+  });
+
+  final int serverIndex;
+  final String label;
+  final bool ok;
+  final int status;
+  final int responseMs;
+
+  factory ServerCheckResult.fromJson(Map<String, dynamic> json) =>
+      ServerCheckResult(
+        serverIndex: asInt(json['serverIndex']) ?? -1,
+        label: cleanText(json['label']).isEmpty
+            ? 'Lỗi'
+            : cleanText(json['label']),
+        ok: json['ok'] == true,
+        status: asInt(json['status']) ?? 0,
+        responseMs: asInt(json['responseMs']) ?? 0,
+      );
+}
+
 class WatchItem {
   const WatchItem({
     required this.movieId,
@@ -1671,6 +1698,21 @@ class MovieRepository {
         },
       );
     } catch (_) {}
+  }
+
+  Future<({Map<int, ServerCheckResult> results, int? bestServerIndex})>
+  checkServers(List<Map<String, dynamic>> sources) async {
+    final res = await api.dio.post('/server-check', data: {'sources': sources});
+    final data = Map<String, dynamic>.from(res.data as Map);
+    final rows = ((data['results'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => ServerCheckResult.fromJson(Map<String, dynamic>.from(e)))
+        .where((e) => e.serverIndex >= 0)
+        .toList();
+    return (
+      results: {for (final row in rows) row.serverIndex: row},
+      bestServerIndex: asInt(data['bestServerIndex']),
+    );
   }
 
   Future<void> reportWatch({
@@ -10877,6 +10919,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       showDragHandle: true,
       isScrollControlled: true,
       builder: (_) => PlayerEpisodeSheet(
+        repo: widget.repo,
         movie: widget.movie,
         currentServer: currentServer,
         currentEpisode: currentEpisode,
@@ -12620,12 +12663,14 @@ class _FittedVideo extends StatelessWidget {
 class PlayerEpisodeSheet extends StatefulWidget {
   const PlayerEpisodeSheet({
     super.key,
+    required this.repo,
     required this.movie,
     required this.currentServer,
     required this.currentEpisode,
     required this.onSelect,
   });
 
+  final MovieRepository repo;
   final Movie movie;
   final EpisodeServer currentServer;
   final EpisodeItem currentEpisode;
@@ -12639,6 +12684,8 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
   late int serverIndex;
   final searchController = TextEditingController();
   int? selectedRangeStart;
+  bool checkingServers = false;
+  Map<int, ServerCheckResult> serverHealth = const {};
 
   @override
   void initState() {
@@ -12658,6 +12705,62 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
       episode.name == widget.currentEpisode.name &&
       episode.linkM3u8 == widget.currentEpisode.linkM3u8 &&
       episode.linkEmbed == widget.currentEpisode.linkEmbed;
+
+  EpisodeItem _checkEpisodeFor(EpisodeServer server) {
+    final targetNumber = episodeNumber(widget.currentEpisode.displayName);
+    final byNumber = server.items.where(
+      (episode) => episodeNumber(episode.displayName) == targetNumber,
+    );
+    if (byNumber.isNotEmpty) return byNumber.first;
+    return server.items.isNotEmpty ? server.items.first : widget.currentEpisode;
+  }
+
+  Future<void> _checkServers({bool autoSelect = false}) async {
+    final sources = <Map<String, dynamic>>[];
+    for (var i = 0; i < widget.movie.episodes.length; i++) {
+      final episode = _checkEpisodeFor(widget.movie.episodes[i]);
+      if (episode.playUrl.isEmpty) continue;
+      sources.add({
+        'id': '$i:${episode.playUrl}',
+        'serverIndex': i,
+        'label': widget.movie.episodes[i].displayName,
+        'url': episode.linkM3u8,
+        'embedUrl': episode.linkEmbed,
+      });
+    }
+    if (sources.isEmpty) return;
+    setState(() => checkingServers = true);
+    try {
+      final result = await widget.repo.checkServers(sources);
+      if (!mounted) return;
+      setState(() {
+        serverHealth = result.results;
+        if (autoSelect &&
+            result.bestServerIndex != null &&
+            result.bestServerIndex! >= 0 &&
+            result.bestServerIndex! < widget.movie.episodes.length) {
+          serverIndex = result.bestServerIndex!;
+          selectedRangeStart = null;
+          searchController.clear();
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không kiểm tra được server lúc này')),
+      );
+    } finally {
+      if (mounted) setState(() => checkingServers = false);
+    }
+  }
+
+  String _serverChipLabel(int index) {
+    final base = widget.movie.episodes[index].displayName;
+    final health = serverHealth[index];
+    if (health == null) return base;
+    final ms = health.responseMs > 0 ? ' ${health.responseMs}ms' : '';
+    return '$base • ${health.label}$ms';
+  }
 
   List<int> _rangeStarts(List<EpisodeItem> episodes) {
     if (episodes.length <= 50) return const [];
@@ -12755,6 +12858,26 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                Row(
+                  children: [
+                    FilledButton.icon(
+                      onPressed: checkingServers
+                          ? null
+                          : () => _checkServers(autoSelect: true),
+                      icon: checkingServers
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.refresh_rounded),
+                      label: Text(
+                        checkingServers ? 'Đang kiểm tra' : 'Kiểm tra server',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
                 SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -12764,7 +12887,7 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                           padding: const EdgeInsets.only(right: 8),
                           child: useLeanbackControls
                               ? TvFilterChip(
-                                  label: servers[i].displayName,
+                                  label: _serverChipLabel(i),
                                   selected: i == serverIndex,
                                   onPressed: () => setState(() {
                                     serverIndex = i;
@@ -12773,7 +12896,7 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                                   }),
                                 )
                               : ChoiceChip(
-                                  label: Text(servers[i].displayName),
+                                  label: Text(_serverChipLabel(i)),
                                   selected: i == serverIndex,
                                   showCheckmark: false,
                                   onSelected: (_) => setState(() {
