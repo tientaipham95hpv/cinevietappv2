@@ -91,6 +91,7 @@ flutter:
 
   assets:
     - assets/branding/cineviet-icon.png
+    - assets/branding/cineviet-sidebar-logo.jpg
 
   fonts:
     - family: Plus Jakarta Sans

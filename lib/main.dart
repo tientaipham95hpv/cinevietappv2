@@ -2520,8 +2520,8 @@ class RailNav extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 18),
         child: Column(
           children: [
-            const CineLogo(size: 48),
-            const SizedBox(height: 22),
+            const SidebarLogo(),
+            const SizedBox(height: 18),
             Expanded(
               child: ListView.builder(
                 padding: EdgeInsets.zero,
@@ -13684,6 +13684,26 @@ class CineLogo extends StatelessWidget {
     errorBuilder: (_, _, _) =>
         Icon(Icons.movie_filter_rounded, size: size, color: CvColors.accent),
   );
+}
+
+class SidebarLogo extends StatelessWidget {
+  const SidebarLogo({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final width = isTvBuild ? 88.0 : 76.0;
+    final height = isTvBuild ? 88.0 : 76.0;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(10),
+      child: Image.asset(
+        'assets/branding/cineviet-sidebar-logo.jpg',
+        width: width,
+        height: height,
+        fit: BoxFit.contain,
+        errorBuilder: (_, _, _) => const CineLogo(size: 48),
+      ),
+    );
+  }
 }
 
 class CineWordmark extends StatelessWidget {
