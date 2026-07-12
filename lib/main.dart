@@ -9057,27 +9057,73 @@ class _PlayerScreenState extends State<PlayerScreen>
     return 600;
   }
 
+  bool _isSameEpisode(EpisodeItem a, EpisodeItem b) {
+    final an = episodeNumber(a.displayName);
+    final bn = episodeNumber(b.displayName);
+    if (an == bn && an > 1) return true;
+    if (a.name.trim().toLowerCase() == b.name.trim().toLowerCase()) return true;
+    return an == bn &&
+        (a.displayName.toLowerCase().contains('full') ||
+            b.displayName.toLowerCase().contains('full'));
+  }
+
+  EpisodeItem? _matchingEpisodeInServer(EpisodeServer server) {
+    final exact = server.items.where(
+      (item) =>
+          item.name == currentEpisode.name ||
+          item.linkM3u8 == currentEpisode.linkM3u8 ||
+          item.linkEmbed == currentEpisode.linkEmbed,
+    );
+    if (exact.isNotEmpty) return exact.first;
+    final byNumber = server.items.where(
+      (item) => _isSameEpisode(item, currentEpisode),
+    );
+    if (byNumber.isNotEmpty) return byNumber.first;
+    return null;
+  }
+
+  void _addPlaybackSource(
+    List<PlaybackSourceCandidate> sources, {
+    required EpisodeServer server,
+    required EpisodeItem episode,
+    required int serverIndex,
+  }) {
+    final urls = _playableUrls(episode.playUrl);
+    final webViewUrl = _webViewFallbackUrl(episode);
+    if (urls.isEmpty && webViewUrl == null) return;
+    final quality = _qualityLabelFor(server, episode);
+    sources.add(
+      PlaybackSourceCandidate(
+        server: server,
+        episode: episode,
+        serverIndex: serverIndex,
+        qualityLabel: quality,
+        qualityRank: _qualityRank(quality),
+        sourceLabel: server.displayName,
+        urls: urls,
+        webViewUrl: webViewUrl,
+      ),
+    );
+  }
+
   List<PlaybackSourceCandidate> _currentPlaybackSources() {
     final sources = <PlaybackSourceCandidate>[];
-    // Chỉ phát nằng server đang chọn. Phim chỉ có 1 nguồn (kkphim),
-    // các server vẫn phát bình thường nên không tự nhảy sang server
-    // ngôn ngữ khác. Fallback chỉ xảy ra giữa các URL của cùng một tập
-    // (link trực tiếp → link qua proxy) khi link server đó bị chết.
-    final urls = _playableUrls(currentEpisode.playUrl);
-    final webViewUrl = _webViewFallbackUrl(currentEpisode);
-    if (urls.isNotEmpty || webViewUrl != null) {
-      final quality = _qualityLabelFor(currentServer, currentEpisode);
-      sources.add(
-        PlaybackSourceCandidate(
-          server: currentServer,
-          episode: currentEpisode,
-          serverIndex: currentServerIndex,
-          qualityLabel: quality,
-          qualityRank: _qualityRank(quality),
-          sourceLabel: currentServer.displayName,
-          urls: urls,
-          webViewUrl: webViewUrl,
-        ),
+    _addPlaybackSource(
+      sources,
+      server: currentServer,
+      episode: currentEpisode,
+      serverIndex: currentServerIndex,
+    );
+    for (var i = 0; i < widget.movie.episodes.length; i++) {
+      if (i == currentServerIndex) continue;
+      final server = widget.movie.episodes[i];
+      final episode = _matchingEpisodeInServer(server);
+      if (episode == null) continue;
+      _addPlaybackSource(
+        sources,
+        server: server,
+        episode: episode,
+        serverIndex: i,
       );
     }
     return sources;
@@ -9910,6 +9956,33 @@ class _PlayerScreenState extends State<PlayerScreen>
         await controller?.dispose();
         controller = null;
       }
+    }
+    final webViewSource = _currentPlaybackSources().firstWhere(
+      (source) => source.webViewUrl != null,
+      orElse: () => const PlaybackSourceCandidate(
+        server: EpisodeServer(name: '', items: []),
+        episode: EpisodeItem(
+          name: '',
+          filename: '',
+          linkM3u8: '',
+          linkEmbed: '',
+        ),
+        serverIndex: -1,
+        qualityLabel: '',
+        qualityRank: 0,
+        sourceLabel: '',
+        urls: [],
+      ),
+    );
+    if (webViewSource.serverIndex >= 0 && webViewSource.webViewUrl != null) {
+      _trackPlaybackEvent(
+        'auto_recover_source',
+        errorCode: 'webview_fallback',
+        errorMessage:
+            'Native sources failed; opening ${webViewSource.displayName}',
+      );
+      await _openWebViewSource(webViewSource);
+      return;
     }
     debugPrint('CineViet player error: $lastError');
     _trackPlaybackEvent(
