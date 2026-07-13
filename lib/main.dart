@@ -2502,6 +2502,10 @@ class _AppShellState extends State<AppShell> {
     ];
     if (index >= destinations.length) index = destinations.length - 1;
     final wide = MediaQuery.sizeOf(context).width >= 900 || isTvBuild;
+    final body = IndexedStack(
+      index: index,
+      children: [for (final item in destinations) item.screen],
+    );
     return Scaffold(
       body: Row(
         children: [
@@ -2511,7 +2515,7 @@ class _AppShellState extends State<AppShell> {
               items: destinations,
               onChanged: (value) => setTab(value, destinations),
             ),
-          Expanded(child: destinations[index].screen),
+          Expanded(child: body),
         ],
       ),
       bottomNavigationBar: wide
@@ -9787,7 +9791,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               for (var d = 0; d < docs.length; d += 1) {
                 var items = focusables(docs[d]);
                 for (var i = 0; i < items.length; i += 1) {
-                  if (/(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip quảng cáo|skip quang cao|skip|xem tiếp|xem tiep|continue|resume|close ad|đóng quảng cáo|dong quang cao|tắt quảng cáo|tat quang cao|skip intro|skip video|skip now)/i.test(labelOf(items[i]))) {
+                  if (/(bỏ qua quảng cáo|bo qua quang cao|skip[-_ ]?ad|skip[-_ ]?ads|skip quảng cáo|skip quang cao|close[-_ ]?ad|đóng quảng cáo|dong quang cao|tắt quảng cáo|tat quang cao)/i.test(labelOf(items[i]))) {
                     return activate(items[i]);
                   }
                 }
@@ -10019,7 +10023,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           if (window.__cvDirectPreferredAction && window.__cvDirectPreferredAction()) {
             return true;
           }
-          var labels = /(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip quảng cáo|skip quang cao|skip|xem tiếp|xem tiep|continue|resume|close ad|đóng quảng cáo|dong quang cao|tắt quảng cáo|tat quang cao)/i;
+          var labels = /(bỏ qua quảng cáo|bo qua quang cao|skip[-_ ]?ad|skip[-_ ]?ads|skip quảng cáo|skip quang cao|close[-_ ]?ad|đóng quảng cáo|dong quang cao|tắt quảng cáo|tat quang cao)/i;
           var selector = [
             'button', 'a[href]', '[role="button"]', '[onclick]', '[tabindex]',
             '[class*="skip" i]', '[id*="skip" i]', '[data-skip]',
