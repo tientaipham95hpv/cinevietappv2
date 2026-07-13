@@ -1,6 +1,7 @@
 import java.io.FileInputStream
 import java.util.Properties
 import com.android.build.gradle.internal.api.ApkVariantOutputImpl
+import org.gradle.api.GradleException
 
 plugins {
     id("com.android.application")
@@ -35,6 +36,9 @@ val hasReleaseSigning = listOf(
     releaseKeyAlias,
     releaseKeyPassword,
 ).all { !it.isNullOrBlank() }
+val requestedReleaseBuild = gradle.startParameter.taskNames.any {
+    it.contains("release", ignoreCase = true) || it.equals("assemble", ignoreCase = true)
+}
 
 android {
     namespace = "live.cineviet.cineviet_app"
@@ -80,11 +84,17 @@ android {
 
     buildTypes {
         release {
-            signingConfig = if (hasReleaseSigning) {
-                signingConfigs.getByName("release")
+            if (!hasReleaseSigning) {
+                if (requestedReleaseBuild) {
+                    throw GradleException(
+                        "Release signing is not configured. Set key.properties, CM_* signing variables, " +
+                            "or ANDROID_* signing variables before building a release APK."
+                    )
+                }
+                logger.warn("Release signing is not configured; release tasks will fail unless signing is configured.")
+                signingConfig = signingConfigs.getByName("debug")
             } else {
-                logger.warn("Release signing is not configured; falling back to debug signing for this build.")
-                signingConfigs.getByName("debug")
+                signingConfig = signingConfigs.getByName("release")
             }
         }
     }

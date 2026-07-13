@@ -2,6 +2,9 @@ package live.cineviet.cineviet_app
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
+import android.content.pm.Signature
 import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
@@ -51,8 +54,29 @@ class MainActivity : FlutterActivity() {
                     if (path.isNullOrBlank()) {
                         result.error("missing_path", "APK path is required", null)
                     } else {
-                        installApk(path)
-                        result.success(null)
+                        try {
+                            validateApkForUpdate(path)
+                            installApk(path)
+                            result.success(null)
+                        } catch (e: IllegalStateException) {
+                            result.error(e.message ?: "invalid_apk", updateErrorMessage(e.message), null)
+                        } catch (e: Exception) {
+                            result.error("install_failed", e.localizedMessage ?: "Cannot open installer", null)
+                        }
+                    }
+                }
+                "inspectApk" -> {
+                    val path = call.argument<String>("path")
+                    if (path.isNullOrBlank()) {
+                        result.error("missing_path", "APK path is required", null)
+                    } else {
+                        try {
+                            result.success(inspectApk(path))
+                        } catch (e: IllegalStateException) {
+                            result.error(e.message ?: "invalid_apk", updateErrorMessage(e.message), null)
+                        } catch (e: Exception) {
+                            result.error("inspect_failed", e.localizedMessage ?: "Cannot inspect APK", null)
+                        }
                     }
                 }
                 else -> result.notImplemented()
@@ -102,12 +126,111 @@ class MainActivity : FlutterActivity() {
     private fun installApk(path: String) {
         val apk = File(path)
         val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
-        val intent = Intent(Intent.ACTION_VIEW).apply {
+        val intent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
         }
         startActivity(intent)
+    }
+
+    private fun inspectApk(path: String): Map<String, Any?> {
+        val archiveInfo = archivePackageInfo(path)
+        val installedInfo = installedPackageInfo()
+        val archiveSignatures = apkSignatures(archiveInfo)
+        val installedSignatures = apkSignatures(installedInfo)
+        val samePackage = archiveInfo.packageName == packageName
+        val sameSignature = archiveSignatures.isNotEmpty() &&
+            installedSignatures.isNotEmpty() &&
+            archiveSignatures == installedSignatures
+        val versionCode = packageVersionCode(archiveInfo)
+
+        return mapOf(
+            "packageName" to archiveInfo.packageName,
+            "currentPackageName" to packageName,
+            "versionName" to archiveInfo.versionName,
+            "versionCode" to versionCode,
+            "samePackage" to samePackage,
+            "sameSignature" to sameSignature,
+            "canUpdateCurrentApp" to (samePackage && sameSignature),
+        )
+    }
+
+    private fun validateApkForUpdate(path: String) {
+        val info = inspectApk(path)
+        if (info["samePackage"] != true) {
+            throw IllegalStateException("package_mismatch")
+        }
+        if (info["sameSignature"] != true) {
+            throw IllegalStateException("signature_mismatch")
+        }
+    }
+
+    private fun archivePackageInfo(path: String): PackageInfo {
+        val apk = File(path)
+        if (!apk.exists() || apk.length() <= 0L) {
+            throw IllegalStateException("empty_apk")
+        }
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            PackageManager.GET_SIGNING_CERTIFICATES
+        } else {
+            @Suppress("DEPRECATION")
+            PackageManager.GET_SIGNATURES
+        }
+        @Suppress("DEPRECATION")
+        val info = packageManager.getPackageArchiveInfo(apk.absolutePath, flags)
+            ?: throw IllegalStateException("invalid_apk")
+        return info
+    }
+
+    private fun installedPackageInfo(): PackageInfo {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(PackageManager.GET_SIGNING_CERTIFICATES.toLong()))
+        } else {
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                PackageManager.GET_SIGNING_CERTIFICATES
+            } else {
+                @Suppress("DEPRECATION")
+                PackageManager.GET_SIGNATURES
+            }
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(packageName, flags)
+        }
+    }
+
+    private fun apkSignatures(info: PackageInfo): Set<String> {
+        val signatures: Array<Signature> = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val signingInfo = info.signingInfo ?: return emptySet()
+            if (signingInfo.hasMultipleSigners()) {
+                signingInfo.apkContentsSigners
+            } else {
+                signingInfo.signingCertificateHistory
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures ?: emptyArray()
+        }
+        return signatures.map { it.toCharsString() }.toSet()
+    }
+
+    private fun packageVersionCode(info: PackageInfo): Long {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.longVersionCode
+        } else {
+            @Suppress("DEPRECATION")
+            info.versionCode.toLong()
+        }
+    }
+
+    private fun updateErrorMessage(code: String?): String {
+        return when (code) {
+            "empty_apk" -> "File cập nhật tải về bị rỗng."
+            "invalid_apk" -> "File cập nhật không phải APK hợp lệ."
+            "package_mismatch" -> "APK tải về không cùng gói ứng dụng với CineViet đang cài."
+            "signature_mismatch" -> "APK tải về khác chữ ký với CineViet đang cài. Cần build lại bằng đúng release keystore."
+            else -> "Không thể kiểm tra file cập nhật."
+        }
     }
 
     private fun currentBrightness(): Double {

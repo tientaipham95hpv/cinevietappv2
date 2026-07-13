@@ -6113,6 +6113,9 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
   late final Future<Map<String, dynamic>> future = loadUpdateInfo();
   bool downloading = false;
   double progress = 0;
+  int receivedBytes = 0;
+  int totalBytes = 0;
+  double downloadSpeedBytes = 0;
   String? statusMessage;
 
   static Future<Map<String, dynamic>> loadUpdateInfo() async {
@@ -6149,6 +6152,9 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
     setState(() {
       downloading = true;
       progress = 0;
+      receivedBytes = 0;
+      totalBytes = 0;
+      downloadSpeedBytes = 0;
       statusMessage = 'Đang tải bản mới...';
     });
     try {
@@ -6156,14 +6162,43 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
         final dir = await getTemporaryDirectory();
         final file = File('${dir.path}/cineviet-update.apk');
         if (await file.exists()) await file.delete();
+        final startedAt = Stopwatch()..start();
         await Dio().download(
           downloadUrl,
           file.path,
           onReceiveProgress: (received, total) {
-            if (!mounted || total <= 0) return;
-            setState(() => progress = received / total);
+            if (!mounted) return;
+            final elapsed = math.max(startedAt.elapsedMilliseconds, 1);
+            setState(() {
+              receivedBytes = received;
+              totalBytes = total > 0 ? total : totalBytes;
+              progress = total > 0 ? received / total : 0;
+              downloadSpeedBytes = received * 1000 / elapsed;
+              statusMessage = total > 0
+                  ? 'Đang tải ${_formatPercent(progress)}'
+                  : 'Đang tải ${_formatBytes(received)}';
+            });
           },
         );
+        setState(() {
+          progress = 1;
+          receivedBytes = math.max(receivedBytes, file.lengthSync());
+          totalBytes = math.max(totalBytes, receivedBytes);
+          statusMessage = 'Đang kiểm tra file cập nhật...';
+        });
+        final apkInfo = await _installerChannel
+            .invokeMapMethod<String, dynamic>('inspectApk', {
+              'path': file.path,
+            });
+        if (apkInfo?['canUpdateCurrentApp'] != true) {
+          final samePackage = apkInfo?['samePackage'] == true;
+          throw PlatformException(
+            code: samePackage ? 'signature_mismatch' : 'package_mismatch',
+            message: samePackage
+                ? 'APK tải về khác chữ ký với bản đang cài. Hãy build lại bằng đúng release keystore.'
+                : 'APK tải về không đúng gói ứng dụng CineViet đang cài.',
+          );
+        }
         setState(() => statusMessage = 'Đã tải xong, đang mở trình cài đặt...');
         await _installerChannel.invokeMethod('installApk', {'path': file.path});
       } else if (!kIsWeb &&
@@ -6172,14 +6207,29 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
         final dir = await getTemporaryDirectory();
         final file = File('${dir.path}\\cineviet-update-setup.exe');
         if (await file.exists()) await file.delete();
+        final startedAt = Stopwatch()..start();
         await Dio().download(
           downloadUrl,
           file.path,
           onReceiveProgress: (received, total) {
-            if (!mounted || total <= 0) return;
-            setState(() => progress = received / total);
+            if (!mounted) return;
+            final elapsed = math.max(startedAt.elapsedMilliseconds, 1);
+            setState(() {
+              receivedBytes = received;
+              totalBytes = total > 0 ? total : totalBytes;
+              progress = total > 0 ? received / total : 0;
+              downloadSpeedBytes = received * 1000 / elapsed;
+              statusMessage = total > 0
+                  ? 'Đang tải ${_formatPercent(progress)}'
+                  : 'Đang tải ${_formatBytes(received)}';
+            });
           },
         );
+        setState(() {
+          progress = 1;
+          receivedBytes = math.max(receivedBytes, file.lengthSync());
+          totalBytes = math.max(totalBytes, receivedBytes);
+        });
         setState(() => statusMessage = 'Đã tải xong, đang mở trình cài đặt...');
         await Process.start(
           file.path,
@@ -6194,16 +6244,61 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      setState(
-        () => statusMessage = 'Không cài được tự động. Đang mở link tải...',
-      );
-      await launchUrl(
-        Uri.parse(downloadUrl),
-        mode: LaunchMode.externalApplication,
-      );
+      final message = _installErrorMessage(e);
+      setState(() => statusMessage = message);
+      if (!_isBlockingInstallError(e)) {
+        await launchUrl(
+          Uri.parse(downloadUrl),
+          mode: LaunchMode.externalApplication,
+        );
+      }
     } finally {
       if (mounted) setState(() => downloading = false);
     }
+  }
+
+  static bool _isBlockingInstallError(Object error) {
+    return error is PlatformException &&
+        (error.code == 'signature_mismatch' ||
+            error.code == 'package_mismatch' ||
+            error.code == 'invalid_apk' ||
+            error.code == 'empty_apk');
+  }
+
+  static String _installErrorMessage(Object error) {
+    if (error is PlatformException) {
+      switch (error.code) {
+        case 'signature_mismatch':
+          return 'Không thể cài đè: APK khác chữ ký với bản đang cài. Cần build lại bằng đúng release keystore.';
+        case 'package_mismatch':
+          return 'Không thể cài đè: APK tải về không đúng gói ứng dụng CineViet đang cài.';
+        case 'invalid_apk':
+          return 'File cập nhật không phải APK hợp lệ. Vui lòng tải lại sau.';
+        case 'empty_apk':
+          return 'File cập nhật tải về bị rỗng. Vui lòng tải lại sau.';
+      }
+      final message = cleanText(error.message);
+      if (message.isNotEmpty) return message;
+    }
+    return 'Không cài được tự động. Đang mở link tải...';
+  }
+
+  static String _formatPercent(double value) {
+    return '${(value.clamp(0, 1) * 100).toStringAsFixed(0)}%';
+  }
+
+  static String _formatBytes(num bytes) {
+    final value = bytes.toDouble();
+    if (value >= 1024 * 1024 * 1024) {
+      return '${(value / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    if (value >= 1024 * 1024) {
+      return '${(value / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
+    if (value >= 1024) {
+      return '${(value / 1024).toStringAsFixed(1)} KB';
+    }
+    return '${value.toStringAsFixed(0)} B';
   }
 
   @override
@@ -6319,14 +6414,22 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
                         const SizedBox(height: 12),
                         Text(
                           statusMessage!,
-                          style: const TextStyle(color: CvColors.muted),
+                          style: TextStyle(
+                            color: _isBlockingStatus(statusMessage!)
+                                ? CvColors.danger
+                                : CvColors.muted,
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ],
-                      if (downloading && progress > 0) ...[
-                        const SizedBox(height: 8),
-                        LinearProgressIndicator(
-                          value: progress.clamp(0, 1),
-                          color: CvColors.accent,
+                      if (downloading || receivedBytes > 0) ...[
+                        const SizedBox(height: 12),
+                        _UpdateProgressCard(
+                          progress: progress,
+                          receivedBytes: receivedBytes,
+                          totalBytes: totalBytes,
+                          speedBytes: downloadSpeedBytes,
+                          active: downloading,
                         ),
                       ],
                     ],
@@ -6336,6 +6439,103 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
             ],
           );
         },
+      ),
+    );
+  }
+
+  static bool _isBlockingStatus(String value) {
+    return value.startsWith('Không thể cài đè') ||
+        value.startsWith('File cập nhật');
+  }
+}
+
+class _UpdateProgressCard extends StatelessWidget {
+  const _UpdateProgressCard({
+    required this.progress,
+    required this.receivedBytes,
+    required this.totalBytes,
+    required this.speedBytes,
+    required this.active,
+  });
+
+  final double progress;
+  final int receivedBytes;
+  final int totalBytes;
+  final double speedBytes;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasTotal = totalBytes > 0;
+    final safeProgress = progress.clamp(0, 1).toDouble();
+    final percent = hasTotal
+        ? _UpdateInfoScreenState._formatPercent(safeProgress)
+        : 'Đang tải';
+    final downloaded = _UpdateInfoScreenState._formatBytes(receivedBytes);
+    final total = hasTotal
+        ? _UpdateInfoScreenState._formatBytes(totalBytes)
+        : '';
+    final speed = speedBytes > 0
+        ? '${_UpdateInfoScreenState._formatBytes(speedBytes)}/s'
+        : '';
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: CvColors.ink,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: CvColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                active
+                    ? Icons.downloading_rounded
+                    : Icons.download_done_rounded,
+                color: CvColors.accent,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  percent,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              Text(
+                hasTotal ? '$downloaded / $total' : downloaded,
+                style: const TextStyle(
+                  color: CvColors.muted,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          LinearProgressIndicator(
+            minHeight: 8,
+            value: hasTotal ? safeProgress : null,
+            color: CvColors.accent,
+            backgroundColor: CvColors.panel2,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          if (speed.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Tốc độ $speed',
+              style: const TextStyle(
+                color: CvColors.muted,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

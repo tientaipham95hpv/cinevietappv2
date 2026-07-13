@@ -64,11 +64,8 @@ workflows:
             echo "Android signing: ANDROID_* signing variables found."
           fi
           if [ "${HAS_SIGNING}" != "true" ]; then
-            echo "Android signing: not configured; Gradle will fall back to debug signing."
-            if [ "${REQUIRE_ANDROID_SIGNING:-false}" = "true" ]; then
-              echo "REQUIRE_ANDROID_SIGNING=true, failing build because signing secrets are missing."
-              exit 1
-            fi
+            echo "Android signing: not configured; release APKs must not be signed with debug keys."
+            exit 1
           fi
       - name: Build mobile/tablet universal APK
         script: |
