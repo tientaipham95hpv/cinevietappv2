@@ -10333,6 +10333,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             unawaited(_injectWebViewPlaybackAssist());
           },
           onWebResourceError: (error) {
+            if (error.isForMainFrame == false) return;
             lastPlaybackError = '${error.errorCode}: ${error.description}';
             _trackPlaybackEvent(
               'webview_error',
