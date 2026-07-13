@@ -9881,7 +9881,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     target.__cvAutoSkipObserver.disconnect();
                     target.__cvAutoSkipObserver = null;
                   } catch (_) {}
-                }, 45000);
+                }, 70000);
               } catch (_) {}
             }
             function setupVideo(v) {
@@ -9957,7 +9957,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   } catch (_) {}
                 });
               } catch (_) {}
-              if (tries < 18) setTimeout(attempt, 500);
+              if (tries < 30) setTimeout(attempt, 500);
             }
             attempt();
             documents().forEach(installSkipObserver);
@@ -10084,11 +10084,10 @@ class _PlayerScreenState extends State<PlayerScreen>
       })();
     ''';
     try {
-      final raw = wc != null
-          ? await wc.runJavaScriptReturningResult(script)
-          : await wwc!.executeScript(script);
-      if (!_webViewScriptResultAsBool(raw)) {
-        await _injectWebViewPlaybackAssist();
+      if (wc != null) {
+        await wc.runJavaScriptReturningResult(script);
+      } else {
+        await wwc!.executeScript(script);
       }
     } catch (_) {
       await _injectWebViewPlaybackAssist();
@@ -10239,7 +10238,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           await _skipWebViewAd(showControls: false);
         }),
       );
-      for (final delay in const [3, 6, 10]) {
+      for (final delay in const [2, 4, 6, 9, 12, 16, 22, 30, 45, 60]) {
         unawaited(
           Future<void>.delayed(
             Duration(seconds: delay),
@@ -10334,7 +10333,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         await _skipWebViewAd(showControls: false);
       }),
     );
-    for (final delay in const [3, 6, 10]) {
+    for (final delay in const [2, 4, 6, 9, 12, 16, 22, 30, 45, 60]) {
       unawaited(
         Future<void>.delayed(
           Duration(seconds: delay),
@@ -11906,14 +11905,6 @@ class _PlayerScreenState extends State<PlayerScreen>
                   child: const _WebViewTvControlTile(
                     icon: Icons.play_arrow_rounded,
                     label: 'Play/Pause',
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FocusButton(
-                  onPressed: () => unawaited(_skipWebViewAd()),
-                  child: const _WebViewTvControlTile(
-                    icon: Icons.fast_forward_rounded,
-                    label: 'Bỏ QC',
                   ),
                 ),
                 const SizedBox(width: 8),
