@@ -9940,18 +9940,24 @@ class _PlayerScreenState extends State<PlayerScreen>
                   if (isFinite(v.duration) && v.duration > 0) { doSeek(); }
                   else { v.addEventListener('loadedmetadata', doSeek, { once: true }); }
                 }
-                var playPromise = v.play && v.play();
-                if (playPromise && playPromise.catch) {
-                  playPromise.catch(function () {});
+                if (v.paused && !v.dataset.cvPlayAttempted) {
+                  v.dataset.cvPlayAttempted = '1';
+                  var playPromise = v.play && v.play();
+                  if (playPromise && playPromise.catch) {
+                    playPromise.catch(function () {});
+                  }
                 }
               } catch (_) {}
             }
             function clickPlayControls(root) {
+              if (window.__cvInitialPlayTried) return false;
               var clicked = false;
               selectors.some(function (selector) {
                 try {
                   return Array.prototype.slice.call(root.querySelectorAll(selector)).some(function (el) {
                     if (!isVisible(el)) return false;
+                    if (/(pause|tạm dừng|tam dung)/i.test(labelOf(el))) return false;
+                    window.__cvInitialPlayTried = true;
                     try { el.click(); } catch (_) {}
                     clicked = true;
                     return true;
