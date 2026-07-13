@@ -9616,6 +9616,27 @@ class _PlayerScreenState extends State<PlayerScreen>
               } catch (_) {}
               return docs;
             }
+            function queryAllDeep(root, selector) {
+              var result = [];
+              function walk(node) {
+                if (!node) return;
+                try {
+                  if (node.querySelectorAll) {
+                    result = result.concat(Array.prototype.slice.call(node.querySelectorAll(selector)));
+                  }
+                } catch (_) {}
+                try {
+                  var all = node.querySelectorAll ? Array.prototype.slice.call(node.querySelectorAll('*')) : [];
+                  all.forEach(function (el) {
+                    try {
+                      if (el.shadowRoot) walk(el.shadowRoot);
+                    } catch (_) {}
+                  });
+                } catch (_) {}
+              }
+              walk(root);
+              return result;
+            }
             function focusables(root) {
               var selector = [
                 'button',
@@ -9626,6 +9647,16 @@ class _PlayerScreenState extends State<PlayerScreen>
                 '[aria-label]',
                   'input[type="button"]',
                   'input[type="submit"]',
+                '[class*="skip" i]',
+                '[id*="skip" i]',
+                '[data-skip]',
+                '[data-role*="skip" i]',
+                '[aria-label*="skip" i]',
+                '[title*="skip" i]',
+                '[class*="continue" i]',
+                '[id*="continue" i]',
+                '[class*="resume" i]',
+                '[id*="resume" i]',
                 '.btn',
                 '.button',
                 '.skip',
@@ -9653,7 +9684,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               ].join(',');
               root = root || document;
               var view = root.defaultView || window;
-              var nodes = Array.prototype.slice.call(root.querySelectorAll(selector))
+              var nodes = queryAllDeep(root, selector)
                 .filter(function (el) {
                   if (!isVisible(el)) return false;
                   var rect = el.getBoundingClientRect();
@@ -9756,13 +9787,14 @@ class _PlayerScreenState extends State<PlayerScreen>
               for (var d = 0; d < docs.length; d += 1) {
                 var items = focusables(docs[d]);
                 for (var i = 0; i < items.length; i += 1) {
-                  if (/(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip quảng cáo|skip quang cao|skip|xem tiếp|xem tiep|continue|resume|close ad|đóng quảng cáo|dong quang cao|tắt quảng cáo|tat quang cao)/i.test(labelOf(items[i]))) {
+                  if (/(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip quảng cáo|skip quang cao|skip|xem tiếp|xem tiep|continue|resume|close ad|đóng quảng cáo|dong quang cao|tắt quảng cáo|tat quang cao|skip intro|skip video|skip now)/i.test(labelOf(items[i]))) {
                     return activate(items[i]);
                   }
                 }
               }
               return false;
             }
+            window.__cvDirectPreferredAction = directPreferredAction;
             function markFocus(el) {
               try {
                 document.querySelectorAll('[data-cv-tv-focus="1"]').forEach(function (old) {
@@ -9977,6 +10009,93 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  Future<void> _skipWebViewAd({bool showControls = true}) async {
+    final wc = webViewController;
+    final wwc = windowsWebViewController;
+    if (wc == null && wwc == null) return;
+    const script = '''
+      (function () {
+        try {
+          if (window.__cvDirectPreferredAction && window.__cvDirectPreferredAction()) {
+            return true;
+          }
+          var labels = /(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip quảng cáo|skip quang cao|skip|xem tiếp|xem tiep|continue|resume|close ad|đóng quảng cáo|dong quang cao|tắt quảng cáo|tat quang cao)/i;
+          var selector = [
+            'button', 'a[href]', '[role="button"]', '[onclick]', '[tabindex]',
+            '[class*="skip" i]', '[id*="skip" i]', '[data-skip]',
+            '[aria-label*="skip" i]', '[title*="skip" i]',
+            '.skip', '.skip-ad', '.skipad', '.skip-ads', '.ads-skip', '.ad-skip',
+            '.continue', '.resume', '.close', '.ok'
+          ].join(',');
+          function visible(el) {
+            try {
+              var r = el.getBoundingClientRect();
+              var s = getComputedStyle(el);
+              return r.width > 2 && r.height > 2 && s.display !== 'none' &&
+                s.visibility !== 'hidden' && s.opacity !== '0';
+            } catch (_) { return false; }
+          }
+          function label(el) {
+            try {
+              return [el.innerText, el.textContent, el.className, el.id,
+                el.getAttribute('aria-label'), el.getAttribute('title'),
+                el.getAttribute('data-title'), el.getAttribute('data-text')]
+                .join(' ').toLowerCase();
+            } catch (_) { return ''; }
+          }
+          function roots(doc) {
+            var list = [doc];
+            try {
+              Array.prototype.slice.call(doc.querySelectorAll('*')).forEach(function (el) {
+                try { if (el.shadowRoot) list.push(el.shadowRoot); } catch (_) {}
+              });
+            } catch (_) {}
+            return list;
+          }
+          function activate(el) {
+            try { el.scrollIntoView({ block: 'center', inline: 'center' }); } catch (_) {}
+            ['pointerdown','mousedown','mouseup','pointerup','click'].forEach(function (type) {
+              try { el.dispatchEvent(new MouseEvent(type, { view: window, bubbles: true, cancelable: true })); } catch (_) {}
+            });
+            try { el.click(); } catch (_) {}
+            return true;
+          }
+          function scan(doc) {
+            var rs = roots(doc);
+            for (var r = 0; r < rs.length; r += 1) {
+              var nodes = [];
+              try { nodes = Array.prototype.slice.call(rs[r].querySelectorAll(selector)); } catch (_) {}
+              for (var i = 0; i < nodes.length; i += 1) {
+                if (visible(nodes[i]) && labels.test(label(nodes[i]))) return activate(nodes[i]);
+              }
+            }
+            return false;
+          }
+          if (scan(document)) return true;
+          var frames = Array.prototype.slice.call(document.querySelectorAll('iframe'));
+          for (var f = 0; f < frames.length; f += 1) {
+            try {
+              var doc = frames[f].contentDocument || frames[f].contentWindow.document;
+              if (doc && scan(doc)) return true;
+            } catch (_) {}
+          }
+        } catch (_) {}
+        return false;
+      })();
+    ''';
+    try {
+      final raw = wc != null
+          ? await wc.runJavaScriptReturningResult(script)
+          : await wwc!.executeScript(script);
+      if (!_webViewScriptResultAsBool(raw)) {
+        await _injectWebViewPlaybackAssist();
+      }
+    } catch (_) {
+      await _injectWebViewPlaybackAssist();
+    }
+    if (showControls) _showControls();
+  }
+
   Future<void> _runWebViewScript(String script) async {
     final wc = webViewController;
     final wwc = windowsWebViewController;
@@ -10115,11 +10234,19 @@ class _PlayerScreenState extends State<PlayerScreen>
       if (mounted) setState(() {});
       _scheduleControlsHide();
       unawaited(
-        Future<void>.delayed(
-          const Duration(milliseconds: 700),
-          () => _injectWebViewPlaybackAssist(),
-        ),
+        Future<void>.delayed(const Duration(milliseconds: 700), () async {
+          await _injectWebViewPlaybackAssist();
+          await _skipWebViewAd(showControls: false);
+        }),
       );
+      for (final delay in const [3, 6, 10]) {
+        unawaited(
+          Future<void>.delayed(
+            Duration(seconds: delay),
+            () => _skipWebViewAd(showControls: false),
+          ),
+        );
+      }
       return;
     }
     late final PlatformWebViewControllerCreationParams params;
@@ -10202,11 +10329,19 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     _scheduleControlsHide();
     unawaited(
-      Future<void>.delayed(
-        const Duration(milliseconds: 900),
-        () => _injectWebViewPlaybackAssist(),
-      ),
+      Future<void>.delayed(const Duration(milliseconds: 900), () async {
+        await _injectWebViewPlaybackAssist();
+        await _skipWebViewAd(showControls: false);
+      }),
     );
+    for (final delay in const [3, 6, 10]) {
+      unawaited(
+        Future<void>.delayed(
+          Duration(seconds: delay),
+          () => _skipWebViewAd(showControls: false),
+        ),
+      );
+    }
   }
 
   Future<void> _init({int startUrlIndex = 0, Duration? startAt}) async {
@@ -11771,6 +11906,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                   child: const _WebViewTvControlTile(
                     icon: Icons.play_arrow_rounded,
                     label: 'Play/Pause',
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FocusButton(
+                  onPressed: () => unawaited(_skipWebViewAd()),
+                  child: const _WebViewTvControlTile(
+                    icon: Icons.fast_forward_rounded,
+                    label: 'Bỏ QC',
                   ),
                 ),
                 const SizedBox(width: 8),
