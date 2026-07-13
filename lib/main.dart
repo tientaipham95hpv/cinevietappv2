@@ -674,6 +674,7 @@ class Movie {
     this.titleEn = '',
     this.description = '',
     this.tmdbId = '',
+    this.imdbId = '',
     this.poster = '',
     this.backdrop = '',
     this.thumbnail = '',
@@ -687,6 +688,7 @@ class Movie {
     this.type = '',
     this.episodeCurrent = '',
     this.totalEpisodes,
+    this.partNumber,
     this.genres = const [],
     this.cast = const [],
     this.directors = const [],
@@ -700,6 +702,7 @@ class Movie {
   final String titleEn;
   final String description;
   final String tmdbId;
+  final String imdbId;
   final String poster;
   final String backdrop;
   final String thumbnail;
@@ -713,6 +716,7 @@ class Movie {
   final String type;
   final String episodeCurrent;
   final int? totalEpisodes;
+  final int? partNumber;
   final List<String> genres;
   final List<MoviePerson> cast;
   final List<MoviePerson> directors;
@@ -885,6 +889,7 @@ class Movie {
       titleEn: cleanText(json['title_en']),
       description: cleanText(json['description']),
       tmdbId: cleanText(json['tmdb_id'] ?? json['tmdbId']),
+      imdbId: cleanText(json['imdb_id'] ?? json['imdbId']),
       poster: cleanText(json['poster']),
       backdrop: cleanText(json['backdrop']),
       thumbnail: cleanText(json['thumbnail']),
@@ -898,6 +903,7 @@ class Movie {
       type: cleanText(json['type']),
       episodeCurrent: cleanText(json['episode_current']),
       totalEpisodes: asInt(json['total_episodes']),
+      partNumber: asInt(json['part_number']),
       genres: csv(json['genres']),
       cast: parsePeople(json['cast'] ?? json['actors']),
       directors: parsePeople(json['director'] ?? json['directors']),
@@ -915,6 +921,7 @@ class Movie {
     'title_en': titleEn,
     'description': description,
     'tmdb_id': tmdbId,
+    'imdb_id': imdbId,
     'poster': poster,
     'backdrop': backdrop,
     'thumbnail': thumbnail,
@@ -928,6 +935,7 @@ class Movie {
     'type': type,
     'episode_current': episodeCurrent,
     'total_episodes': totalEpisodes,
+    'part_number': partNumber,
     'genres': genres,
   };
 }
@@ -1046,6 +1054,61 @@ class PlaybackUrlCandidate {
 
   final PlaybackSourceCandidate source;
   final String url;
+}
+
+class IntroSkipSegment {
+  const IntroSkipSegment({
+    required this.type,
+    required this.start,
+    required this.end,
+  });
+
+  final String type;
+  final Duration start;
+  final Duration end;
+
+  String get key => '$type:${start.inMilliseconds}:${end.inMilliseconds}';
+
+  String get buttonLabel {
+    switch (type) {
+      case 'recap':
+        return 'Bỏ qua recap';
+      case 'outro':
+        return 'Bỏ qua outro';
+      default:
+        return 'Bỏ qua intro';
+    }
+  }
+
+  factory IntroSkipSegment.fromJson(Map<String, dynamic> json) {
+    final type = cleanText(json['type']).toLowerCase();
+    final start = asDouble(json['start_sec']) ?? 0;
+    final end = asDouble(json['end_sec']) ?? 0;
+    return IntroSkipSegment(
+      type: type.isEmpty ? 'intro' : type,
+      start: Duration(milliseconds: (start * 1000).round()),
+      end: Duration(milliseconds: (end * 1000).round()),
+    );
+  }
+}
+
+class IntroSkipData {
+  const IntroSkipData({required this.segments});
+
+  final List<IntroSkipSegment> segments;
+
+  bool get hasSegments => segments.isNotEmpty;
+
+  factory IntroSkipData.fromJson(Map<String, dynamic> json) {
+    final rows =
+        ((json['segments'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((e) => IntroSkipSegment.fromJson(Map<String, dynamic>.from(e)))
+            .where((e) => e.end > e.start)
+            .toList()
+          ..sort((a, b) => a.start.compareTo(b.start));
+    return IntroSkipData(segments: List.unmodifiable(rows));
+  }
 }
 
 class ServerCheckResult {
@@ -1593,6 +1656,30 @@ class MovieRepository {
     _cache[movie.routeKey] = movie;
     _cache['${movie.id}'] = movie;
     return movie;
+  }
+
+  Future<IntroSkipData?> introSkipSegments({
+    required Movie movie,
+    required EpisodeItem episode,
+  }) async {
+    if (!movie.isSeriesLike || movie.id <= 0) return null;
+    final episodeNo = episodeNumber(episode.displayName);
+    if (episodeNo <= 0) return null;
+    try {
+      final res = await api.dio.get(
+        '/app/intro-segments',
+        queryParameters: {
+          'movie_id': movie.id,
+          'episode': episodeNo,
+          if ((movie.partNumber ?? 0) > 0) 'season': movie.partNumber,
+        },
+      );
+      final data = Map<String, dynamic>.from(res.data as Map);
+      final parsed = IntroSkipData.fromJson(data);
+      return parsed.hasSegments ? parsed : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<List<WatchItem>> cloudHistory() async {
@@ -9261,6 +9348,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   WebViewController? webViewController;
   windows_webview.WebviewController? windowsWebViewController;
   String? activeWebViewUrl;
+  IntroSkipData? introSkipData;
+  String introSkipDataKey = '';
+  final skippedIntroDbSegments = <String>{};
   bool recoveringPlayback = false;
   bool savingProgress = false;
   bool reportingPlaybackIssue = false;
@@ -9319,6 +9409,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       (_) => focusNode.requestFocus(),
     );
     _bindWatchTogetherSocket();
+    _loadIntroSkipSegments();
     _init();
   }
 
@@ -10265,6 +10356,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       currentServer = source.server;
       currentEpisode = source.episode;
       currentServerIndex = source.serverIndex;
+      _loadIntroSkipSegments();
       activePlayableUrls = const [];
       activePlayableUrlIndex = 0;
       webViewController = null;
@@ -10357,6 +10449,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     currentServer = source.server;
     currentEpisode = source.episode;
     currentServerIndex = source.serverIndex;
+    _loadIntroSkipSegments();
     activePlayableUrls = const [];
     activePlayableUrlIndex = 0;
     webViewController = controller;
@@ -10492,6 +10585,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         currentServer = candidate.source.server;
         currentEpisode = candidate.source.episode;
         currentServerIndex = candidate.source.serverIndex;
+        _loadIntroSkipSegments();
         recoveringPlayback = false;
         next.addListener(_handlePlayerTick);
         saveTimer = Timer.periodic(const Duration(seconds: 20), (_) => _save());
@@ -10840,8 +10934,53 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (showControls) _showControls();
   }
 
-  bool _shouldShowIntroSkip(VideoPlayerController? c) {
+  String _introSkipLookupKey() {
+    final episodeNo = episodeNumber(currentEpisode.displayName);
+    final seasonNo = widget.movie.partNumber ?? 1;
+    return '${widget.movie.id}:$seasonNo:$episodeNo:${currentEpisode.name}';
+  }
+
+  void _loadIntroSkipSegments() {
+    final lookupKey = _introSkipLookupKey();
+    if (introSkipDataKey == lookupKey) return;
+    introSkipDataKey = lookupKey;
+    introSkipData = null;
+    skippedIntroDbSegments.clear();
+    if (!widget.movie.isSeriesLike || widget.movie.id <= 0) return;
+    final episodeNo = episodeNumber(currentEpisode.displayName);
+    if (episodeNo <= 0) return;
+    unawaited(() async {
+      final data = await widget.repo.introSkipSegments(
+        movie: widget.movie,
+        episode: currentEpisode,
+      );
+      if (!mounted || introSkipDataKey != lookupKey) return;
+      setState(() => introSkipData = data);
+    }());
+  }
+
+  IntroSkipSegment? _activeIntroSkipSegment(VideoPlayerController? c) {
+    if (activeWebViewUrl != null || c == null || !c.value.isInitialized) {
+      return null;
+    }
+    final data = introSkipData;
+    if (data == null) return null;
+    final position = c.value.position;
+    final duration = c.value.duration;
+    for (final segment in data.segments) {
+      if (skippedIntroDbSegments.contains(segment.key)) continue;
+      if (duration > Duration.zero && segment.start >= duration) continue;
+      final visibleFrom = segment.start - const Duration(seconds: 2);
+      final from = visibleFrom < Duration.zero ? Duration.zero : visibleFrom;
+      if (position >= from && position < segment.end) return segment;
+    }
+    return null;
+  }
+
+  bool _shouldShowFallbackIntroSkip(VideoPlayerController? c) {
+    if (introSkipData?.hasSegments == true) return false;
     if (introSkipped || c == null || !c.value.isInitialized) return false;
+    if (activeWebViewUrl != null) return false;
     if (c.value.duration.inSeconds <= introSkipSeconds) return false;
     final seconds = c.value.position.inSeconds;
     return seconds >= 1 && seconds < introSkipSeconds;
@@ -10850,8 +10989,13 @@ class _PlayerScreenState extends State<PlayerScreen>
   Future<void> _skipIntro() async {
     final c = controller;
     if (c == null || !c.value.isInitialized) return;
-    introSkipped = true;
-    final target = Duration(seconds: introSkipSeconds);
+    final segment = _activeIntroSkipSegment(c);
+    final target = segment?.end ?? const Duration(seconds: introSkipSeconds);
+    if (segment == null) {
+      introSkipped = true;
+    } else {
+      skippedIntroDbSegments.add(segment.key);
+    }
     await c.seekTo(_clampPosition(target, c.value.duration));
     _emitWatchSync(force: true);
     unawaited(_save());
@@ -11426,6 +11570,9 @@ class _PlayerScreenState extends State<PlayerScreen>
       controls = true;
       error = null;
       introSkipped = false;
+      introSkipData = null;
+      introSkipDataKey = '';
+      skippedIntroDbSegments.clear();
       savedCurrentEpisodeProgress = false;
       autoNextCancelledForEpisode = false;
       lastAutoNextPromptSecond = -1;
@@ -11433,6 +11580,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     runtimeRecoveryAttempts = 0;
     lastHistorySaveAtMs = 0;
     lastGoodPosition = null;
+    _loadIntroSkipSegments();
     await _init();
   }
 
@@ -11623,6 +11771,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   @override
   Widget build(BuildContext context) {
     final c = controller;
+    final introSegment = _activeIntroSkipSegment(c);
+    final showIntroSkip =
+        introSegment != null || _shouldShowFallbackIntroSkip(c);
     return PopScope(
       // WebView (StreamC/NguồnC) có thể giữ history/popup riêng và nuốt nút back.
       // Chặn pop mặc định để mọi nút back luôn đi qua _exitPlayer() của app.
@@ -11855,8 +12006,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                         ),
                       ),
                     ),
-                  if (_shouldShowIntroSkip(c) && !controlsLocked)
-                    IntroSkipButton(onPressed: _skipIntro),
+                  if (showIntroSkip && !controlsLocked)
+                    IntroSkipButton(
+                      label: introSegment?.buttonLabel ?? 'Bỏ qua intro',
+                      onPressed: _skipIntro,
+                    ),
                   if (controls && !controlsLocked)
                     FocusScope(
                       node: overlayFocusScopeNode,
@@ -12069,8 +12223,13 @@ class _PlayerScreenState extends State<PlayerScreen>
 }
 
 class IntroSkipButton extends StatelessWidget {
-  const IntroSkipButton({super.key, required this.onPressed});
+  const IntroSkipButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+  });
 
+  final String label;
   final VoidCallback onPressed;
 
   @override
@@ -12088,10 +12247,7 @@ class IntroSkipButton extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         icon: const Icon(Icons.fast_forward_rounded, size: 18),
-        label: const Text(
-          'Bỏ qua intro',
-          style: TextStyle(fontWeight: FontWeight.w900),
-        ),
+        label: Text(label, style: TextStyle(fontWeight: FontWeight.w900)),
       ),
     ),
   );
