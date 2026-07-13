@@ -18,11 +18,11 @@ on:
       require_signing:
         description: Fail when Android signing secrets are missing
         required: false
-        default: "false"
+        default: "true"
         type: choice
         options:
-          - "false"
           - "true"
+          - "false"
   push:
     branches:
       - main
@@ -41,7 +41,7 @@ jobs:
       VERSION_NAME: ${{ github.event.inputs.version_name || '2.0.1' }}
       RELEASE_CHANNEL: ${{ github.event.inputs.release_channel || 'release' }}
       BUILD_NUMBER: ${{ github.event.inputs.build_number || '9212' }}
-      REQUIRE_ANDROID_SIGNING: ${{ github.event.inputs.require_signing || 'false' }}
+      REQUIRE_ANDROID_SIGNING: ${{ github.event.inputs.require_signing || 'true' }}
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
@@ -91,11 +91,12 @@ jobs:
           fi
 
           if [ "${has_signing}" != "true" ]; then
-            echo "Android signing: not configured; Gradle will fall back to debug signing."
+            echo "Android signing: not configured; release APKs must use the canonical CineViet release keystore."
             if [ "${REQUIRE_ANDROID_SIGNING}" = "true" ]; then
               echo "REQUIRE_ANDROID_SIGNING=true, failing build because signing secrets are missing."
               exit 1
             fi
+            echo "Continuing only because require_signing=false was selected; Gradle release tasks may still fail."
           fi
 
       - name: Build mobile/tablet universal APK

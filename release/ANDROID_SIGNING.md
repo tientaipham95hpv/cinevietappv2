@@ -15,7 +15,12 @@ Keep the keystore and passwords private. Do not commit them to Git.
 
 ## Local Signing
 
-1. Create or copy a keystore into `android/`, for example:
+1. Copy the canonical CineViet keystore into `android/`.
+
+Only create a new keystore for a new app identity. Existing users cannot install
+an update over the current app if the signing key changes.
+
+Example command for a brand-new app identity:
 
 ```bash
 keytool -genkey -v -keystore android/cineviet-release.jks -storetype JKS -keyalg RSA -keysize 2048 -validity 10000 -alias cineviet
@@ -73,11 +78,10 @@ Optional compatibility names:
 
 ## Required Signing Gate
 
-By default, the Gradle config falls back to debug signing when release signing
-secrets are missing so internal CI builds can still run. Debug-signed APKs are
-for internal testing only.
+Release APK builds fail when release signing secrets are missing. Debug-signed
+APKs are for internal testing only and must not be published as updates.
 
-Set this Codemagic variable to fail Android CI when signing is missing:
+Set this Codemagic variable to make the signing requirement explicit:
 
 ```text
 REQUIRE_ANDROID_SIGNING=true

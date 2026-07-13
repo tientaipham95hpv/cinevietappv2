@@ -10,9 +10,6 @@ Open GitHub repo -> Actions -> choose a workflow -> Run workflow.
 
 ## Android Signing Secrets
 
-Android builds can run without signing secrets, but Gradle will fall back to
-debug signing. Use debug-signed APKs for internal testing only.
-
 For public direct APK releases, add these repository secrets:
 
 - `ANDROID_KEYSTORE_BASE64`: base64 content of `cineviet-release.jks`
@@ -20,8 +17,9 @@ For public direct APK releases, add these repository secrets:
 - `ANDROID_KEY_ALIAS`: key alias
 - `ANDROID_KEY_PASSWORD`: key password
 
-When running the Android workflow manually, set `require_signing` to `true` to
-fail the build if these secrets are missing.
+Use the same long-lived CineViet release keystore for every public mobile/tablet
+and Android TV APK. The Android workflow defaults `require_signing` to `true`
+and release builds fail when these secrets are missing.
 
 ## iOS Signing
 
