@@ -2238,6 +2238,11 @@ class MovieRepository {
 class LocalHistory {
   static const key = 'cineviet_watch_history_v1';
   static const deletedKey = 'cineviet_watch_history_deleted_v1';
+  static final ValueNotifier<int> version = ValueNotifier<int>(0);
+
+  static void _notifyChanged() {
+    version.value += 1;
+  }
 
   static Future<List<WatchItem>> items() async {
     final prefs = await SharedPreferences.getInstance();
@@ -2267,6 +2272,7 @@ class LocalHistory {
       key,
       jsonEncode(next.map((e) => e.toJson()).toList()),
     );
+    _notifyChanged();
   }
 
   static Future<void> removeMovie(int movieId) async {
@@ -2275,12 +2281,14 @@ class LocalHistory {
     final next = (await items()).where((e) => e.movieId != movieId).toList();
     if (next.isEmpty) {
       await prefs.remove(key);
+      _notifyChanged();
       return;
     }
     await prefs.setString(
       key,
       jsonEncode(next.map((e) => e.toJson()).toList()),
     );
+    _notifyChanged();
   }
 
   static Future<void> clear() async {
@@ -2290,6 +2298,7 @@ class LocalHistory {
         .where((id) => id > 0);
     await _rememberDeletedMovies(prefs, ids);
     await prefs.remove(key);
+    _notifyChanged();
   }
 
   static Future<Set<int>> deletedMovieIds() async {
@@ -2702,11 +2711,19 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late Future<HomeData> data;
   HomeData? _cachedHome; // dữ liệu cache hiển ngay khi mở app
+  bool _refreshingHistoryOnly = false;
 
   @override
   void initState() {
     super.initState();
     data = _loadWithCache();
+    LocalHistory.version.addListener(_refreshHistoryOnly);
+  }
+
+  @override
+  void dispose() {
+    LocalHistory.version.removeListener(_refreshHistoryOnly);
+    super.dispose();
   }
 
   // Đọc cache trước để hiển thị tức thì, sau đó tải mới ghi đè (stale-while-revalidate).
@@ -2770,6 +2787,26 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<List<WatchItem>> _history() async {
     return mergedWatchHistory(widget.repo);
+  }
+
+  Future<void> _refreshHistoryOnly() async {
+    if (!mounted || _refreshingHistoryOnly) return;
+    _refreshingHistoryOnly = true;
+    try {
+      final history = await _safeHistory();
+      HomeData? current = _cachedHome;
+      try {
+        current = await data;
+      } catch (_) {}
+      if (!mounted || current == null) return;
+      final next = current.copyWith(history: history);
+      setState(() {
+        _cachedHome = _cachedHome?.copyWith(history: history);
+        data = Future.value(next);
+      });
+    } finally {
+      _refreshingHistoryOnly = false;
+    }
   }
 
   Future<void> _removeHistory(WatchItem item) async {
@@ -3268,6 +3305,17 @@ class HomeData {
   final List<Movie> anime;
   final List<Movie> tvShows;
   final List<WatchItem> history;
+
+  HomeData copyWith({List<WatchItem>? history}) => HomeData(
+    featured: featured,
+    latest: latest,
+    cinema: cinema,
+    series: series,
+    single: single,
+    anime: anime,
+    tvShows: tvShows,
+    history: history ?? this.history,
+  );
 
   Map<String, dynamic> toCacheJson() => {
     'featured': featured.map((m) => m.toCacheJson()).toList(),
@@ -9556,7 +9604,19 @@ class _PlayerScreenState extends State<PlayerScreen>
                 return '';
               }
             }
-            function focusables() {
+            function documents() {
+              var docs = [document];
+              try {
+                Array.prototype.slice.call(document.querySelectorAll('iframe')).forEach(function (frame) {
+                  try {
+                    var doc = frame.contentDocument || frame.contentWindow.document;
+                    if (doc) docs.push(doc);
+                  } catch (_) {}
+                });
+              } catch (_) {}
+              return docs;
+            }
+            function focusables(root) {
               var selector = [
                 'button',
                 'a[href]',
@@ -9570,6 +9630,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                 '.button',
                 '.skip',
                 '.skip-ad',
+                '.skipad',
+                '.skip-ads',
+                '.ads-skip',
+                '.ad-skip',
                 '.continue',
                 '.resume',
                 '.confirm',
@@ -9587,13 +9651,15 @@ class _PlayerScreenState extends State<PlayerScreen>
                 '.vjs-big-play-button',
                 '.plyr__control'
               ].join(',');
-              var nodes = Array.prototype.slice.call(document.querySelectorAll(selector))
+              root = root || document;
+              var view = root.defaultView || window;
+              var nodes = Array.prototype.slice.call(root.querySelectorAll(selector))
                 .filter(function (el) {
                   if (!isVisible(el)) return false;
                   var rect = el.getBoundingClientRect();
-                  return rect.left < window.innerWidth &&
+                  return rect.left < view.innerWidth &&
                     rect.right > 0 &&
-                    rect.top < window.innerHeight &&
+                    rect.top < view.innerHeight &&
                     rect.bottom > 0;
                 });
               var seen = [];
@@ -9686,10 +9752,13 @@ class _PlayerScreenState extends State<PlayerScreen>
               return true;
             }
             function directPreferredAction() {
-              var items = focusables();
-              for (var i = 0; i < items.length; i += 1) {
-                if (/(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip quảng cáo|skip quang cao|skip|xem tiếp|xem tiep|continue|resume)/i.test(labelOf(items[i]))) {
-                  return activate(items[i]);
+              var docs = documents();
+              for (var d = 0; d < docs.length; d += 1) {
+                var items = focusables(docs[d]);
+                for (var i = 0; i < items.length; i += 1) {
+                  if (/(bỏ qua quảng cáo|bo qua quang cao|skip ad|skip ads|skip quảng cáo|skip quang cao|skip|xem tiếp|xem tiep|continue|resume|close ad|đóng quảng cáo|dong quang cao|tắt quảng cáo|tat quang cao)/i.test(labelOf(items[i]))) {
+                    return activate(items[i]);
+                  }
                 }
               }
               return false;
@@ -9713,7 +9782,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             }
             window.__cvTvRemote = function (action) {
               try {
-                var items = focusables();
+                var items = focusables(document);
                 if (!items.length) {
                   return false;
                 }
@@ -9755,6 +9824,33 @@ class _PlayerScreenState extends State<PlayerScreen>
                   }
                 } catch (_) {}
               }, true);
+            }
+            function installSkipObserver(root) {
+              try {
+                var target = root.documentElement || root.body;
+                if (!target || target.__cvAutoSkipObserver) return;
+                var skipScheduled = false;
+                target.__cvAutoSkipObserver = new MutationObserver(function () {
+                  if (skipScheduled) return;
+                  skipScheduled = true;
+                  setTimeout(function () {
+                    skipScheduled = false;
+                    directPreferredAction();
+                  }, 350);
+                });
+                target.__cvAutoSkipObserver.observe(target, {
+                  childList: true,
+                  subtree: true,
+                  attributes: true,
+                  attributeFilter: ['style', 'class', 'aria-label', 'title']
+                });
+                setTimeout(function () {
+                  try {
+                    target.__cvAutoSkipObserver.disconnect();
+                    target.__cvAutoSkipObserver = null;
+                  } catch (_) {}
+                }, 45000);
+              } catch (_) {}
             }
             function setupVideo(v) {
               try {
@@ -9819,6 +9915,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                       if (!window.__cvClickedInitialPlay && !frameHasActiveVideo) {
                         window.__cvClickedInitialPlay = clickPlayControls(doc);
                       }
+                      installSkipObserver(doc);
                     }
                   } catch (_) {}
                 });
@@ -9828,39 +9925,13 @@ class _PlayerScreenState extends State<PlayerScreen>
                   } catch (_) {}
                 });
               } catch (_) {}
-              if (tries < 12) setTimeout(attempt, 500);
+              if (tries < 18) setTimeout(attempt, 500);
             }
             attempt();
-            if (!window.__cvAutoSkipObserver) {
-              try {
-                var skipScheduled = false;
-                window.__cvAutoSkipObserver = new MutationObserver(function () {
-                  if (skipScheduled) return;
-                  skipScheduled = true;
-                  setTimeout(function () {
-                    skipScheduled = false;
-                    directPreferredAction();
-                  }, 250);
-                });
-                window.__cvAutoSkipObserver.observe(document.documentElement || document.body, {
-                  childList: true,
-                  subtree: true,
-                  attributes: true,
-                  attributeFilter: ['style', 'class', 'aria-label', 'title']
-                });
-              } catch (_) {}
-              setTimeout(function () {
-                try {
-                  if (window.__cvAutoSkipObserver) {
-                    window.__cvAutoSkipObserver.disconnect();
-                    window.__cvAutoSkipObserver = null;
-                  }
-                } catch (_) {}
-              }, 20000);
-            }
+            documents().forEach(installSkipObserver);
             setTimeout(function () {
               try {
-                var items = focusables();
+                var items = focusables(document);
                 var index = preferredIndex(items);
                 if (index >= 0) {
                   tvFocusIndex = index;
@@ -10433,7 +10504,28 @@ class _PlayerScreenState extends State<PlayerScreen>
       final script = '''
         (function () {
           try {
-            var v = document.querySelector('video');
+            function videos(root) {
+              var result = [];
+              try {
+                result = result.concat(Array.prototype.slice.call(root.querySelectorAll('video')));
+              } catch (_) {}
+              try {
+                Array.prototype.slice.call(root.querySelectorAll('iframe')).forEach(function (frame) {
+                  try {
+                    var doc = frame.contentDocument || frame.contentWindow.document;
+                    if (doc) result = result.concat(videos(doc));
+                  } catch (_) {}
+                });
+              } catch (_) {}
+              return result;
+            }
+            var v = videos(document).filter(function (item) {
+              try { return isFinite(item.currentTime) && (isFinite(item.duration) || item.readyState > 0); }
+              catch (_) { return false; }
+            }).sort(function (a, b) {
+              try { return (b.currentTime || 0) - (a.currentTime || 0); }
+              catch (_) { return 0; }
+            })[0];
             if (!v) return '0|0';
             var ct = isFinite(v.currentTime) ? v.currentTime : 0;
             var d = isFinite(v.duration) ? v.duration : 0;
