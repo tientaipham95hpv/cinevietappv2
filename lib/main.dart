@@ -34,7 +34,8 @@ import 'package:webview_windows/webview_windows.dart' as windows_webview;
 const apiBase = 'https://cineviet.live/api';
 const siteBase = 'https://cineviet.live';
 const tmdbImageBase = 'https://image.tmdb.org/t/p';
-const isTvBuild = bool.fromEnvironment('APP_IS_TV');
+const appFlavor = String.fromEnvironment('FLUTTER_APP_FLAVOR');
+const isTvBuild = bool.fromEnvironment('APP_IS_TV') || appFlavor == 'tv';
 const googleServerClientId =
     '186784861581-5l7skrrke87pmf669l6ach0brbra4v76.apps.googleusercontent.com';
 
@@ -1627,9 +1628,29 @@ class MovieRepository {
   Future<int> syncLocalHistoryToCloud() async {
     if (!api.hasAuthToken) return 0;
     final local = await LocalHistory.items();
-    var synced = 0;
+    final deletedIds = await LocalHistory.deletedMovieIds();
+    final cloudByMovie = <int, WatchItem>{};
+    try {
+      for (final item in await cloudHistory()) {
+        final existing = cloudByMovie[item.movieId];
+        if (existing == null || item.updatedAtMs > existing.updatedAtMs) {
+          cloudByMovie[item.movieId] = item;
+        }
+      }
+    } catch (_) {}
+    final latestLocalByMovie = <int, WatchItem>{};
     for (final item in local) {
       if (!item.shouldShow || item.movieId <= 0) continue;
+      if (deletedIds.contains(item.movieId)) continue;
+      final existing = latestLocalByMovie[item.movieId];
+      if (existing == null || item.updatedAtMs > existing.updatedAtMs) {
+        latestLocalByMovie[item.movieId] = item;
+      }
+    }
+    var synced = 0;
+    for (final item in latestLocalByMovie.values) {
+      final cloud = cloudByMovie[item.movieId];
+      if (cloud != null && cloud.updatedAtMs >= item.updatedAtMs) continue;
       try {
         await api.dio.post(
           '/movies/${item.movieId}/watch',
@@ -2216,6 +2237,7 @@ class MovieRepository {
 
 class LocalHistory {
   static const key = 'cineviet_watch_history_v1';
+  static const deletedKey = 'cineviet_watch_history_deleted_v1';
 
   static Future<List<WatchItem>> items() async {
     final prefs = await SharedPreferences.getInstance();
@@ -2235,6 +2257,7 @@ class LocalHistory {
 
   static Future<void> upsert(WatchItem item) async {
     final prefs = await SharedPreferences.getInstance();
+    await _forgetDeletedMovie(prefs, item.movieId);
     final current = await items();
     final next = [
       item,
@@ -2248,6 +2271,7 @@ class LocalHistory {
 
   static Future<void> removeMovie(int movieId) async {
     final prefs = await SharedPreferences.getInstance();
+    await _rememberDeletedMovie(prefs, movieId);
     final next = (await items()).where((e) => e.movieId != movieId).toList();
     if (next.isEmpty) {
       await prefs.remove(key);
@@ -2261,7 +2285,60 @@ class LocalHistory {
 
   static Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
+    final ids = (await items())
+        .map((item) => item.movieId)
+        .where((id) => id > 0);
+    await _rememberDeletedMovies(prefs, ids);
     await prefs.remove(key);
+  }
+
+  static Future<Set<int>> deletedMovieIds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs
+            .getStringList(deletedKey)
+            ?.map((value) => int.tryParse(value) ?? 0)
+            .where((id) => id > 0)
+            .toSet() ??
+        <int>{};
+  }
+
+  static Future<void> _rememberDeletedMovie(
+    SharedPreferences prefs,
+    int movieId,
+  ) => _rememberDeletedMovies(prefs, [movieId]);
+
+  static Future<void> _rememberDeletedMovies(
+    SharedPreferences prefs,
+    Iterable<int> movieIds,
+  ) async {
+    final ids = {
+      ...?prefs
+          .getStringList(deletedKey)
+          ?.map((value) => int.tryParse(value) ?? 0),
+      ...movieIds,
+    }.where((id) => id > 0).take(300).map((id) => '$id').toList();
+    if (ids.isEmpty) {
+      await prefs.remove(deletedKey);
+    } else {
+      await prefs.setStringList(deletedKey, ids);
+    }
+  }
+
+  static Future<void> _forgetDeletedMovie(
+    SharedPreferences prefs,
+    int movieId,
+  ) async {
+    if (movieId <= 0) return;
+    final current = prefs.getStringList(deletedKey);
+    if (current == null || current.isEmpty) return;
+    final next = current
+        .where((value) => int.tryParse(value) != movieId)
+        .toList();
+    if (next.isEmpty) {
+      await prefs.remove(deletedKey);
+    } else {
+      await prefs.setStringList(deletedKey, next);
+    }
   }
 }
 
