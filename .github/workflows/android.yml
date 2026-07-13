@@ -98,9 +98,22 @@ jobs:
 
           if [ "${has_signing}" != "true" ] && [ -n "${keystore_b64:-}" ] && [ -n "${store_password:-}" ] && [ -n "${key_alias:-}" ] && [ -n "${key_password:-}" ]; then
             keystore_path="${RUNNER_TEMP}/cineviet-release.jks"
-            clean_b64="$(printf '%s' "${keystore_b64}" | tr -d '\r\n\t ' | sed -e 's/^ANDROID_KEYSTORE_BASE64=//' -e 's/^CM_KEYSTORE_B64=//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
-            printf '%s' "${clean_b64}" | base64 --decode > "${keystore_path}"
-            keytool -list -keystore "${keystore_path}" -storepass "${store_password}" -alias "${key_alias}" >/dev/null
+            clean_b64="$(printf '%s' "${keystore_b64}" | tr -d '\r\n\t ' | sed -e 's/^ANDROID_KEYSTORE_BASE64[:=]//' -e 's/^CM_KEYSTORE_B64[:=]//' -e 's/^"//' -e 's/"$//' -e "s/^'//" -e "s/'$//")"
+            if ! printf '%s' "${clean_b64}" | base64 --decode --ignore-garbage > "${keystore_path}"; then
+              echo "Android signing: keystore secret is not valid base64."
+              echo "Paste the raw content of CM_KEYSTORE_B64.txt into ANDROID_KEYSTORE_BASE64 or CM_KEYSTORE_B64."
+              exit 1
+            fi
+            if [ ! -s "${keystore_path}" ]; then
+              echo "Android signing: decoded keystore is empty."
+              echo "Do not paste the .jks file path; paste the base64 text content."
+              exit 1
+            fi
+            if ! keytool -list -keystore "${keystore_path}" -storepass "${store_password}" -alias "${key_alias}" >/dev/null; then
+              echo "Android signing: decoded keystore cannot be opened with the supplied password and alias."
+              echo "Check ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, and ANDROID_KEY_PASSWORD."
+              exit 1
+            fi
             echo "ANDROID_KEYSTORE_PATH=${keystore_path}" >> "${GITHUB_ENV}"
             echo "ANDROID_KEYSTORE_PASSWORD=${store_password}" >> "${GITHUB_ENV}"
             echo "ANDROID_KEY_ALIAS=${key_alias}" >> "${GITHUB_ENV}"

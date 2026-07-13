@@ -17,6 +17,9 @@ For public direct APK releases, add these repository secrets:
 - `ANDROID_KEY_ALIAS`: key alias
 - `ANDROID_KEY_PASSWORD`: key password
 
+For `ANDROID_KEYSTORE_BASE64`, paste the raw text from `CM_KEYSTORE_B64.txt`.
+Do not paste the `.jks` file path or the binary `.jks` file content.
+
 The workflow also accepts the Codemagic-style names `CM_KEYSTORE_B64`,
 `CM_KEYSTORE_PASSWORD`, `CM_KEY_ALIAS`, and `CM_KEY_PASSWORD` if those are
 already easier to copy.
