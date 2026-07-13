@@ -9799,6 +9799,20 @@ class _PlayerScreenState extends State<PlayerScreen>
               return false;
             }
             window.__cvDirectPreferredAction = directPreferredAction;
+            function directResumeAction() {
+              if (resumeAt <= 3) return false;
+              var docs = documents();
+              for (var d = 0; d < docs.length; d += 1) {
+                var items = focusables(docs[d]);
+                for (var i = 0; i < items.length; i += 1) {
+                  if (/(xem tiếp|xem tiep|continue|resume)/i.test(labelOf(items[i]))) {
+                    return activate(items[i]);
+                  }
+                }
+              }
+              return false;
+            }
+            window.__cvDirectResumeAction = directResumeAction;
             function markFocus(el) {
               try {
                 document.querySelectorAll('[data-cv-tv-focus="1"]').forEach(function (old) {
@@ -9872,6 +9886,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   setTimeout(function () {
                     skipScheduled = false;
                     directPreferredAction();
+                    directResumeAction();
                   }, 350);
                 });
                 target.__cvAutoSkipObserver.observe(target, {
@@ -9934,6 +9949,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               try {
                 document.querySelectorAll('video').forEach(setupVideo);
                 directPreferredAction();
+                directResumeAction();
                 var hasActiveVideo = Array.prototype.slice.call(document.querySelectorAll('video')).some(function (v) {
                   try { return !v.paused || v.readyState > 1; } catch (_) { return false; }
                 });
