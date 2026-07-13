@@ -17,6 +17,13 @@ For public direct APK releases, add these repository secrets:
 - `ANDROID_KEY_ALIAS`: key alias
 - `ANDROID_KEY_PASSWORD`: key password
 
+The workflow also accepts the Codemagic-style names `CM_KEYSTORE_B64`,
+`CM_KEYSTORE_PASSWORD`, `CM_KEY_ALIAS`, and `CM_KEY_PASSWORD` if those are
+already easier to copy.
+
+Add them as repository secrets. Environment secrets are only injected when the
+job is explicitly assigned to that environment.
+
 Use the same long-lived CineViet release keystore for every public mobile/tablet
 and Android TV APK. The Android workflow defaults `require_signing` to `true`
 and release builds fail when these secrets are missing.
