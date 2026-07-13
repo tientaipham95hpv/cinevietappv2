@@ -9903,6 +9903,23 @@ class _PlayerScreenState extends State<PlayerScreen>
                 }, 70000);
               } catch (_) {}
             }
+            function installViewportFix(root) {
+              try {
+                var doc = root || document;
+                var head = doc.head || doc.documentElement;
+                if (!head || doc.getElementById('__cvViewportFix')) return;
+                var style = doc.createElement('style');
+                style.id = '__cvViewportFix';
+                style.textContent = [
+                  'html,body{margin:0!important;padding:0!important;width:100vw!important;height:100vh!important;overflow:hidden!important;background:#000!important;}',
+                  'body>iframe:only-child,iframe[src*="streamc"],iframe[src*="embed"]{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;border:0!important;background:#000!important;}',
+                  '#player,.player,.jwplayer,.jw-wrapper,.jw-media,.jw-preview,.video-js,.plyr,.dplayer{width:100vw!important;height:100vh!important;max-width:100vw!important;max-height:100vh!important;background:#000!important;}',
+                  '.jw-aspect,.jwplayer.jw-flag-aspect-mode{height:100vh!important;padding-top:0!important;}',
+                  'video{width:100%!important;height:100%!important;object-fit:contain!important;background:#000!important;}'
+                ].join('\\n');
+                head.appendChild(style);
+              } catch (_) {}
+            }
             function setupVideo(v) {
               try {
                 v.setAttribute('playsinline', '');
@@ -9947,6 +9964,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             function attempt() {
               tries += 1;
               try {
+                installViewportFix(document);
                 document.querySelectorAll('video').forEach(setupVideo);
                 directPreferredAction();
                 directResumeAction();
@@ -9960,6 +9978,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   try {
                     var doc = frame.contentDocument || frame.contentWindow.document;
                     if (doc) {
+                      installViewportFix(doc);
                       doc.querySelectorAll('video').forEach(setupVideo);
                       var frameHasActiveVideo = Array.prototype.slice.call(doc.querySelectorAll('video')).some(function (v) {
                         try { return !v.paused || v.readyState > 1; } catch (_) { return false; }
@@ -9980,6 +9999,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               if (tries < 30) setTimeout(attempt, 500);
             }
             attempt();
+            documents().forEach(installViewportFix);
             documents().forEach(installSkipObserver);
             setTimeout(function () {
               try {
@@ -11546,6 +11566,21 @@ class _PlayerScreenState extends State<PlayerScreen>
     _showControls();
   }
 
+  Widget _buildMobileWebView(WebViewController controller) {
+    Widget child = Focus(
+      canRequestFocus: false,
+      descendantsAreFocusable: false,
+      child: WebViewWidget(controller: controller),
+    );
+    if (!kIsWeb &&
+        !isTvBuild &&
+        (Platform.isAndroid || Platform.isIOS) &&
+        MediaQuery.orientationOf(context) == Orientation.portrait) {
+      child = RotatedBox(quarterTurns: 1, child: child);
+    }
+    return child;
+  }
+
   @override
   void dispose() {
     _stopPlaybackNow();
@@ -11775,11 +11810,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     windows_webview.Webview(windowsWebViewController!)
                   else if (activeWebViewUrl != null &&
                       webViewController != null)
-                    Focus(
-                      canRequestFocus: false,
-                      descendantsAreFocusable: false,
-                      child: WebViewWidget(controller: webViewController!),
-                    )
+                    _buildMobileWebView(webViewController!)
                   else if (c == null || !c.value.isInitialized)
                     const Center(
                       child: CircularProgressIndicator(color: CvColors.accent),
