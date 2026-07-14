@@ -1022,7 +1022,7 @@ class EpisodeServer {
 
   String get sourceName {
     final s = name.toLowerCase();
-    if (typeName == 'Song Ngữ' || s.contains('vicdn')) return 'ViCDN';
+    if (typeName == 'Song Ngữ' || s.contains('vicdn')) return 'Nguồn khác';
     if (s.contains('ophim')) return 'OPhim';
     if (s.contains('kkphim') || s.contains('phimapi')) return 'KKPhim';
     if (s.contains('nguồn c') ||
