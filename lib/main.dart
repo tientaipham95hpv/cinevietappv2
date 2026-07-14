@@ -802,6 +802,10 @@ class Movie {
     (server) => server.items.any((episode) => episode.playUrl.isNotEmpty),
   );
   bool get isTrailerOnly => !hasPlayableVideo && trailerUrl.isNotEmpty;
+  bool get hasBilingualServer => episodes.any((server) {
+    final value = server.name.toLowerCase();
+    return value.contains('song ngữ') || value.contains('song ngu');
+  });
   bool get isSeriesLike {
     final t = type.toLowerCase();
     return t.contains('series') ||
@@ -1852,6 +1856,7 @@ class MovieRepository {
     String sort = 'created_at',
     String featured = '',
     String cinema = '',
+    String bilingual = '',
     bool forceRefresh = false,
   }) async {
     final query = {
@@ -1866,6 +1871,7 @@ class MovieRepository {
       if (year.isNotEmpty) 'release_year': year,
       if (featured.isNotEmpty) 'featured': featured,
       if (cinema.isNotEmpty) 'chieu_rap': cinema,
+      if (bilingual.isNotEmpty) 'song_ngu': bilingual,
     };
     final cacheKey = _listCacheKey(query);
     final cached = _listCache[cacheKey];
@@ -3117,6 +3123,7 @@ class _HomeScreenState extends State<HomeScreen> {
       _safeMovies(() => widget.repo.list(limit: sectionLimit, type: 'movie')),
       _safeMovies(() => widget.repo.list(limit: sectionLimit, type: 'anime')),
       _safeMovies(() => widget.repo.list(limit: sectionLimit, type: 'tvshows')),
+      _safeMovies(() => widget.repo.list(limit: sectionLimit, bilingual: '1')),
     ]);
     final home = HomeData(
       featured: results[0],
@@ -3126,6 +3133,7 @@ class _HomeScreenState extends State<HomeScreen> {
       single: results[4],
       anime: results[5],
       tvShows: results[6],
+      bilingual: results[7],
       history: await historyFuture,
     );
     // Ghi cache nền (không cache history vì thay đổi liên tục).
@@ -3331,6 +3339,7 @@ class PhoneHome extends StatelessWidget {
       _HomeTab('Chiếu rạp', home.cinema, cinema: true),
       _HomeTab('Hoạt hình', home.anime, type: 'anime'),
       _HomeTab('TV Shows', home.tvShows, type: 'tvshows'),
+      _HomeTab('Song ngữ', home.bilingual, bilingual: true),
     ];
     return DefaultTabController(
       length: tabs.length,
@@ -3386,11 +3395,13 @@ class _HomeTab {
     this.movies, {
     this.type = '',
     this.cinema = false,
+    this.bilingual = false,
   });
   final String title;
   final List<Movie>? movies; // null = tab "Đề xuất"; ngược lại = seed trang 1
   final String type; // type gọi API cho tab danh mục
   final bool cinema; // chieu_rap=1
+  final bool bilingual; // song_ngu=1
 }
 
 class _HomeTabView extends StatelessWidget {
@@ -3475,6 +3486,7 @@ class _HomeTabView extends StatelessWidget {
               title: tab.title,
               type: tab.type,
               cinema: tab.cinema,
+              bilingual: tab.bilingual,
               repo: repo,
             ),
         ],
@@ -3491,12 +3503,14 @@ class _CategoryGrid extends StatefulWidget {
     required this.title,
     required this.type,
     required this.cinema,
+    required this.bilingual,
     required this.repo,
   });
   final List<Movie> seed;
   final String title;
   final String type;
   final bool cinema;
+  final bool bilingual;
   final MovieRepository repo;
 
   @override
@@ -3561,6 +3575,7 @@ class _CategoryGridState extends State<_CategoryGrid> {
         limit: _pageSize,
         type: widget.type,
         cinema: widget.cinema ? '1' : '',
+        bilingual: widget.bilingual ? '1' : '',
       );
       final fresh = more.where((m) => _ids.add(m.id)).toList();
       if (!mounted) return;
@@ -3664,6 +3679,7 @@ class HomeData {
     required this.single,
     required this.anime,
     required this.tvShows,
+    required this.bilingual,
     required this.history,
   });
   final List<Movie> featured;
@@ -3673,6 +3689,7 @@ class HomeData {
   final List<Movie> single;
   final List<Movie> anime;
   final List<Movie> tvShows;
+  final List<Movie> bilingual;
   final List<WatchItem> history;
 
   HomeData copyWith({List<WatchItem>? history}) => HomeData(
@@ -3683,6 +3700,7 @@ class HomeData {
     single: single,
     anime: anime,
     tvShows: tvShows,
+    bilingual: bilingual,
     history: history ?? this.history,
   );
 
@@ -3694,6 +3712,7 @@ class HomeData {
     'single': single.map((m) => m.toCacheJson()).toList(),
     'anime': anime.map((m) => m.toCacheJson()).toList(),
     'tvShows': tvShows.map((m) => m.toCacheJson()).toList(),
+    'bilingual': bilingual.map((m) => m.toCacheJson()).toList(),
   };
 
   factory HomeData.fromCacheJson(Map<String, dynamic> json) {
@@ -3711,6 +3730,7 @@ class HomeData {
       single: parse(json['single']),
       anime: parse(json['anime']),
       tvShows: parse(json['tvShows']),
+      bilingual: parse(json['bilingual']),
       history: const [],
     );
   }
@@ -3722,7 +3742,8 @@ class HomeData {
       series.isEmpty &&
       single.isEmpty &&
       anime.isEmpty &&
-      tvShows.isEmpty;
+      tvShows.isEmpty &&
+      bilingual.isEmpty;
 }
 
 // Cache dữ liệu home vào SharedPreferences để mở app hiển thị tức thì
@@ -4336,6 +4357,7 @@ class BrowseScreen extends StatefulWidget {
 class _BrowseScreenState extends State<BrowseScreen> {
   final search = TextEditingController();
   String type = '';
+  bool bilingual = false;
   String genre = '';
   String country = '';
   String year = '';
@@ -4452,12 +4474,14 @@ class _BrowseScreenState extends State<BrowseScreen> {
         country: country,
         year: year,
         sort: sort,
+        bilingual: bilingual ? '1' : '',
       );
     });
   }
 
   bool get hasActiveFilters =>
       type.isNotEmpty ||
+      bilingual ||
       genre.isNotEmpty ||
       country.isNotEmpty ||
       year.isNotEmpty ||
@@ -4466,6 +4490,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
   void clearFilters() {
     setState(() {
       type = '';
+      bilingual = false;
       genre = '';
       country = '';
       year = '';
@@ -4602,6 +4627,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
                     typeFilter('Phim bộ', 'series', Icons.live_tv_rounded),
                     typeFilter('Hoạt hình', 'anime', Icons.animation_rounded),
                     typeFilter('TV Shows', 'tvshows', Icons.tv_rounded),
+                    bilingualFilter(),
                   ],
                 ),
                 SizedBox(height: largeControls ? 18 : 14),
@@ -4657,6 +4683,14 @@ class _BrowseScreenState extends State<BrowseScreen> {
                           const SizedBox(height: 10),
                           ActiveFilterChips(
                             filters: [
+                              if (bilingual)
+                                (
+                                  'Song ngữ',
+                                  () {
+                                    bilingual = false;
+                                    runSearch();
+                                  },
+                                ),
                               if (type.isNotEmpty)
                                 (
                                   'Loại: ${typeLabel(type)}',
@@ -4746,6 +4780,28 @@ class _BrowseScreenState extends State<BrowseScreen> {
     return ChoiceChip(
       label: Text(label),
       selected: type == value,
+      showCheckmark: false,
+      onSelected: (_) => select(),
+    );
+  }
+
+  Widget bilingualFilter() {
+    void select() {
+      setState(() => bilingual = !bilingual);
+      runSearch();
+    }
+
+    if (useLeanbackControls) {
+      return TvFilterChip(
+        label: 'Song ngữ',
+        icon: Icons.translate_rounded,
+        selected: bilingual,
+        onPressed: select,
+      );
+    }
+    return ChoiceChip(
+      label: const Text('Song ngữ'),
+      selected: bilingual,
       showCheckmark: false,
       onSelected: (_) => select(),
     );
@@ -14821,6 +14877,12 @@ class MoviePosterCard extends StatelessWidget {
                     top: 10,
                     child: MetaPill(movie.availabilityBadgeLabel),
                   ),
+                  if (movie.hasBilingualServer)
+                    const Positioned(
+                      left: 10,
+                      top: 44,
+                      child: _BilingualBadge(),
+                    ),
                   if (movie.qualityBadgeLabel.isNotEmpty && onRemove == null)
                     Positioned(
                       top: 10,
@@ -14941,6 +15003,12 @@ class MoviePosterCard extends StatelessWidget {
                         bottom: useLandscapeArt ? null : 7,
                         child: MetaPill(movie.availabilityBadgeLabel),
                       ),
+                      if (movie.hasBilingualServer)
+                        const Positioned(
+                          left: 7,
+                          top: 7,
+                          child: _BilingualBadge(),
+                        ),
                       if (movie.qualityBadgeLabel.isNotEmpty &&
                           onRemove == null)
                         Positioned(
@@ -15675,6 +15743,34 @@ class MetaPill extends StatelessWidget {
     child: Text(
       label,
       style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+    ),
+  );
+}
+
+class _BilingualBadge extends StatelessWidget {
+  const _BilingualBadge();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 4),
+    decoration: BoxDecoration(
+      color: const Color(0xFF7C3AED),
+      borderRadius: BorderRadius.circular(6),
+      boxShadow: [
+        BoxShadow(
+          color: const Color(0xFF7C3AED).withValues(alpha: .36),
+          blurRadius: 8,
+          offset: const Offset(0, 3),
+        ),
+      ],
+    ),
+    child: const Text(
+      'SN',
+      style: TextStyle(
+        color: Colors.white,
+        fontSize: 11,
+        fontWeight: FontWeight.w900,
+      ),
     ),
   );
 }
