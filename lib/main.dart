@@ -9750,6 +9750,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   );
   final playButtonFocusNode = FocusNode(debugLabel: 'player-play-toggle');
   final seekBarFocusNode = FocusNode(debugLabel: 'player-seekbar');
+  final backButtonFocusNode = FocusNode(debugLabel: 'player-back');
   final webViewPlayFocusNode = FocusNode(debugLabel: 'streamc-play-toggle');
   late EpisodeServer currentServer;
   late EpisodeItem currentEpisode;
@@ -12803,6 +12804,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     overlayFocusScopeNode.dispose();
     playButtonFocusNode.dispose();
     seekBarFocusNode.dispose();
+    backButtonFocusNode.dispose();
     webViewPlayFocusNode.dispose();
     watchChatController.dispose();
     controller?.removeListener(_handlePlayerTick);
@@ -13098,10 +13100,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                           onPlayPause: _togglePlay,
                           onReplay: () => _seekBy(const Duration(seconds: -10)),
                           onForward: () => _seekBy(const Duration(seconds: 10)),
-                          onHideControls: () {
-                            controlsTimer?.cancel();
-                            if (mounted) setState(() => controls = false);
-                          },
+                          onFocusBack: () => backButtonFocusNode.requestFocus(),
                           onFocusPrimaryControl: () =>
                               playButtonFocusNode.requestFocus(),
                           onFocusSeekBar: () => seekBarFocusNode.requestFocus(),
@@ -13113,6 +13112,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                           onBack: _exitPlayer,
                           playFocusNode: playButtonFocusNode,
                           seekBarFocusNode: seekBarFocusNode,
+                          backFocusNode: backButtonFocusNode,
                         ),
                       ),
                     ),
@@ -13616,7 +13616,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.onPlayPause,
     required this.onReplay,
     required this.onForward,
-    required this.onHideControls,
+    required this.onFocusBack,
     required this.onFocusPrimaryControl,
     required this.onFocusSeekBar,
     required this.onPrevious,
@@ -13626,6 +13626,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.onFit,
     this.playFocusNode,
     this.seekBarFocusNode,
+    this.backFocusNode,
     this.onBack,
   });
   final VideoPlayerController? controller;
@@ -13639,7 +13640,7 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onPlayPause;
   final VoidCallback onReplay;
   final VoidCallback onForward;
-  final VoidCallback onHideControls;
+  final VoidCallback onFocusBack;
   final VoidCallback onFocusPrimaryControl;
   final VoidCallback onFocusSeekBar;
   final VoidCallback onPrevious;
@@ -13649,6 +13650,7 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onFit;
   final FocusNode? playFocusNode;
   final FocusNode? seekBarFocusNode;
+  final FocusNode? backFocusNode;
   final VoidCallback? onBack;
 
   @override
@@ -13676,6 +13678,7 @@ class PlayerOverlay extends StatelessWidget {
               Row(
                 children: [
                   IconButton.filledTonal(
+                    focusNode: backFocusNode,
                     onPressed: onBack ?? () => Navigator.of(context).maybePop(),
                     icon: const Icon(Icons.arrow_back_rounded),
                   ),
@@ -13711,7 +13714,7 @@ class PlayerOverlay extends StatelessWidget {
                         controller: c,
                         onSeekBackward: onReplay,
                         onSeekForward: onForward,
-                        onHideControls: onHideControls,
+                        onFocusBack: onFocusBack,
                         focusNode: seekBarFocusNode,
                         onFocusPrimaryControl: onFocusPrimaryControl,
                       ),
@@ -13832,7 +13835,7 @@ class PlayerSeekBar extends StatefulWidget {
     this.focusNode,
     required this.onSeekBackward,
     required this.onSeekForward,
-    required this.onHideControls,
+    required this.onFocusBack,
     required this.onFocusPrimaryControl,
   });
 
@@ -13840,7 +13843,7 @@ class PlayerSeekBar extends StatefulWidget {
   final FocusNode? focusNode;
   final VoidCallback onSeekBackward;
   final VoidCallback onSeekForward;
-  final VoidCallback onHideControls;
+  final VoidCallback onFocusBack;
   final VoidCallback onFocusPrimaryControl;
 
   @override
@@ -13869,7 +13872,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
           return KeyEventResult.handled;
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
-          widget.onHideControls();
+          widget.onFocusBack();
           return KeyEventResult.handled;
         }
         if (event.logicalKey == LogicalKeyboardKey.arrowDown) {
