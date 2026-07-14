@@ -3334,12 +3334,12 @@ class PhoneHome extends StatelessWidget {
     // các tab sau lọc theo danh mục, hiển dạng lưới.
     final tabs = <_HomeTab>[
       _HomeTab('Đề xuất', null),
+      _HomeTab('Song ngữ', home.bilingual, bilingual: true),
       _HomeTab('Phim bộ', home.series, type: 'series'),
       _HomeTab('Phim lẻ', home.single, type: 'movie'),
       _HomeTab('Chiếu rạp', home.cinema, cinema: true),
       _HomeTab('Hoạt hình', home.anime, type: 'anime'),
       _HomeTab('TV Shows', home.tvShows, type: 'tvshows'),
-      _HomeTab('Song ngữ', home.bilingual, bilingual: true),
     ];
     return DefaultTabController(
       length: tabs.length,
