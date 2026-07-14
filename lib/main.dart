@@ -12520,6 +12520,51 @@ class _PlayerScreenState extends State<PlayerScreen>
             unawaited(_saveSubtitleSettings());
           }
 
+          Widget settingsSlider({
+            required double value,
+            required double min,
+            required double max,
+            required int divisions,
+            required ValueChanged<double> onChanged,
+          }) {
+            final slider = Slider(
+              value: value,
+              min: min,
+              max: max,
+              divisions: divisions,
+              onChanged: onChanged,
+            );
+            if (!isTvBuild) return slider;
+
+            final step = (max - min) / divisions;
+            return Focus(
+              onKeyEvent: (node, event) {
+                if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+                  return KeyEventResult.ignored;
+                }
+                final key = event.logicalKey;
+                if (key == LogicalKeyboardKey.arrowLeft) {
+                  onChanged((value - step).clamp(min, max));
+                  return KeyEventResult.handled;
+                }
+                if (key == LogicalKeyboardKey.arrowRight) {
+                  onChanged((value + step).clamp(min, max));
+                  return KeyEventResult.handled;
+                }
+                if (key == LogicalKeyboardKey.arrowUp) {
+                  node.focusInDirection(TraversalDirection.up);
+                  return KeyEventResult.handled;
+                }
+                if (key == LogicalKeyboardKey.arrowDown) {
+                  node.focusInDirection(TraversalDirection.down);
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: ExcludeFocus(child: slider),
+            );
+          }
+
           return SafeArea(
             child: SingleChildScrollView(
               padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
@@ -12598,22 +12643,12 @@ class _PlayerScreenState extends State<PlayerScreen>
                   ),
                   const SizedBox(height: 16),
                   Text('Cỡ chữ: ${style.size.round()}px'),
-                  Shortcuts(
-                    shortcuts: isTvBuild
-                        ? const <ShortcutActivator, Intent>{
-                            SingleActivator(LogicalKeyboardKey.arrowUp):
-                                DirectionalFocusIntent(TraversalDirection.up),
-                            SingleActivator(LogicalKeyboardKey.arrowDown):
-                                DirectionalFocusIntent(TraversalDirection.down),
-                          }
-                        : const <ShortcutActivator, Intent>{},
-                    child: Slider(
-                      value: style.size,
-                      min: 10,
-                      max: language == 'vi' ? 50 : 40,
-                      divisions: language == 'vi' ? 40 : 30,
-                      onChanged: (value) => update(style.copyWith(size: value)),
-                    ),
+                  settingsSlider(
+                    value: style.size,
+                    min: 10,
+                    max: language == 'vi' ? 50 : 40,
+                    divisions: language == 'vi' ? 40 : 30,
+                    onChanged: (value) => update(style.copyWith(size: value)),
                   ),
                   const Text(
                     'Màu chữ',
@@ -12647,7 +12682,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   ),
                   const SizedBox(height: 16),
                   Text('Vị trí: ${style.bottom.round()}% từ cạnh dưới'),
-                  Slider(
+                  settingsSlider(
                     value: style.bottom,
                     min: 2,
                     max: 30,
