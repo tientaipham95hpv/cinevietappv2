@@ -1003,6 +1003,36 @@ class EpisodeServer {
   final String name;
   final List<EpisodeItem> items;
 
+  String get typeName {
+    final s = name.toLowerCase();
+    if (s.contains('song ngữ') ||
+        s.contains('song ngu') ||
+        s.contains('vicdn')) {
+      return 'Song Ngữ';
+    }
+    if (s.contains('lồng tiếng') || s.contains('long tieng')) {
+      return 'Lồng Tiếng';
+    }
+    if (s.contains('thuyết minh') || s.contains('thuyet minh')) {
+      return 'Thuyết Minh';
+    }
+    if (s.contains('vietsub')) return 'Vietsub';
+    return displayName;
+  }
+
+  String get sourceName {
+    final s = name.toLowerCase();
+    if (typeName == 'Song Ngữ' || s.contains('vicdn')) return 'ViCDN';
+    if (s.contains('ophim')) return 'OPhim';
+    if (s.contains('kkphim') || s.contains('phimapi')) return 'KKPhim';
+    if (s.contains('nguồn c') ||
+        s.contains('nguonc') ||
+        items.any((e) => e.linkEmbed.contains('streamc.xyz'))) {
+      return 'NguồnC';
+    }
+    return 'Nguồn khác';
+  }
+
   String get displayName {
     final base = name
         .replaceAll(
@@ -8633,6 +8663,7 @@ class EpisodeSection extends StatefulWidget {
 class _EpisodeSectionState extends State<EpisodeSection> {
   final searchController = TextEditingController();
   int? selectedRangeStart;
+  String? selectedServerType;
 
   @override
   void didUpdateWidget(covariant EpisodeSection oldWidget) {
@@ -8640,6 +8671,7 @@ class _EpisodeSectionState extends State<EpisodeSection> {
     if (oldWidget.serverIndex != widget.serverIndex ||
         oldWidget.servers != widget.servers) {
       final safeIndex = widget.serverIndex.clamp(0, widget.servers.length - 1);
+      selectedServerType = widget.servers[safeIndex].typeName;
       selectedRangeStart = _initialRangeStart(widget.servers[safeIndex].items);
       searchController.clear();
     }
@@ -8702,6 +8734,11 @@ class _EpisodeSectionState extends State<EpisodeSection> {
       widget.servers.length - 1,
     );
     final server = widget.servers[selectedIndex];
+    selectedServerType ??= server.typeName;
+    final serverTypes = widget.servers.map((e) => e.typeName).toSet().toList();
+    final visibleServerIndexes = widget.servers.indexed
+        .where((e) => e.$2.typeName == selectedServerType)
+        .map((e) => e.$1);
     final ranges = _rangeStarts(server.items);
     selectedRangeStart ??= _initialRangeStart(server.items);
     final query = searchController.text;
@@ -8770,20 +8807,46 @@ class _EpisodeSectionState extends State<EpisodeSection> {
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                for (var i = 0; i < widget.servers.length; i++)
+                for (final type in serverTypes)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: ChoiceChip(
+                      label: Text(type),
+                      selected: type == selectedServerType,
+                      showCheckmark: false,
+                      onSelected: (_) {
+                        final i = widget.servers.indexWhere(
+                          (e) => e.typeName == type,
+                        );
+                        if (i >= 0) {
+                          setState(() => selectedServerType = type);
+                          widget.onServerChanged(i);
+                        }
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                for (final i in visibleServerIndexes)
                   Padding(
                     padding: EdgeInsets.only(
                       right: useLeanbackControls ? 12 : 8,
                     ),
                     child: useLeanbackControls
                         ? TvFilterChip(
-                            label: widget.servers[i].displayName,
+                            label: widget.servers[i].sourceName,
                             icon: Icons.storage_rounded,
                             selected: i == selectedIndex,
                             onPressed: () => widget.onServerChanged(i),
                           )
                         : ChoiceChip(
-                            label: Text(widget.servers[i].displayName),
+                            label: Text(widget.servers[i].sourceName),
                             selected: i == selectedIndex,
                             showCheckmark: false,
                             onSelected: (_) => widget.onServerChanged(i),
@@ -10860,6 +10923,26 @@ class _PlayerScreenState extends State<PlayerScreen>
     await windowsWebViewController?.dispose();
     windowsWebViewController = null;
     activeWebViewUrl = null;
+    if (currentEpisode.linkM3u8.isEmpty &&
+        currentEpisode.linkEmbed.isNotEmpty) {
+      final source = _currentPlaybackSources().firstWhere(
+        (item) =>
+            item.serverIndex == currentServerIndex && item.webViewUrl != null,
+        orElse: () => const PlaybackSourceCandidate(
+          server: EpisodeServer(name: '', items: []),
+          episode: EpisodeItem(name: ''),
+          serverIndex: -1,
+          qualityLabel: '',
+          qualityRank: 0,
+          sourceLabel: '',
+          urls: [],
+        ),
+      );
+      if (source.serverIndex >= 0) {
+        await _openWebViewSource(source);
+        return;
+      }
+    }
     activePlayableUrls = _playbackUrlCandidates();
     if (activePlayableUrls.isEmpty) {
       // Link trực tiếp của server đang chọn không phát được native → thử
@@ -13904,6 +13987,7 @@ class PlayerEpisodeSheet extends StatefulWidget {
 
 class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
   late int serverIndex;
+  String? selectedServerType;
   final searchController = TextEditingController();
   int? selectedRangeStart;
   bool checkingServers = false;
@@ -13914,6 +13998,7 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
     super.initState();
     final found = widget.movie.episodes.indexOf(widget.currentServer);
     serverIndex = found < 0 ? 0 : found;
+    selectedServerType = widget.movie.episodes[serverIndex].typeName;
   }
 
   @override
@@ -13976,14 +14061,6 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
     }
   }
 
-  String _serverChipLabel(int index) {
-    final base = widget.movie.episodes[index].displayName;
-    final health = serverHealth[index];
-    if (health == null) return base;
-    final ms = health.responseMs > 0 ? ' ${health.responseMs}ms' : '';
-    return '$base • ${health.label}$ms';
-  }
-
   List<int> _rangeStarts(List<EpisodeItem> episodes) {
     if (episodes.length <= 50) return const [];
     final maxEpisode = episodes.indexed.fold<int>(0, (max, entry) {
@@ -14029,6 +14106,10 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
   Widget build(BuildContext context) {
     final servers = widget.movie.episodes;
     final server = servers[serverIndex.clamp(0, servers.length - 1)];
+    final serverTypes = servers.map((e) => e.typeName).toSet().toList();
+    final visibleServerIndexes = servers.indexed
+        .where((e) => e.$2.typeName == selectedServerType)
+        .map((e) => e.$1);
     final ranges = _rangeStarts(server.items);
     final query = searchController.text;
     final visibleEntries = server.items.indexed
@@ -14104,12 +14185,41 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      for (var i = 0; i < servers.length; i++)
+                      for (final type in serverTypes)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8),
+                          child: ChoiceChip(
+                            label: Text(type),
+                            selected: type == selectedServerType,
+                            showCheckmark: false,
+                            onSelected: (_) {
+                              final i = servers.indexWhere(
+                                (e) => e.typeName == type,
+                              );
+                              if (i >= 0) {
+                                setState(() {
+                                  selectedServerType = type;
+                                  serverIndex = i;
+                                });
+                              }
+                            },
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final i in visibleServerIndexes)
                         Padding(
                           padding: const EdgeInsets.only(right: 8),
                           child: useLeanbackControls
                               ? TvFilterChip(
-                                  label: _serverChipLabel(i),
+                                  label:
+                                      '${servers[i].sourceName} • ${serverHealth[i]?.label ?? 'chưa kiểm tra'}',
                                   selected: i == serverIndex,
                                   onPressed: () => setState(() {
                                     serverIndex = i;
@@ -14118,7 +14228,9 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                                   }),
                                 )
                               : ChoiceChip(
-                                  label: Text(_serverChipLabel(i)),
+                                  label: Text(
+                                    '${servers[i].sourceName} • ${serverHealth[i]?.label ?? 'chưa kiểm tra'}',
+                                  ),
                                   selected: i == serverIndex,
                                   showCheckmark: false,
                                   onSelected: (_) => setState(() {
