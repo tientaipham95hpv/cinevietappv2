@@ -12598,12 +12598,22 @@ class _PlayerScreenState extends State<PlayerScreen>
                   ),
                   const SizedBox(height: 16),
                   Text('Cỡ chữ: ${style.size.round()}px'),
-                  Slider(
-                    value: style.size,
-                    min: 10,
-                    max: language == 'vi' ? 50 : 40,
-                    divisions: language == 'vi' ? 40 : 30,
-                    onChanged: (value) => update(style.copyWith(size: value)),
+                  Shortcuts(
+                    shortcuts: isTvBuild
+                        ? const <ShortcutActivator, Intent>{
+                            SingleActivator(LogicalKeyboardKey.arrowUp):
+                                DirectionalFocusIntent(TraversalDirection.up),
+                            SingleActivator(LogicalKeyboardKey.arrowDown):
+                                DirectionalFocusIntent(TraversalDirection.down),
+                          }
+                        : const <ShortcutActivator, Intent>{},
+                    child: Slider(
+                      value: style.size,
+                      min: 10,
+                      max: language == 'vi' ? 50 : 40,
+                      divisions: language == 'vi' ? 40 : 30,
+                      onChanged: (value) => update(style.copyWith(size: value)),
+                    ),
                   ),
                   const Text(
                     'Màu chữ',
