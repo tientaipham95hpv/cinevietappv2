@@ -9635,6 +9635,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   late int currentServerIndex;
   String? selectedAudioKey;
   String? selectedSubtitleLang;
+  String subtitleFont = 'Lora';
+  double subtitleSize = 18;
+  Color subtitleColor = Colors.white;
+  double subtitleBottom = 34;
   PlayerFitMode fitMode = PlayerFitMode.contain;
   bool controls = true;
   bool controlsLocked = false;
@@ -9706,6 +9710,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     currentEpisode = widget.episode;
     currentServerIndex = widget.serverIndex;
     _resetTrackSelectionForEpisode();
+    unawaited(_loadSubtitleSettings());
     watchRoomState = widget.watchTogetherState;
     watchMessages.addAll(widget.watchTogetherState?.messages ?? const []);
     WakelockPlus.enable();
@@ -9731,6 +9736,58 @@ class _PlayerScreenState extends State<PlayerScreen>
     _bindWatchTogetherSocket();
     _loadIntroSkipSegments();
     _init();
+  }
+
+  static const _subtitlePrefsKey = 'cinevietSubtitleConfigApp';
+
+  Future<void> _loadSubtitleSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_subtitlePrefsKey);
+    if (raw == null || raw.isEmpty) return;
+    try {
+      final json = jsonDecode(raw) as Map<String, dynamic>;
+      if (!mounted) return;
+      setState(() {
+        subtitleFont =
+            const [
+              'Lora',
+              'Plus Jakarta Sans',
+              'Arial',
+              'Tahoma',
+            ].contains(json['font'])
+            ? json['font'] as String
+            : 'Lora';
+        subtitleSize = ((json['size'] as num?)?.toDouble() ?? 18).clamp(14, 34);
+        subtitleColor = Color((json['color'] as num?)?.toInt() ?? 0xffffffff);
+        subtitleBottom = ((json['bottom'] as num?)?.toDouble() ?? 34).clamp(
+          24,
+          180,
+        );
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _saveSubtitleSettings() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _subtitlePrefsKey,
+      jsonEncode({
+        'font': subtitleFont,
+        'size': subtitleSize,
+        'color': subtitleColor.toARGB32(),
+        'bottom': subtitleBottom,
+      }),
+    );
+  }
+
+  void _resetSubtitleSettings() {
+    setState(() {
+      subtitleFont = 'Lora';
+      subtitleSize = 18;
+      subtitleColor = Colors.white;
+      subtitleBottom = 34;
+    });
+    unawaited(_saveSubtitleSettings());
   }
 
   bool _isStreamCEmbedUrl(String raw) {
@@ -12234,6 +12291,15 @@ class _PlayerScreenState extends State<PlayerScreen>
                           ),
                       ],
                     ),
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: () async {
+                        await _showSubtitleSettingsSheet();
+                        setSheetState(() {});
+                      },
+                      icon: const Icon(Icons.subtitles_rounded),
+                      label: const Text('Cài đặt phụ đề'),
+                    ),
                   ],
                   const Divider(height: 24),
                   const Text(
@@ -12289,6 +12355,163 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
     _showControls();
   }
+
+  Future<void> _showSubtitleSettingsSheet() async {
+    const fonts = ['Lora', 'Plus Jakarta Sans', 'Arial', 'Tahoma'];
+    const colors = [
+      Colors.white,
+      Color(0xffffeb3b),
+      Color(0xff80d8ff),
+      Color(0xffffb3c7),
+    ];
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: CvColors.ink,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => StatefulBuilder(
+        builder: (context, setSheetState) {
+          void update(VoidCallback change) {
+            setState(change);
+            setSheetState(() {});
+            unawaited(_saveSubtitleSettings());
+          }
+
+          return SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const SectionTitle('Cài đặt phụ đề'),
+                  const SizedBox(height: 14),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: CvColors.borderLight),
+                    ),
+                    child: Text(
+                      'Đây là nội dung phụ đề mẫu\nSubtitle preview',
+                      textAlign: TextAlign.center,
+                      style: _subtitleTextStyle,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Phông chữ',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final font in fonts)
+                        ChoiceChip(
+                          label: Text(font, style: TextStyle(fontFamily: font)),
+                          selected: subtitleFont == font,
+                          showCheckmark: false,
+                          onSelected: (_) => update(() => subtitleFont = font),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  Text('Cỡ chữ: ${subtitleSize.round()}'),
+                  Slider(
+                    value: subtitleSize,
+                    min: 14,
+                    max: 34,
+                    divisions: 20,
+                    onChanged: (value) => update(() => subtitleSize = value),
+                  ),
+                  const Text(
+                    'Màu chữ',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 12,
+                    children: [
+                      for (final color in colors)
+                        InkWell(
+                          onTap: () => update(() => subtitleColor = color),
+                          borderRadius: BorderRadius.circular(999),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: subtitleColor == color
+                                    ? CvColors.accent
+                                    : Colors.white24,
+                                width: subtitleColor == color ? 3 : 1,
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Vị trí',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 8),
+                  SegmentedButton<double>(
+                    segments: const [
+                      ButtonSegment(value: 34, label: Text('Thấp')),
+                      ButtonSegment(value: 92, label: Text('Giữa')),
+                      ButtonSegment(value: 160, label: Text('Cao')),
+                    ],
+                    selected: {subtitleBottom},
+                    onSelectionChanged: (value) =>
+                        update(() => subtitleBottom = value.first),
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () {
+                          _resetSubtitleSettings();
+                          setSheetState(() {});
+                        },
+                        icon: const Icon(Icons.restart_alt_rounded),
+                        label: const Text('Mặc định'),
+                      ),
+                      const Spacer(),
+                      FilledButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text('Xong'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    _showControls();
+  }
+
+  TextStyle get _subtitleTextStyle => TextStyle(
+    color: subtitleColor,
+    fontFamily: subtitleFont,
+    fontSize: subtitleSize,
+    fontWeight: FontWeight.w700,
+    height: 1.25,
+    shadows: const [
+      Shadow(offset: Offset(0, 1), blurRadius: 4, color: Colors.black),
+      Shadow(offset: Offset(0, 2), blurRadius: 8, color: Colors.black),
+    ],
+  );
 
   Widget _buildMobileWebView(WebViewController controller) {
     Widget child = Focus(
@@ -12553,29 +12776,15 @@ class _PlayerScreenState extends State<PlayerScreen>
                     Positioned(
                       left: 24,
                       right: 24,
-                      bottom: controls ? 132 : 34,
+                      bottom: controls
+                          ? math.max(132, subtitleBottom)
+                          : subtitleBottom,
                       child: IgnorePointer(
                         child: ValueListenableBuilder<VideoPlayerValue>(
                           valueListenable: c,
                           builder: (context, value, _) => ClosedCaption(
                             text: value.caption.text,
-                            textStyle: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.w800,
-                              shadows: [
-                                Shadow(
-                                  offset: Offset(0, 1),
-                                  blurRadius: 4,
-                                  color: Colors.black,
-                                ),
-                                Shadow(
-                                  offset: Offset(0, 2),
-                                  blurRadius: 8,
-                                  color: Colors.black,
-                                ),
-                              ],
-                            ),
+                            textStyle: _subtitleTextStyle,
                           ),
                         ),
                       ),

@@ -114,6 +114,9 @@ flutter:
           weight: 500
         - asset: assets/fonts/JetBrainsMono-Bold.ttf
           weight: 700
+    - family: Lora
+      fonts:
+        - asset: assets/fonts/Lora-Variable.ttf
 
   # To add assets to your application, add an assets section, like this:
   # assets:
