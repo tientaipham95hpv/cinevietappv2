@@ -839,10 +839,13 @@ class Movie {
     return metaLineFor();
   }
 
-  String metaLineFor({bool compactLanguage = false}) {
+  String metaLineFor({
+    bool compactLanguage = false,
+    bool includeQuality = true,
+  }) {
     final parts = [
       if (releaseYear != null) '$releaseYear',
-      if (quality.isNotEmpty) quality,
+      if (includeQuality && quality.isNotEmpty) quality,
       if (language.isNotEmpty)
         compactLanguage ? compactLanguageLabel(language) : language,
       if (episodeCurrent.isNotEmpty) episodeCurrent,
@@ -13910,7 +13913,10 @@ class MoviePosterCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final useLandscapeArt = isTvBuild;
-    final cardMetaLine = movie.metaLineFor(compactLanguage: !useLandscapeArt);
+    final cardMetaLine = movie.metaLineFor(
+      compactLanguage: !useLandscapeArt,
+      includeQuality: useLandscapeArt,
+    );
     final artUrl = useLandscapeArt
         ? (movie.backdropUrl.isNotEmpty ? movie.backdropUrl : movie.posterUrl)
         : movie.posterUrl;

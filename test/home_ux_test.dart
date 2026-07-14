@@ -18,6 +18,28 @@ void main() {
     expect(compactLanguageLabel('Vietsub + Lồng tiếng'), 'VS + LT');
   });
 
+  test('portrait movie card meta omits quality when badge already shows it', () {
+    final movie = Movie(
+      id: 8,
+      title: 'Gọn Meta',
+      slug: 'gon-meta',
+      poster: '',
+      backdrop: '',
+      releaseYear: 2026,
+      quality: 'HD',
+      language: 'Vietsub + Thuyết minh',
+    );
+
+    expect(
+      movie.metaLineFor(compactLanguage: true, includeQuality: false),
+      '2026  •  VS + TM',
+    );
+    expect(
+      movie.metaLineFor(compactLanguage: false, includeQuality: true),
+      '2026  •  HD  •  Vietsub + Thuyết minh',
+    );
+  });
+
   testWidgets('HomeSkeleton renders without throwing', (tester) async {
     await tester.pumpWidget(_wrap(const HomeSkeleton()));
     await tester.pump(const Duration(milliseconds: 100));
