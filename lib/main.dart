@@ -1120,6 +1120,79 @@ class EpisodeSubtitleTrack {
   }
 }
 
+class BilingualCaptionFile extends ClosedCaptionFile {
+  BilingualCaptionFile(ClosedCaptionFile primary, ClosedCaptionFile secondary)
+    : captions = _mergeCaptions(primary.captions, secondary.captions);
+
+  @override
+  final List<Caption> captions;
+
+  static List<Caption> _mergeCaptions(
+    List<Caption> primary,
+    List<Caption> secondary,
+  ) {
+    final out = <Caption>[];
+    final usedSecondary = <int>{};
+
+    for (final first in primary) {
+      Caption? best;
+      var bestOverlap = Duration.zero;
+      for (var i = 0; i < secondary.length; i++) {
+        final second = secondary[i];
+        final start = first.start > second.start ? first.start : second.start;
+        final end = first.end < second.end ? first.end : second.end;
+        final overlap = end - start;
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          best = second;
+        }
+      }
+      if (best != null && bestOverlap.inMilliseconds > 0) {
+        usedSecondary.add(secondary.indexOf(best));
+      }
+      final text = [
+        first.text.trim(),
+        if (best != null && best.text.trim().isNotEmpty) best.text.trim(),
+      ].where((line) => line.isNotEmpty).join('\n');
+      if (text.isEmpty) continue;
+      out.add(
+        Caption(
+          number: out.length + 1,
+          start: first.start,
+          end: first.end,
+          text: text,
+        ),
+      );
+    }
+
+    for (var i = 0; i < secondary.length; i++) {
+      if (usedSecondary.contains(i)) continue;
+      final second = secondary[i];
+      final text = second.text.trim();
+      if (text.isEmpty) continue;
+      out.add(
+        Caption(
+          number: out.length + 1,
+          start: second.start,
+          end: second.end,
+          text: text,
+        ),
+      );
+    }
+
+    out.sort((a, b) => a.start.compareTo(b.start));
+    return [
+      for (var i = 0; i < out.length; i++)
+        Caption(
+          number: i + 1,
+          start: out[i].start,
+          end: out[i].end,
+          text: out[i].text,
+        ),
+    ];
+  }
+}
+
 class EpisodeAudioSource {
   const EpisodeAudioSource({
     required this.key,
@@ -9629,13 +9702,28 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   EpisodeSubtitleTrack? get _selectedSubtitleTrack {
+    final tracks = _selectedSubtitleTracks;
+    return tracks.isEmpty ? null : tracks.first;
+  }
+
+  List<EpisodeSubtitleTrack> get _selectedSubtitleTracks {
     final tracks = currentEpisode.subtitles;
     final lang = selectedSubtitleLang;
-    if (tracks.isEmpty || lang == null || lang == 'off') return null;
-    for (final track in tracks) {
-      if (track.lang == lang) return track;
+    if (tracks.isEmpty || lang == null || lang == 'off') return const [];
+    if (lang == 'dual') {
+      EpisodeSubtitleTrack? vi;
+      EpisodeSubtitleTrack? en;
+      for (final track in tracks) {
+        final key = track.lang.toLowerCase();
+        if (key == 'vi') vi = track;
+        if (key == 'en') en = track;
+      }
+      return [?vi, ?en];
     }
-    return null;
+    for (final track in tracks) {
+      if (track.lang == lang) return [track];
+    }
+    return const [];
   }
 
   bool _isSelectedEpisodeSource(EpisodeServer server, EpisodeItem episode) =>
@@ -9661,7 +9749,10 @@ class _PlayerScreenState extends State<PlayerScreen>
       selectedSubtitleLang = null;
     } else {
       final vi = subtitles.where((item) => item.lang.toLowerCase() == 'vi');
-      selectedSubtitleLang = vi.isNotEmpty
+      final en = subtitles.where((item) => item.lang.toLowerCase() == 'en');
+      selectedSubtitleLang = vi.isNotEmpty && en.isNotEmpty
+          ? 'dual'
+          : vi.isNotEmpty
           ? vi.first.lang
           : subtitles.first.lang;
     }
@@ -9689,6 +9780,15 @@ class _PlayerScreenState extends State<PlayerScreen>
       return SubRipCaptionFile(contents);
     }
     return WebVTTCaptionFile(contents);
+  }
+
+  Future<ClosedCaptionFile>? _closedCaptionFileForSelectedTracks() {
+    final tracks = _selectedSubtitleTracks;
+    if (tracks.isEmpty) return null;
+    if (tracks.length == 1) return _closedCaptionFileForTrack(tracks.first);
+    return Future.wait(
+      tracks.map(_closedCaptionFileForTrack),
+    ).then((files) => BilingualCaptionFile(files[0], files[1]));
   }
 
   bool _isInitialEpisodeForResume() {
@@ -10812,18 +10912,16 @@ class _PlayerScreenState extends State<PlayerScreen>
           );
           continue;
         }
-        final subtitleTrack =
+        final captionFile =
             _isSelectedEpisodeSource(
               candidate.source.server,
               candidate.source.episode,
             )
-            ? _selectedSubtitleTrack
+            ? _closedCaptionFileForSelectedTracks()
             : null;
         final next = VideoPlayerController.networkUrl(
           parsed,
-          closedCaptionFile: subtitleTrack == null
-              ? null
-              : _closedCaptionFileForTrack(subtitleTrack),
+          closedCaptionFile: captionFile,
         );
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));
@@ -11361,10 +11459,9 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _selectSubtitleTrack(String? lang) async {
     selectedSubtitleLang = lang ?? 'off';
-    final track = _selectedSubtitleTrack;
     try {
       await controller?.setClosedCaptionFile(
-        track == null ? null : _closedCaptionFileForTrack(track),
+        _closedCaptionFileForSelectedTracks(),
       );
     } catch (e) {
       lastPlaybackError = '$e';
@@ -12012,6 +12109,21 @@ class _PlayerScreenState extends State<PlayerScreen>
                             setSheetState(() {});
                           },
                         ),
+                        if (currentEpisode.subtitles.any(
+                              (item) => item.lang.toLowerCase() == 'vi',
+                            ) &&
+                            currentEpisode.subtitles.any(
+                              (item) => item.lang.toLowerCase() == 'en',
+                            ))
+                          ChoiceChip(
+                            label: const Text('Song ngữ VI + EN'),
+                            selected: selectedSubtitleLang == 'dual',
+                            showCheckmark: false,
+                            onSelected: (_) async {
+                              await _selectSubtitleTrack('dual');
+                              setSheetState(() {});
+                            },
+                          ),
                         for (final subtitle in currentEpisode.subtitles)
                           ChoiceChip(
                             label: Text(subtitle.label),
