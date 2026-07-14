@@ -12035,7 +12035,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _exitPlayer() async {
     if (leavingPlayer) return;
-    leavingPlayer = true;
+    setState(() => leavingPlayer = true);
     try {
       await _save().timeout(const Duration(seconds: 2));
     } catch (_) {}
@@ -12828,7 +12828,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     return PopScope(
       // WebView (StreamC/NguồnC) có thể giữ history/popup riêng và nuốt nút back.
       // Chặn pop mặc định để mọi nút back luôn đi qua _exitPlayer() của app.
-      canPop: false,
+      canPop: leavingPlayer,
       onPopInvokedWithResult: (didPop, _) {
         if (didPop) return;
         unawaited(_exitPlayer());
@@ -13915,6 +13915,22 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
               0.0,
               max,
             );
+            final slider = Slider(
+              value: sliderValue,
+              min: 0,
+              max: max,
+              onChanged: durationMs <= 0
+                  ? null
+                  : (nextMs) => setState(() => dragValueMs = nextMs),
+              onChangeEnd: durationMs <= 0
+                  ? null
+                  : (nextMs) {
+                      setState(() => dragValueMs = null);
+                      widget.controller.seekTo(
+                        Duration(milliseconds: nextMs.round()),
+                      );
+                    },
+            );
             return SliderTheme(
               data: SliderTheme.of(context).copyWith(
                 trackHeight: focused && isTvBuild ? 7 : 4,
@@ -13925,22 +13941,7 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
                 overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
               ),
-              child: Slider(
-                value: sliderValue,
-                min: 0,
-                max: max,
-                onChanged: durationMs <= 0
-                    ? null
-                    : (nextMs) => setState(() => dragValueMs = nextMs),
-                onChangeEnd: durationMs <= 0
-                    ? null
-                    : (nextMs) {
-                        setState(() => dragValueMs = null);
-                        widget.controller.seekTo(
-                          Duration(milliseconds: nextMs.round()),
-                        );
-                      },
-              ),
+              child: isTvBuild ? ExcludeFocus(child: slider) : slider,
             );
           },
         ),
