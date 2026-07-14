@@ -9829,6 +9829,16 @@ class _PlayerScreenState extends State<PlayerScreen>
     return episode.playUrl;
   }
 
+  String _absoluteMediaUrl(String raw) {
+    final value = raw.trim();
+    if (value.isEmpty) return '';
+    final parsed = Uri.tryParse(value);
+    if (parsed == null) return value;
+    if (parsed.hasScheme) return parsed.toString();
+    if (value.startsWith('//')) return 'https:$value';
+    return Uri.parse('$siteBase/').resolve(value).toString();
+  }
+
   Future<ClosedCaptionFile> _closedCaptionFileForTrack(
     EpisodeSubtitleTrack track,
   ) async {
@@ -9837,7 +9847,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         responseType: ResponseType.plain,
         receiveTimeout: const Duration(seconds: 12),
       ),
-    ).get<String>(track.url);
+    ).get<String>(_absoluteMediaUrl(track.url));
     final contents = res.data ?? '';
     if (track.format.toLowerCase().contains('srt')) {
       return SubRipCaptionFile(contents);
@@ -9871,12 +9881,13 @@ class _PlayerScreenState extends State<PlayerScreen>
     final urls = <String>[];
 
     void add(String value) {
-      final text = value.trim();
+      final text = _absoluteMediaUrl(value);
       if (text.isEmpty || urls.contains(text)) return;
       urls.add(text);
     }
 
-    final parsed = Uri.tryParse(raw);
+    final absoluteRaw = _absoluteMediaUrl(raw);
+    final parsed = Uri.tryParse(absoluteRaw);
     final rawPath = parsed?.path.toLowerCase() ?? '';
     final rawHost = parsed?.host.toLowerCase() ?? '';
     final rawLooksPlayable =
@@ -9892,7 +9903,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         ? Uri.decodeFull(nested)
         : '';
     final directM3u8 = rawPath.contains('.m3u8')
-        ? raw
+        ? absoluteRaw
         : (Uri.tryParse(decodedNested)?.path.toLowerCase().contains('.m3u8') ??
               false)
         ? decodedNested
@@ -9903,7 +9914,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (directM3u8.isNotEmpty && !directM3u8.contains('/api/stream')) {
       add('$apiBase/stream?url=${Uri.encodeComponent(directM3u8)}');
     }
-    if (rawLooksPlayable && !rawIsKnownEmbedOnly) add(raw);
+    if (rawLooksPlayable && !rawIsKnownEmbedOnly) add(absoluteRaw);
     if (decodedNested.isNotEmpty) add(decodedNested);
 
     return urls;
