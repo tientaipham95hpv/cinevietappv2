@@ -481,6 +481,28 @@ List<String> csv(dynamic value) {
       .toList();
 }
 
+String compactLanguageLabel(String value) {
+  final raw = value.trim();
+  if (raw.isEmpty) return '';
+  final lower = raw.toLowerCase();
+  final hasVietsub = lower.contains('vietsub') || lower.contains('việt sub');
+  final hasThuyetMinh =
+      lower.contains('thuyết minh') ||
+      lower.contains('thuyet minh') ||
+      lower.contains('voice over');
+  final hasLongTieng =
+      lower.contains('lồng tiếng') ||
+      lower.contains('long tieng') ||
+      lower.contains('dub');
+  final labels = <String>[
+    if (hasVietsub) 'VS',
+    if (hasThuyetMinh) 'TM',
+    if (hasLongTieng) 'LT',
+  ];
+  if (labels.isEmpty) return raw;
+  return labels.join(' + ');
+}
+
 class Api {
   Api._() {
     dio.interceptors.add(
@@ -535,6 +557,9 @@ class Api {
   );
   bool _refreshing = false;
   Future<bool>? _refreshFuture;
+  bool _tokensLoaded = false;
+  String _accessToken = '';
+  String _refreshToken = '';
 
   Future<bool> _retryTransient(
     DioException error,
@@ -572,21 +597,40 @@ class Api {
   }
 
   Future<String?> _readAccessToken() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('cineviet_v2_access_token') ??
-        prefs.getString('cineviet_access_token');
+    await _ensureTokensLoaded();
+    return _accessToken.isEmpty ? null : _accessToken;
   }
 
   Future<String?> _readRefreshToken() async {
+    await _ensureTokensLoaded();
+    return _refreshToken.isEmpty ? null : _refreshToken;
+  }
+
+  Future<void> _ensureTokensLoaded() async {
+    if (_tokensLoaded) return;
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString('cineviet_v2_refresh_token') ??
-        prefs.getString('cineviet_refresh_token');
+    _accessToken =
+        prefs.getString('cineviet_v2_access_token') ??
+        prefs.getString('cineviet_access_token') ??
+        '';
+    _refreshToken =
+        prefs.getString('cineviet_v2_refresh_token') ??
+        prefs.getString('cineviet_refresh_token') ??
+        '';
+    _tokensLoaded = true;
   }
 
   Future<void> restoreToken() async {
     final token = await _readAccessToken();
     if (token != null && token.isNotEmpty) {
       dio.options.headers['Authorization'] = 'Bearer $token';
+      return;
+    }
+    if (await refreshToken()) {
+      final refreshed = await _readAccessToken();
+      if (refreshed != null && refreshed.isNotEmpty) {
+        dio.options.headers['Authorization'] = 'Bearer $refreshed';
+      }
     }
   }
 
@@ -594,10 +638,13 @@ class Api {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('cineviet_v2_access_token', token);
     await prefs.setString('cineviet_access_token', token);
+    _accessToken = token;
     if (refreshToken.isNotEmpty) {
       await prefs.setString('cineviet_v2_refresh_token', refreshToken);
       await prefs.setString('cineviet_refresh_token', refreshToken);
+      _refreshToken = refreshToken;
     }
+    _tokensLoaded = true;
     dio.options.headers['Authorization'] = 'Bearer $token';
   }
 
@@ -640,6 +687,9 @@ class Api {
     await prefs.remove('cineviet_v2_refresh_token');
     await prefs.remove('cineviet_access_token');
     await prefs.remove('cineviet_refresh_token');
+    _accessToken = '';
+    _refreshToken = '';
+    _tokensLoaded = true;
     dio.options.headers.remove('Authorization');
   }
 
@@ -786,10 +836,15 @@ class Movie {
   String get posterBadgeLabel => availabilityBadgeLabel;
 
   String get metaLine {
+    return metaLineFor();
+  }
+
+  String metaLineFor({bool compactLanguage = false}) {
     final parts = [
       if (releaseYear != null) '$releaseYear',
       if (quality.isNotEmpty) quality,
-      if (language.isNotEmpty) language,
+      if (language.isNotEmpty)
+        compactLanguage ? compactLanguageLabel(language) : language,
       if (episodeCurrent.isNotEmpty) episodeCurrent,
       if (duration != null && duration! > 0) '${duration}p',
     ];
@@ -4435,6 +4490,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
           future: results,
           cardWidth: gridWidth,
           repo: widget.repo,
+          touchColumns: 2,
           onRetry: runSearch,
           emptyMessage: hasActiveFilters
               ? 'Không có phim khớp bộ lọc hiện tại'
@@ -4866,6 +4922,7 @@ class FutureGrid extends StatelessWidget {
     required this.future,
     required this.cardWidth,
     required this.repo,
+    this.touchColumns,
     this.onRetry,
     this.emptyMessage = 'Không tìm thấy phim phù hợp',
     this.emptyActionLabel,
@@ -4874,6 +4931,7 @@ class FutureGrid extends StatelessWidget {
   final Future<List<Movie>> future;
   final double cardWidth;
   final MovieRepository repo;
+  final int? touchColumns;
   final VoidCallback? onRetry;
   final String emptyMessage;
   final String? emptyActionLabel;
@@ -4881,6 +4939,33 @@ class FutureGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final gridPad = pagePadding(context);
+    final useFixedTouchGrid =
+        !useLeanbackControls && touchColumns != null && touchColumns! > 0;
+    final columns = touchColumns ?? 2;
+    final availableWidth =
+        MediaQuery.sizeOf(context).width - gridPad.left - gridPad.right;
+    const crossSpacing = 14.0;
+    final fixedCardWidth = useFixedTouchGrid
+        ? (availableWidth - crossSpacing * (columns - 1)) / columns
+        : cardWidth;
+    SliverGridDelegate gridDelegate(double width) {
+      if (useFixedTouchGrid) {
+        return SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: columns,
+          mainAxisSpacing: 18,
+          crossAxisSpacing: crossSpacing,
+          mainAxisExtent: moviePosterCardHeight(width),
+        );
+      }
+      return SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: width + 28,
+        mainAxisSpacing: 18,
+        crossAxisSpacing: crossSpacing,
+        childAspectRatio: width / moviePosterCardHeight(width),
+      );
+    }
+
     return FutureBuilder<List<Movie>>(
       future: future,
       builder: (context, snapshot) {
@@ -4915,19 +5000,14 @@ class FutureGrid extends StatelessWidget {
         }
         if (!snapshot.hasData) {
           return SliverPadding(
-            padding: pagePadding(context).copyWith(top: 20, bottom: 36),
+            padding: gridPad.copyWith(top: 20, bottom: 36),
             sliver: SliverGrid.builder(
               itemCount: 12,
-              gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: cardWidth + 28,
-                mainAxisSpacing: 18,
-                crossAxisSpacing: 14,
-                childAspectRatio: cardWidth / moviePosterCardHeight(cardWidth),
-              ),
+              gridDelegate: gridDelegate(fixedCardWidth),
               itemBuilder: (context, index) => SkeletonBox(
                 borderRadius: 8,
-                width: cardWidth,
-                height: moviePosterCardHeight(cardWidth),
+                width: fixedCardWidth,
+                height: moviePosterCardHeight(fixedCardWidth),
               ),
             ),
           );
@@ -4945,18 +5025,13 @@ class FutureGrid extends StatelessWidget {
           );
         }
         return SliverPadding(
-          padding: pagePadding(context).copyWith(bottom: 36),
+          padding: gridPad.copyWith(bottom: 36),
           sliver: SliverGrid.builder(
             itemCount: movies.length,
-            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: cardWidth + 28,
-              mainAxisSpacing: 18,
-              crossAxisSpacing: 14,
-              childAspectRatio: cardWidth / moviePosterCardHeight(cardWidth),
-            ),
+            gridDelegate: gridDelegate(fixedCardWidth),
             itemBuilder: (context, index) => MoviePosterCard(
               movie: movies[index],
-              width: cardWidth,
+              width: fixedCardWidth,
               onTap: () => openDetail(context, repo, movies[index]),
             ),
           ),
@@ -5314,16 +5389,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
       future: meFuture,
       builder: (context, snapshot) {
         final user = snapshot.data;
+        final checkingSession =
+            !snapshot.hasData &&
+            snapshot.connectionState == ConnectionState.waiting;
         return ListView(
           key: const PageStorageKey('profile-scroll'),
           padding: pagePadding(context).copyWith(top: 36, bottom: 36),
           children: [
             const PageHeading('Của tôi'),
             const SizedBox(height: 22),
-            if (!snapshot.hasData &&
-                snapshot.connectionState == ConnectionState.waiting)
-              const LinearProgressIndicator(color: CvColors.accent),
-            if (user == null)
+            if (checkingSession)
+              const SessionRestoringPanel()
+            else if (user == null)
               isTvBuild
                   ? TvLoginPanel(
                       onOpen: () => Navigator.of(context).push(
@@ -5563,6 +5640,40 @@ class TvHubAction {
   final String title;
   final String subtitle;
   final VoidCallback onPressed;
+}
+
+class SessionRestoringPanel extends StatelessWidget {
+  const SessionRestoringPanel({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Panel(
+      child: Row(
+        children: [
+          const SizedBox(
+            width: 28,
+            height: 28,
+            child: CircularProgressIndicator(
+              color: CvColors.accent,
+              strokeWidth: 3,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Text(
+              'Đang vào tài khoản đã lưu...',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: .82),
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class TvLoginPanel extends StatelessWidget {
@@ -13799,6 +13910,7 @@ class MoviePosterCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final useLandscapeArt = isTvBuild;
+    final cardMetaLine = movie.metaLineFor(compactLanguage: !useLandscapeArt);
     final artUrl = useLandscapeArt
         ? (movie.backdropUrl.isNotEmpty ? movie.backdropUrl : movie.posterUrl)
         : movie.posterUrl;
@@ -13896,10 +14008,10 @@ class MoviePosterCard extends StatelessWidget {
                             ],
                           ),
                         ),
-                        if (movie.metaLine.isNotEmpty) ...[
+                        if (cardMetaLine.isNotEmpty) ...[
                           const SizedBox(height: 5),
                           Text(
-                            movie.metaLine,
+                            cardMetaLine,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             textScaler: TextScaler.noScaling,
@@ -14018,10 +14130,10 @@ class MoviePosterCard extends StatelessWidget {
                                   ],
                                 ),
                               ),
-                              if (movie.metaLine.isNotEmpty) ...[
+                              if (cardMetaLine.isNotEmpty) ...[
                                 const SizedBox(height: 2),
                                 Text(
-                                  movie.metaLine,
+                                  cardMetaLine,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   textScaler: TextScaler.noScaling,
@@ -14065,7 +14177,7 @@ class MoviePosterCard extends StatelessWidget {
                 SizedBox(
                   height: 18,
                   child: Text(
-                    movie.metaLine,
+                    cardMetaLine,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textScaler: TextScaler.noScaling,

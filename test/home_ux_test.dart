@@ -10,6 +10,14 @@ Widget _wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 void main() {
   final repo = MovieRepository(Api.instance);
 
+  test('compactLanguageLabel shortens mobile card language labels', () {
+    expect(compactLanguageLabel('Vietsub'), 'VS');
+    expect(compactLanguageLabel('Thuyết minh'), 'TM');
+    expect(compactLanguageLabel('Lồng tiếng'), 'LT');
+    expect(compactLanguageLabel('Vietsub + Thuyết minh'), 'VS + TM');
+    expect(compactLanguageLabel('Vietsub + Lồng tiếng'), 'VS + LT');
+  });
+
   testWidgets('HomeSkeleton renders without throwing', (tester) async {
     await tester.pumpWidget(_wrap(const HomeSkeleton()));
     await tester.pump(const Duration(milliseconds: 100));
