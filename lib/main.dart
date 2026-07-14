@@ -12739,6 +12739,17 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (text.trim().isEmpty) return const SizedBox.shrink();
     final lines = text.split(RegExp(r'\n+'));
     final dual = selectedSubtitleLang == 'dual';
+    // Trong chế độ song ngữ, dòng đầu là track Việt và dòng sau là track Anh.
+    // Giá trị bottom lớn hơn nằm cao hơn trên màn hình, nên luôn dành vị trí
+    // cao cho tiếng Việt để đồng nhất với player website.
+    final dualViBottom = math.max(
+      viSubtitleStyle.bottom,
+      enSubtitleStyle.bottom,
+    );
+    final dualEnBottom = math.min(
+      viSubtitleStyle.bottom,
+      enSubtitleStyle.bottom,
+    );
     return Stack(
       clipBehavior: Clip.none,
       alignment: Alignment.bottomCenter,
@@ -12750,7 +12761,9 @@ class _PlayerScreenState extends State<PlayerScreen>
             bottom:
                 MediaQuery.sizeOf(context).height *
                 ((dual && index > 0
-                        ? enSubtitleStyle.bottom
+                        ? dualEnBottom
+                        : dual
+                        ? dualViBottom
                         : selectedSubtitleLang == 'en'
                         ? enSubtitleStyle.bottom
                         : viSubtitleStyle.bottom) /
