@@ -11013,8 +11013,12 @@ class _PlayerScreenState extends State<PlayerScreen>
             )
             ? _closedCaptionFileForSelectedTracks()
             : null;
+        final isHls =
+            parsed.path.toLowerCase().contains('.m3u8') ||
+            parsed.path.contains('/stream/vicdn/manifest');
         final next = VideoPlayerController.networkUrl(
           parsed,
+          formatHint: isHls ? VideoFormat.hls : null,
           closedCaptionFile: captionFile,
         );
         controller = next;
