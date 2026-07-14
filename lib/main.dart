@@ -12662,6 +12662,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                       for (final color in colors)
                         InkWell(
                           onTap: () => update(style.copyWith(color: color)),
+                          onFocusChange: (focused) {
+                            if (isTvBuild && focused && style.color != color) {
+                              update(style.copyWith(color: color));
+                            }
+                          },
                           borderRadius: BorderRadius.circular(999),
                           child: Container(
                             width: 36,
