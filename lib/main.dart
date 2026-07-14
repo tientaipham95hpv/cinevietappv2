@@ -1223,6 +1223,56 @@ class BilingualCaptionFile extends ClosedCaptionFile {
   }
 }
 
+class AppSubtitleStyle {
+  const AppSubtitleStyle({
+    this.font = 'Lora',
+    required this.size,
+    required this.color,
+    required this.bottom,
+  });
+
+  final String font;
+  final double size;
+  final Color color;
+  final double bottom;
+
+  AppSubtitleStyle copyWith({
+    String? font,
+    double? size,
+    Color? color,
+    double? bottom,
+  }) => AppSubtitleStyle(
+    font: font ?? this.font,
+    size: size ?? this.size,
+    color: color ?? this.color,
+    bottom: bottom ?? this.bottom,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'font': font,
+    'size': size,
+    'color': color.toARGB32(),
+    'bottom': bottom,
+  };
+
+  factory AppSubtitleStyle.fromJson(Object? raw, AppSubtitleStyle fallback) {
+    if (raw is! Map) return fallback;
+    const fonts = ['Lora', 'Plus Jakarta Sans', 'Arial', 'Tahoma'];
+    final font = fonts.contains(raw['font']) ? raw['font'] as String : 'Lora';
+    return AppSubtitleStyle(
+      font: font,
+      size: ((raw['size'] as num?)?.toDouble() ?? fallback.size).clamp(10, 50),
+      color: Color(
+        (raw['color'] as num?)?.toInt() ?? fallback.color.toARGB32(),
+      ),
+      bottom: ((raw['bottom'] as num?)?.toDouble() ?? fallback.bottom).clamp(
+        2,
+        30,
+      ),
+    );
+  }
+}
+
 class EpisodeAudioSource {
   const EpisodeAudioSource({
     required this.key,
@@ -9635,10 +9685,18 @@ class _PlayerScreenState extends State<PlayerScreen>
   late int currentServerIndex;
   String? selectedAudioKey;
   String? selectedSubtitleLang;
-  String subtitleFont = 'Lora';
-  double subtitleSize = 18;
-  Color subtitleColor = Colors.white;
-  double subtitleBottom = 34;
+  static const _defaultViSubtitleStyle = AppSubtitleStyle(
+    size: 30,
+    color: Colors.white,
+    bottom: 7,
+  );
+  static const _defaultEnSubtitleStyle = AppSubtitleStyle(
+    size: 25,
+    color: Color(0xffffff99),
+    bottom: 20,
+  );
+  AppSubtitleStyle viSubtitleStyle = _defaultViSubtitleStyle;
+  AppSubtitleStyle enSubtitleStyle = _defaultEnSubtitleStyle;
   PlayerFitMode fitMode = PlayerFitMode.contain;
   bool controls = true;
   bool controlsLocked = false;
@@ -9748,21 +9806,30 @@ class _PlayerScreenState extends State<PlayerScreen>
       final json = jsonDecode(raw) as Map<String, dynamic>;
       if (!mounted) return;
       setState(() {
-        subtitleFont =
-            const [
-              'Lora',
-              'Plus Jakarta Sans',
-              'Arial',
-              'Tahoma',
-            ].contains(json['font'])
-            ? json['font'] as String
-            : 'Lora';
-        subtitleSize = ((json['size'] as num?)?.toDouble() ?? 18).clamp(14, 34);
-        subtitleColor = Color((json['color'] as num?)?.toInt() ?? 0xffffffff);
-        subtitleBottom = ((json['bottom'] as num?)?.toDouble() ?? 34).clamp(
-          24,
-          180,
-        );
+        if (json.containsKey('vi') || json.containsKey('en')) {
+          viSubtitleStyle = AppSubtitleStyle.fromJson(
+            json['vi'],
+            _defaultViSubtitleStyle,
+          );
+          enSubtitleStyle = AppSubtitleStyle.fromJson(
+            json['en'],
+            _defaultEnSubtitleStyle,
+          );
+        } else {
+          // Migrate the first app settings format, which used one shared style.
+          final legacy = AppSubtitleStyle(
+            font: json['font'] is String ? json['font'] as String : 'Lora',
+            size: ((json['size'] as num?)?.toDouble() ?? 18).clamp(10, 50),
+            color: Color((json['color'] as num?)?.toInt() ?? 0xffffffff),
+            bottom: 7,
+          );
+          viSubtitleStyle = legacy;
+          enSubtitleStyle = legacy.copyWith(
+            size: math.max(10, legacy.size - 5),
+            color: const Color(0xffffff99),
+            bottom: 20,
+          );
+        }
       });
     } catch (_) {}
   }
@@ -9772,20 +9839,16 @@ class _PlayerScreenState extends State<PlayerScreen>
     await prefs.setString(
       _subtitlePrefsKey,
       jsonEncode({
-        'font': subtitleFont,
-        'size': subtitleSize,
-        'color': subtitleColor.toARGB32(),
-        'bottom': subtitleBottom,
+        'vi': viSubtitleStyle.toJson(),
+        'en': enSubtitleStyle.toJson(),
       }),
     );
   }
 
   void _resetSubtitleSettings() {
     setState(() {
-      subtitleFont = 'Lora';
-      subtitleSize = 18;
-      subtitleColor = Colors.white;
-      subtitleBottom = 34;
+      viSubtitleStyle = _defaultViSubtitleStyle;
+      enSubtitleStyle = _defaultEnSubtitleStyle;
     });
     unawaited(_saveSubtitleSettings());
   }
@@ -12357,9 +12420,11 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _showSubtitleSettingsSheet() async {
+    var language = 'vi';
     const fonts = ['Lora', 'Plus Jakarta Sans', 'Arial', 'Tahoma'];
     const colors = [
       Colors.white,
+      Color(0xffffff99),
       Color(0xffffeb3b),
       Color(0xff80d8ff),
       Color(0xffffb3c7),
@@ -12371,8 +12436,15 @@ class _PlayerScreenState extends State<PlayerScreen>
       isScrollControlled: true,
       builder: (_) => StatefulBuilder(
         builder: (context, setSheetState) {
-          void update(VoidCallback change) {
-            setState(change);
+          final style = language == 'vi' ? viSubtitleStyle : enSubtitleStyle;
+          void update(AppSubtitleStyle value) {
+            setState(() {
+              if (language == 'vi') {
+                viSubtitleStyle = value;
+              } else {
+                enSubtitleStyle = value;
+              }
+            });
             setSheetState(() {});
             unawaited(_saveSubtitleSettings());
           }
@@ -12385,24 +12457,58 @@ class _PlayerScreenState extends State<PlayerScreen>
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SectionTitle('Cài đặt phụ đề'),
+                  const SizedBox(height: 12),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'vi', label: Text('Phụ đề chính')),
+                      ButtonSegment(value: 'en', label: Text('Song ngữ / Anh')),
+                    ],
+                    selected: {language},
+                    onSelectionChanged: (value) =>
+                        setSheetState(() => language = value.first),
+                  ),
                   const SizedBox(height: 14),
                   Container(
                     width: double.infinity,
-                    padding: const EdgeInsets.all(18),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 24,
+                      horizontal: 16,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.black,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: CvColors.borderLight),
                     ),
-                    child: Text(
-                      'Đây là nội dung phụ đề mẫu\nSubtitle preview',
-                      textAlign: TextAlign.center,
-                      style: _subtitleTextStyle,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 42),
+                          child: Text(
+                            'Đây là nội dung phụ đề mẫu',
+                            textAlign: TextAlign.center,
+                            style: _subtitleTextStyle(viSubtitleStyle),
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 42),
+                          child: Text(
+                            'Subtitle preview',
+                            textAlign: TextAlign.center,
+                            style: _subtitleTextStyle(enSubtitleStyle),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 18),
+                  Text(
+                    language == 'vi' ? 'Phụ đề chính' : 'Song ngữ / Phụ đề Anh',
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 12),
                   const Text(
-                    'Phông chữ',
+                    'Font chữ',
                     style: TextStyle(fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 8),
@@ -12413,20 +12519,20 @@ class _PlayerScreenState extends State<PlayerScreen>
                       for (final font in fonts)
                         ChoiceChip(
                           label: Text(font, style: TextStyle(fontFamily: font)),
-                          selected: subtitleFont == font,
+                          selected: style.font == font,
                           showCheckmark: false,
-                          onSelected: (_) => update(() => subtitleFont = font),
+                          onSelected: (_) => update(style.copyWith(font: font)),
                         ),
                     ],
                   ),
-                  const SizedBox(height: 18),
-                  Text('Cỡ chữ: ${subtitleSize.round()}'),
+                  const SizedBox(height: 16),
+                  Text('Cỡ chữ: ${style.size.round()}px'),
                   Slider(
-                    value: subtitleSize,
-                    min: 14,
-                    max: 34,
-                    divisions: 20,
-                    onChanged: (value) => update(() => subtitleSize = value),
+                    value: style.size,
+                    min: 10,
+                    max: language == 'vi' ? 50 : 40,
+                    divisions: language == 'vi' ? 40 : 30,
+                    onChanged: (value) => update(style.copyWith(size: value)),
                   ),
                   const Text(
                     'Màu chữ',
@@ -12435,10 +12541,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                   const SizedBox(height: 8),
                   Wrap(
                     spacing: 12,
+                    runSpacing: 8,
                     children: [
                       for (final color in colors)
                         InkWell(
-                          onTap: () => update(() => subtitleColor = color),
+                          onTap: () => update(style.copyWith(color: color)),
                           borderRadius: BorderRadius.circular(999),
                           child: Container(
                             width: 36,
@@ -12447,33 +12554,26 @@ class _PlayerScreenState extends State<PlayerScreen>
                               color: color,
                               shape: BoxShape.circle,
                               border: Border.all(
-                                color: subtitleColor == color
+                                color: style.color == color
                                     ? CvColors.accent
                                     : Colors.white24,
-                                width: subtitleColor == color ? 3 : 1,
+                                width: style.color == color ? 3 : 1,
                               ),
                             ),
                           ),
                         ),
                     ],
                   ),
-                  const SizedBox(height: 18),
-                  const Text(
-                    'Vị trí',
-                    style: TextStyle(fontWeight: FontWeight.w800),
+                  const SizedBox(height: 16),
+                  Text('Vị trí: ${style.bottom.round()}% từ cạnh dưới'),
+                  Slider(
+                    value: style.bottom,
+                    min: 2,
+                    max: 30,
+                    divisions: 28,
+                    onChanged: (value) => update(style.copyWith(bottom: value)),
                   ),
-                  const SizedBox(height: 8),
-                  SegmentedButton<double>(
-                    segments: const [
-                      ButtonSegment(value: 34, label: Text('Thấp')),
-                      ButtonSegment(value: 92, label: Text('Giữa')),
-                      ButtonSegment(value: 160, label: Text('Cao')),
-                    ],
-                    selected: {subtitleBottom},
-                    onSelectionChanged: (value) =>
-                        update(() => subtitleBottom = value.first),
-                  ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 12),
                   Row(
                     children: [
                       OutlinedButton.icon(
@@ -12482,12 +12582,12 @@ class _PlayerScreenState extends State<PlayerScreen>
                           setSheetState(() {});
                         },
                         icon: const Icon(Icons.restart_alt_rounded),
-                        label: const Text('Mặc định'),
+                        label: const Text('Reset tất cả'),
                       ),
                       const Spacer(),
                       FilledButton(
                         onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Xong'),
+                        child: const Text('Lưu cài đặt'),
                       ),
                     ],
                   ),
@@ -12501,17 +12601,53 @@ class _PlayerScreenState extends State<PlayerScreen>
     _showControls();
   }
 
-  TextStyle get _subtitleTextStyle => TextStyle(
-    color: subtitleColor,
-    fontFamily: subtitleFont,
-    fontSize: subtitleSize,
+  TextStyle _subtitleTextStyle(AppSubtitleStyle style) => TextStyle(
+    color: style.color,
+    fontFamily: style.font,
+    fontSize: style.size,
     fontWeight: FontWeight.w700,
-    height: 1.25,
+    height: 1.2,
     shadows: const [
       Shadow(offset: Offset(0, 1), blurRadius: 4, color: Colors.black),
       Shadow(offset: Offset(0, 2), blurRadius: 8, color: Colors.black),
     ],
   );
+
+  Widget _buildStyledCaption(String text) {
+    if (text.trim().isEmpty) return const SizedBox.shrink();
+    final lines = text.split(RegExp(r'\n+'));
+    final dual = selectedSubtitleLang == 'dual';
+    return Stack(
+      clipBehavior: Clip.none,
+      alignment: Alignment.bottomCenter,
+      children: [
+        for (var index = 0; index < lines.length; index++)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom:
+                MediaQuery.sizeOf(context).height *
+                ((dual && index > 0
+                        ? enSubtitleStyle.bottom
+                        : selectedSubtitleLang == 'en'
+                        ? enSubtitleStyle.bottom
+                        : viSubtitleStyle.bottom) /
+                    100),
+            child: Text(
+              lines[index],
+              textAlign: TextAlign.center,
+              style: _subtitleTextStyle(
+                dual && index > 0
+                    ? enSubtitleStyle
+                    : selectedSubtitleLang == 'en'
+                    ? enSubtitleStyle
+                    : viSubtitleStyle,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
 
   Widget _buildMobileWebView(WebViewController controller) {
     Widget child = Focus(
@@ -12776,16 +12912,13 @@ class _PlayerScreenState extends State<PlayerScreen>
                     Positioned(
                       left: 24,
                       right: 24,
-                      bottom: controls
-                          ? math.max(132, subtitleBottom)
-                          : subtitleBottom,
+                      top: 0,
+                      bottom: controls ? 118 : 0,
                       child: IgnorePointer(
                         child: ValueListenableBuilder<VideoPlayerValue>(
                           valueListenable: c,
-                          builder: (context, value, _) => ClosedCaption(
-                            text: value.caption.text,
-                            textStyle: _subtitleTextStyle,
-                          ),
+                          builder: (context, value, _) =>
+                              _buildStyledCaption(value.caption.text),
                         ),
                       ),
                     ),
