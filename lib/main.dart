@@ -3973,6 +3973,19 @@ class HeroBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    void revealWholeHero() {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!context.mounted) return;
+        Scrollable.ensureVisible(
+          context,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+          alignment: 0,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+        );
+      });
+    }
+
     final size = MediaQuery.sizeOf(context);
     final compact = size.width < 600 && !isTvBuild;
     final tablet = size.width >= 600 && size.width < 1100 && !isTvBuild;
@@ -4099,6 +4112,7 @@ class HeroBanner extends StatelessWidget {
                                   icon: Icons.play_arrow_rounded,
                                   label: 'Xem ngay',
                                   primary: true,
+                                  onFocus: revealWholeHero,
                                   onPressed: () => openDetail(
                                     context,
                                     repo,
@@ -4109,6 +4123,7 @@ class HeroBanner extends StatelessWidget {
                                 TvActionButton(
                                   icon: Icons.info_outline_rounded,
                                   label: 'Chi tiết',
+                                  onFocus: revealWholeHero,
                                   onPressed: () =>
                                       openDetail(context, repo, movie),
                                 ),
@@ -15392,6 +15407,7 @@ class TvActionButton extends StatelessWidget {
     this.primary = false,
     this.danger = false,
     this.width,
+    this.onFocus,
   });
 
   final IconData? icon;
@@ -15401,6 +15417,7 @@ class TvActionButton extends StatelessWidget {
   final bool primary;
   final bool danger;
   final double? width;
+  final VoidCallback? onFocus;
 
   @override
   Widget build(BuildContext context) {
@@ -15455,6 +15472,7 @@ class TvActionButton extends StatelessWidget {
     return FocusButton(
       selected: selected,
       onPressed: onPressed!,
+      onFocus: onFocus,
       child: content,
     );
   }
@@ -15492,12 +15510,14 @@ class FocusButton extends StatefulWidget {
     this.selected = false,
     this.autofocus = false,
     this.focusNode,
+    this.onFocus,
   });
   final Widget child;
   final VoidCallback onPressed;
   final bool selected;
   final bool autofocus;
   final FocusNode? focusNode;
+  final VoidCallback? onFocus;
 
   @override
   State<FocusButton> createState() => _FocusButtonState();
@@ -15509,6 +15529,10 @@ class _FocusButtonState extends State<FocusButton> {
   void _handleFocusChange(bool value) {
     setState(() => focused = value);
     if (!value || !isTvBuild) return;
+    if (widget.onFocus != null) {
+      widget.onFocus!();
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       Scrollable.ensureVisible(
