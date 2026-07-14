@@ -1007,14 +1007,14 @@ class EpisodeServer {
     final base = name
         .replaceAll(
           RegExp(
-            r'\s*\[(ophim|kkphim|phimapi|nguồn\s*c|nguonc)\]\s*',
+            r'\s*\[(ophim|kkphim|phimapi|nguồn\s*c|nguonc|vicdn)\]\s*',
             caseSensitive: false,
           ),
           ' ',
         )
         .replaceAll(
           RegExp(
-            r'\s*(ophim|kkphim|phimapi|nguồn\s*c|nguonc)\s*[-–]\s*',
+            r'\s*(ophim|kkphim|phimapi|nguồn\s*c|nguonc|vicdn)\s*[-–]\s*',
             caseSensitive: false,
           ),
           ' ',
@@ -1054,12 +1054,16 @@ class EpisodeItem {
     this.filename = '',
     this.linkM3u8 = '',
     this.linkEmbed = '',
+    this.subtitles = const [],
+    this.audioSources = const [],
   });
 
   final String name;
   final String filename;
   final String linkM3u8;
   final String linkEmbed;
+  final List<EpisodeSubtitleTrack> subtitles;
+  final List<EpisodeAudioSource> audioSources;
 
   String get displayName {
     final text = name.trim();
@@ -1074,7 +1078,70 @@ class EpisodeItem {
     filename: cleanText(json['filename']),
     linkM3u8: cleanText(json['link_m3u8']),
     linkEmbed: cleanText(json['link_embed']),
+    subtitles: ((json['subtitles'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => EpisodeSubtitleTrack.fromJson(Map<String, dynamic>.from(e)))
+        .where((e) => e.url.isNotEmpty)
+        .toList(),
+    audioSources: ((json['audio_sources'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((e) => EpisodeAudioSource.fromJson(Map<String, dynamic>.from(e)))
+        .where((e) => e.url.isNotEmpty)
+        .toList(),
   );
+}
+
+class EpisodeSubtitleTrack {
+  const EpisodeSubtitleTrack({
+    required this.lang,
+    required this.label,
+    required this.url,
+    this.format = 'vtt',
+  });
+
+  final String lang;
+  final String label;
+  final String url;
+  final String format;
+
+  factory EpisodeSubtitleTrack.fromJson(Map<String, dynamic> json) {
+    final lang = cleanText(json['lang'] ?? json['language'] ?? json['key']);
+    final label = cleanText(json['label'] ?? json['name']).isEmpty
+        ? (lang.isEmpty ? 'Phụ đề' : lang.toUpperCase())
+        : cleanText(json['label'] ?? json['name']);
+    return EpisodeSubtitleTrack(
+      lang: lang,
+      label: label,
+      url: cleanText(json['url'] ?? json['link'] ?? json['src']),
+      format: cleanText(json['format']).isEmpty
+          ? 'vtt'
+          : cleanText(json['format']).toLowerCase(),
+    );
+  }
+}
+
+class EpisodeAudioSource {
+  const EpisodeAudioSource({
+    required this.key,
+    required this.label,
+    required this.url,
+  });
+
+  final String key;
+  final String label;
+  final String url;
+
+  factory EpisodeAudioSource.fromJson(Map<String, dynamic> json) {
+    final key = cleanText(json['key'] ?? json['lang'] ?? json['id']);
+    final label = cleanText(json['label'] ?? json['name']).isEmpty
+        ? (key.isEmpty ? 'Audio' : key)
+        : cleanText(json['label'] ?? json['name']);
+    return EpisodeAudioSource(
+      key: key.isEmpty ? compactKey(label) : key,
+      label: label,
+      url: cleanText(json['url'] ?? json['link'] ?? json['src']),
+    );
+  }
 }
 
 class PlaybackSourceCandidate {
@@ -9430,6 +9497,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   late EpisodeServer currentServer;
   late EpisodeItem currentEpisode;
   late int currentServerIndex;
+  String? selectedAudioKey;
+  String? selectedSubtitleLang;
   PlayerFitMode fitMode = PlayerFitMode.contain;
   bool controls = true;
   bool controlsLocked = false;
@@ -9500,6 +9569,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     currentServer = widget.server;
     currentEpisode = widget.episode;
     currentServerIndex = widget.serverIndex;
+    _resetTrackSelectionForEpisode();
     watchRoomState = widget.watchTogetherState;
     watchMessages.addAll(widget.watchTogetherState?.messages ?? const []);
     WakelockPlus.enable();
@@ -9544,6 +9614,81 @@ class _PlayerScreenState extends State<PlayerScreen>
     final play = episode.playUrl.trim();
     if (_isStreamCEmbedUrl(play)) return play;
     return null;
+  }
+
+  EpisodeAudioSource? get _selectedAudioSource {
+    final items = currentEpisode.audioSources;
+    if (items.isEmpty) return null;
+    final key = selectedAudioKey;
+    if (key != null && key.isNotEmpty) {
+      for (final item in items) {
+        if (item.key == key) return item;
+      }
+    }
+    return items.first;
+  }
+
+  EpisodeSubtitleTrack? get _selectedSubtitleTrack {
+    final tracks = currentEpisode.subtitles;
+    final lang = selectedSubtitleLang;
+    if (tracks.isEmpty || lang == null || lang == 'off') return null;
+    for (final track in tracks) {
+      if (track.lang == lang) return track;
+    }
+    return null;
+  }
+
+  bool _isSelectedEpisodeSource(EpisodeServer server, EpisodeItem episode) =>
+      server.name == currentServer.name &&
+      episode.name == currentEpisode.name &&
+      episode.linkEmbed == currentEpisode.linkEmbed;
+
+  void _resetTrackSelectionForEpisode() {
+    final audio = currentEpisode.audioSources;
+    if (audio.isEmpty) {
+      selectedAudioKey = null;
+    } else {
+      final original = audio.where(
+        (item) => item.key.toLowerCase() == 'original',
+      );
+      selectedAudioKey = original.isNotEmpty
+          ? original.first.key
+          : audio.first.key;
+    }
+
+    final subtitles = currentEpisode.subtitles;
+    if (subtitles.isEmpty) {
+      selectedSubtitleLang = null;
+    } else {
+      final vi = subtitles.where((item) => item.lang.toLowerCase() == 'vi');
+      selectedSubtitleLang = vi.isNotEmpty
+          ? vi.first.lang
+          : subtitles.first.lang;
+    }
+  }
+
+  String _playUrlForEpisode(EpisodeServer server, EpisodeItem episode) {
+    if (_isSelectedEpisodeSource(server, episode)) {
+      final audioUrl = _selectedAudioSource?.url.trim() ?? '';
+      if (audioUrl.isNotEmpty) return audioUrl;
+    }
+    return episode.playUrl;
+  }
+
+  Future<ClosedCaptionFile> _closedCaptionFileForTrack(
+    EpisodeSubtitleTrack track,
+  ) async {
+    final res = await Dio(
+      BaseOptions(
+        responseType: ResponseType.plain,
+        receiveTimeout: const Duration(seconds: 12),
+      ),
+    ).get<String>(track.url);
+    final contents = res.data ?? '';
+    if (track.format.toLowerCase().contains('srt')) {
+      return SubRipCaptionFile(contents);
+    }
+    return WebVTTCaptionFile(contents);
   }
 
   bool _isInitialEpisodeForResume() {
@@ -9664,7 +9809,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     required EpisodeItem episode,
     required int serverIndex,
   }) {
-    final urls = _playableUrls(episode.playUrl);
+    final urls = _playableUrls(_playUrlForEpisode(server, episode));
     final webViewUrl = _webViewFallbackUrl(episode);
     if (urls.isEmpty && webViewUrl == null) return;
     final quality = _qualityLabelFor(server, episode);
@@ -10667,7 +10812,19 @@ class _PlayerScreenState extends State<PlayerScreen>
           );
           continue;
         }
-        final next = VideoPlayerController.networkUrl(parsed);
+        final subtitleTrack =
+            _isSelectedEpisodeSource(
+              candidate.source.server,
+              candidate.source.episode,
+            )
+            ? _selectedSubtitleTrack
+            : null;
+        final next = VideoPlayerController.networkUrl(
+          parsed,
+          closedCaptionFile: subtitleTrack == null
+              ? null
+              : _closedCaptionFileForTrack(subtitleTrack),
+        );
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));
         await next.setPlaybackSpeed(playbackSpeed);
@@ -11191,6 +11348,31 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (mounted) setState(() {});
   }
 
+  Future<void> _selectAudioSource(String key) async {
+    final position = controller?.value.position ?? lastGoodPosition;
+    setState(() {
+      selectedAudioKey = key;
+      controls = true;
+      playbackNotice = 'Đang đổi audio...';
+    });
+    runtimeRecoveryAttempts = 0;
+    await _init(startAt: position);
+  }
+
+  Future<void> _selectSubtitleTrack(String? lang) async {
+    selectedSubtitleLang = lang ?? 'off';
+    final track = _selectedSubtitleTrack;
+    try {
+      await controller?.setClosedCaptionFile(
+        track == null ? null : _closedCaptionFileForTrack(track),
+      );
+    } catch (e) {
+      lastPlaybackError = '$e';
+      if (mounted) showSnack(context, 'Không tải được phụ đề');
+    }
+    if (mounted) setState(() {});
+  }
+
   Future<void> _syncDeviceLevels() async {
     if (!supportsTouchLevels) return;
     try {
@@ -11669,7 +11851,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                   .clamp(0, activePlayableUrls.length - 1)
                   .toInt()]
               .source;
-      return source.qualityLabel;
+      final audio = _selectedAudioSource?.label ?? '';
+      return audio.isEmpty
+          ? source.qualityLabel
+          : '${source.qualityLabel} • $audio';
     }
     return currentServer.displayName;
   }
@@ -11681,6 +11866,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       currentServer = server;
       currentEpisode = episode;
       currentServerIndex = serverIndex < 0 ? currentServerIndex : serverIndex;
+      _resetTrackSelectionForEpisode();
       controls = true;
       error = null;
       introSkipped = false;
@@ -11780,6 +11966,65 @@ class _PlayerScreenState extends State<PlayerScreen>
                       setSheetState(() {});
                     },
                   ),
+                  if (currentEpisode.audioSources.isNotEmpty) ...[
+                    const Divider(height: 24),
+                    const Text(
+                      'Âm thanh',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final audio in currentEpisode.audioSources)
+                          ChoiceChip(
+                            label: Text(audio.label),
+                            selected: selectedAudioKey == audio.key,
+                            showCheckmark: false,
+                            onSelected: (_) async {
+                              await _selectAudioSource(audio.key);
+                              setSheetState(() {});
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
+                  if (currentEpisode.subtitles.isNotEmpty) ...[
+                    const Divider(height: 24),
+                    const Text(
+                      'Phụ đề',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        ChoiceChip(
+                          label: const Text('Tắt'),
+                          selected:
+                              selectedSubtitleLang == null ||
+                              selectedSubtitleLang == 'off',
+                          showCheckmark: false,
+                          onSelected: (_) async {
+                            await _selectSubtitleTrack('off');
+                            setSheetState(() {});
+                          },
+                        ),
+                        for (final subtitle in currentEpisode.subtitles)
+                          ChoiceChip(
+                            label: Text(subtitle.label),
+                            selected: selectedSubtitleLang == subtitle.lang,
+                            showCheckmark: false,
+                            onSelected: (_) async {
+                              await _selectSubtitleTrack(subtitle.lang);
+                              setSheetState(() {});
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
                   const Divider(height: 24),
                   const Text(
                     'Tốc độ phát',
@@ -12090,6 +12335,40 @@ class _PlayerScreenState extends State<PlayerScreen>
                   else
                     Center(
                       child: _FittedVideo(controller: c, fitMode: fitMode),
+                    ),
+                  if (activeWebViewUrl == null &&
+                      c != null &&
+                      c.value.isInitialized &&
+                      _selectedSubtitleTrack != null)
+                    Positioned(
+                      left: 24,
+                      right: 24,
+                      bottom: controls ? 132 : 34,
+                      child: IgnorePointer(
+                        child: ValueListenableBuilder<VideoPlayerValue>(
+                          valueListenable: c,
+                          builder: (context, value, _) => ClosedCaption(
+                            text: value.caption.text,
+                            textStyle: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              shadows: [
+                                Shadow(
+                                  offset: Offset(0, 1),
+                                  blurRadius: 4,
+                                  color: Colors.black,
+                                ),
+                                Shadow(
+                                  offset: Offset(0, 2),
+                                  blurRadius: 8,
+                                  color: Colors.black,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   if (activeWebViewUrl != null && !controlsLocked)
                     Positioned(
