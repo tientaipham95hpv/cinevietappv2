@@ -3679,7 +3679,7 @@ class HomeData {
     required this.single,
     required this.anime,
     required this.tvShows,
-    required this.bilingual,
+    this.bilingual = const [],
     required this.history,
   });
   final List<Movie> featured;
