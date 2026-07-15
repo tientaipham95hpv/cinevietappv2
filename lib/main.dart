@@ -3902,7 +3902,9 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
 
   void _startAutoScroll() {
     timer?.cancel();
-    if (widget.movies.length < 2) return;
+    // Trên Android TV không tự đổi hero khi remote đang điều hướng; người dùng
+    // có thể chuyển bằng D-pad/PageView, tránh mất focus vào nút hành động.
+    if (isTvBuild || widget.movies.length < 2) return;
     timer = Timer.periodic(const Duration(seconds: 6), (_) {
       if (!mounted || !controller.hasClients) return;
       final next = (page + 1) % widget.movies.length;
@@ -9811,6 +9813,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   late int currentServerIndex;
   String? selectedAudioKey;
   String? selectedSubtitleLang;
+  static const _playbackPrefsKey = 'cinevietPlaybackTrackPrefsV1';
+  Map<String, dynamic> _playbackTrackPrefs = {};
   static const _defaultViSubtitleStyle = AppSubtitleStyle(
     size: 30,
     color: Colors.white,
@@ -9894,6 +9898,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     currentEpisode = widget.episode;
     currentServerIndex = widget.serverIndex;
     _resetTrackSelectionForEpisode();
+    unawaited(_loadPlaybackTrackPreference());
     unawaited(_loadSubtitleSettings());
     watchRoomState = widget.watchTogetherState;
     watchMessages.addAll(widget.watchTogetherState?.messages ?? const []);
@@ -10040,7 +10045,34 @@ class _PlayerScreenState extends State<PlayerScreen>
       episode.name == currentEpisode.name &&
       episode.linkEmbed == currentEpisode.linkEmbed;
 
+  String get _trackPreferenceMovieKey => 'movie:${widget.movie.id}';
+
+  Future<void> _loadPlaybackTrackPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_playbackPrefsKey);
+    if (raw != null && raw.isNotEmpty) {
+      try {
+        _playbackTrackPrefs = Map<String, dynamic>.from(jsonDecode(raw));
+      } catch (_) {}
+    }
+    if (!mounted) return;
+    _resetTrackSelectionForEpisode();
+    setState(() {});
+  }
+
+  Future<void> _savePlaybackTrackPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    _playbackTrackPrefs[_trackPreferenceMovieKey] = {
+      'audio': selectedAudioKey,
+      'subtitle': selectedSubtitleLang,
+    };
+    await prefs.setString(_playbackPrefsKey, jsonEncode(_playbackTrackPrefs));
+  }
+
   void _resetTrackSelectionForEpisode() {
+    final saved = _playbackTrackPrefs[_trackPreferenceMovieKey];
+    final savedAudio = saved is Map ? saved['audio']?.toString() : null;
+    final savedSubtitle = saved is Map ? saved['subtitle']?.toString() : null;
     final audio = currentEpisode.audioSources;
     if (audio.isEmpty) {
       selectedAudioKey = null;
@@ -10048,9 +10080,12 @@ class _PlayerScreenState extends State<PlayerScreen>
       final original = audio.where(
         (item) => item.key.toLowerCase() == 'original',
       );
-      selectedAudioKey = original.isNotEmpty
-          ? original.first.key
-          : audio.first.key;
+      final saved = savedAudio == null
+          ? null
+          : audio.where((item) => item.key == savedAudio).firstOrNull;
+      selectedAudioKey =
+          saved?.key ??
+          (original.isNotEmpty ? original.first.key : audio.first.key);
     }
 
     final subtitles = currentEpisode.subtitles;
@@ -10059,11 +10094,18 @@ class _PlayerScreenState extends State<PlayerScreen>
     } else {
       final vi = subtitles.where((item) => item.lang.toLowerCase() == 'vi');
       final en = subtitles.where((item) => item.lang.toLowerCase() == 'en');
-      selectedSubtitleLang = vi.isNotEmpty && en.isNotEmpty
-          ? 'dual'
-          : vi.isNotEmpty
-          ? vi.first.lang
-          : subtitles.first.lang;
+      final savedAvailable = savedSubtitle == 'off' || savedSubtitle == 'dual'
+          ? savedSubtitle
+          : subtitles.any((item) => item.lang == savedSubtitle)
+          ? savedSubtitle
+          : null;
+      selectedSubtitleLang =
+          savedAvailable ??
+          (vi.isNotEmpty && en.isNotEmpty
+              ? 'dual'
+              : vi.isNotEmpty
+              ? vi.first.lang
+              : subtitles.first.lang);
     }
   }
 
@@ -11794,6 +11836,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     final position = controller?.value.position ?? lastGoodPosition;
     setState(() {
       selectedAudioKey = key;
+      unawaited(_savePlaybackTrackPreference());
       controls = true;
       playbackNotice = 'Đang đổi audio...';
     });
@@ -11803,6 +11846,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _selectSubtitleTrack(String? lang) async {
     selectedSubtitleLang = lang ?? 'off';
+    unawaited(_savePlaybackTrackPreference());
     try {
       await controller?.setClosedCaptionFile(
         _closedCaptionFileForSelectedTracks(),
