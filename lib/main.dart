@@ -12010,6 +12010,22 @@ class _PlayerScreenState extends State<PlayerScreen>
     } catch (_) {}
   }
 
+  Future<void> _disposePlaybackNow() async {
+    final c = controller;
+    if (c == null) return;
+    controller = null;
+    c.removeListener(_handlePlayerTick);
+    try {
+      await c.pause();
+    } catch (_) {}
+    try {
+      await c.setVolume(0);
+    } catch (_) {}
+    try {
+      await c.dispose();
+    } catch (_) {}
+  }
+
   Future<void> _stopWebViewNow() async {
     final wc = webViewController;
     final wwc = windowsWebViewController;
@@ -12056,7 +12072,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     try {
       await _save().timeout(const Duration(seconds: 2));
     } catch (_) {}
-    _stopPlaybackNow();
+    await _disposePlaybackNow();
     await _stopWebViewNow();
     if (mounted) setState(() {});
     if (isWatchTogether) {
@@ -12858,11 +12874,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     final showIntroSkip =
         introSegment != null || _shouldShowFallbackIntroSkip(c);
     return PopScope(
-      // WebView (StreamC/NguồnC) có thể giữ history/popup riêng và nuốt nút back.
-      // Chặn pop mặc định để mọi nút back luôn đi qua _exitPlayer() của app.
-      canPop: leavingPlayer,
+      // Luôn chặn pop mặc định. Khi rời player, chỉ _exitPlayer() được phép
+      // pop đúng một lần; tránh Back hệ thống + KeyboardListener pop liên tiếp
+      // làm bay qua trang chi tiết về Home.
+      canPop: false,
       onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
+        if (didPop || leavingPlayer) return;
         unawaited(_exitPlayer());
       },
       child: Scaffold(
@@ -15359,14 +15376,26 @@ class ContinueCard extends StatelessWidget {
                 Positioned(
                   top: 8,
                   right: 8,
-                  child: Material(
-                    color: Colors.black.withValues(alpha: .58),
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      tooltip: 'Xoá khỏi Xem tiếp',
-                      onPressed: onRemove,
-                      icon: const Icon(Icons.close_rounded),
-                      color: Colors.white,
+                  child: FocusButton(
+                    onPressed: () => onRemove!(),
+                    child: Material(
+                      color: Colors.black.withValues(alpha: .58),
+                      shape: const CircleBorder(),
+                      child: Tooltip(
+                        message: 'Xoá khỏi Xem tiếp',
+                        child: InkWell(
+                          customBorder: const CircleBorder(),
+                          onTap: onRemove,
+                          child: const Padding(
+                            padding: EdgeInsets.all(10),
+                            child: Icon(
+                              Icons.close_rounded,
+                              color: Colors.white,
+                              size: 24,
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
