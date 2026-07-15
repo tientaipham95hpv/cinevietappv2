@@ -15306,112 +15306,126 @@ class ContinueCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return SizedBox(
       width: width,
-      child: FocusButton(
-        onPressed: onTap,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              NetworkBackdrop(
-                url: item.backdrop.isNotEmpty ? item.backdrop : item.poster,
-                fit: BoxFit.cover,
-              ),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      Colors.black.withValues(alpha: .84),
+      child: FocusTraversalGroup(
+        policy: OrderedTraversalPolicy(),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            FocusTraversalOrder(
+              order: const NumericFocusOrder(0),
+              child: FocusButton(
+                onPressed: onTap,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      NetworkBackdrop(
+                        url: item.backdrop.isNotEmpty
+                            ? item.backdrop
+                            : item.poster,
+                        fit: BoxFit.cover,
+                      ),
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              Colors.black.withValues(alpha: .84),
+                            ],
+                          ),
+                        ),
+                      ),
+                      Positioned(
+                        left: 12,
+                        right: 12,
+                        bottom: 14,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              item.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                MiniBadge(item.episodeName),
+                                if (item.serverName.isNotEmpty)
+                                  MiniBadge(item.serverName),
+                                MiniBadge('${item.progressPercent}%'),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            LinearProgressIndicator(
+                              value: item.progress,
+                              minHeight: 4,
+                              backgroundColor: Colors.white24,
+                              color: CvColors.accent,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${fmtDuration(Duration(milliseconds: item.positionMs))}'
+                              ' / ${fmtDuration(Duration(milliseconds: item.durationMs))}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                color: CvColors.muted,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Center(
+                        child: Icon(
+                          Icons.play_circle_fill_rounded,
+                          size: 48,
+                          color: Colors.white,
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
+            ),
+            if (onRemove != null)
               Positioned(
-                left: 12,
-                right: 12,
-                bottom: 14,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        MiniBadge(item.episodeName),
-                        if (item.serverName.isNotEmpty)
-                          MiniBadge(item.serverName),
-                        MiniBadge('${item.progressPercent}%'),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(
-                      value: item.progress,
-                      minHeight: 4,
-                      backgroundColor: Colors.white24,
-                      color: CvColors.accent,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '${fmtDuration(Duration(milliseconds: item.positionMs))}'
-                      ' / ${fmtDuration(Duration(milliseconds: item.durationMs))}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: CvColors.muted,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Center(
-                child: Icon(
-                  Icons.play_circle_fill_rounded,
-                  size: 48,
-                  color: Colors.white,
-                ),
-              ),
-              if (onRemove != null)
-                Positioned(
-                  top: 8,
-                  right: 8,
+                top: 8,
+                right: 8,
+                child: FocusTraversalOrder(
+                  order: const NumericFocusOrder(1),
                   child: FocusButton(
                     autofocus: false,
                     onPressed: () => onRemove!(),
-                    child: Material(
-                      color: Colors.black.withValues(alpha: .58),
-                      shape: const CircleBorder(),
-                      child: Tooltip(
-                        message: 'Xoá khỏi Xem tiếp',
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: onRemove,
-                          child: const Padding(
-                            padding: EdgeInsets.all(10),
-                            child: Icon(
-                              Icons.close_rounded,
-                              color: Colors.white,
-                              size: 24,
-                            ),
+                    child: Tooltip(
+                      message: 'Xoá khỏi Xem tiếp',
+                      child: Material(
+                        color: Colors.black.withValues(alpha: .58),
+                        shape: const CircleBorder(),
+                        child: const Padding(
+                          padding: EdgeInsets.all(10),
+                          child: Icon(
+                            Icons.close_rounded,
+                            color: Colors.white,
+                            size: 24,
                           ),
                         ),
                       ),
                     ),
                   ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
