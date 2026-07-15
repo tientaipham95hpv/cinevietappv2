@@ -9898,7 +9898,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     currentEpisode = widget.episode;
     currentServerIndex = widget.serverIndex;
     _resetTrackSelectionForEpisode();
-    unawaited(_preparePlayerPreferences());
+    unawaited(_loadPlaybackTrackPreference());
     unawaited(_loadSubtitleSettings());
     watchRoomState = widget.watchTogetherState;
     watchMessages.addAll(widget.watchTogetherState?.messages ?? const []);
@@ -9924,6 +9924,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
     _bindWatchTogetherSocket();
     _loadIntroSkipSegments();
+    _init();
   }
 
   static const _subtitlePrefsKey = 'cinevietSubtitleConfigApp';
@@ -10045,12 +10046,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       episode.linkEmbed == currentEpisode.linkEmbed;
 
   String get _trackPreferenceMovieKey => 'movie:${widget.movie.id}';
-
-  Future<void> _preparePlayerPreferences() async {
-    await _loadPlaybackTrackPreference();
-    if (!mounted) return;
-    await _init();
-  }
 
   Future<void> _loadPlaybackTrackPreference() async {
     final prefs = await SharedPreferences.getInstance();
