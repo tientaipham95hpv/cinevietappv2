@@ -14567,9 +14567,23 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
   @override
   void initState() {
     super.initState();
-    final found = widget.movie.episodes.indexOf(widget.currentServer);
+    final servers = widget.movie.episodes;
+    final found = servers.indexOf(widget.currentServer);
     serverIndex = found < 0 ? 0 : found;
-    selectedServerType = widget.movie.episodes[serverIndex].typeName;
+
+    // Một số phim bộ có nguồn dự phòng chỉ trả về một mục "Full", trong
+    // khi nguồn chính chứa đầy đủ danh sách tập. Player có thể đang phát từ
+    // nguồn dự phòng đó, nhưng bảng chọn tập vẫn phải ưu tiên nguồn đầy đủ.
+    if (servers[serverIndex].items.length <= 1) {
+      var richestIndex = serverIndex;
+      for (var i = 0; i < servers.length; i++) {
+        if (servers[i].items.length > servers[richestIndex].items.length) {
+          richestIndex = i;
+        }
+      }
+      if (servers[richestIndex].items.length > 1) serverIndex = richestIndex;
+    }
+    selectedServerType = servers[serverIndex].typeName;
   }
 
   @override
