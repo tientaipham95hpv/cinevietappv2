@@ -9691,15 +9691,33 @@ class _SocialSectionState extends State<SocialSection> {
   }
 }
 
-class ResumeLoaderScreen extends StatelessWidget {
+class ResumeLoaderScreen extends StatefulWidget {
   const ResumeLoaderScreen({super.key, required this.repo, required this.item});
   final MovieRepository repo;
   final WatchItem item;
 
   @override
+  State<ResumeLoaderScreen> createState() => _ResumeLoaderScreenState();
+}
+
+class _ResumeLoaderScreenState extends State<ResumeLoaderScreen> {
+  late final Future<Movie> _movieFuture;
+  bool _openingPlayer = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final item = widget.item;
+    _movieFuture = widget.repo.detail(
+      item.slug.isNotEmpty ? item.slug : '${item.movieId}',
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final item = widget.item;
     return FutureBuilder<Movie>(
-      future: repo.detail(item.slug.isNotEmpty ? item.slug : '${item.movieId}'),
+      future: _movieFuture,
       builder: (context, snapshot) {
         if (!snapshot.hasData) return const LoadingPage(label: 'Đang mở phim');
         final movie = snapshot.data!;
@@ -9719,18 +9737,27 @@ class ResumeLoaderScreen extends StatelessWidget {
             body: EmptyState('Không tìm thấy tập đang xem'),
           );
         }
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!context.mounted) return;
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (_) => MovieDetailScreen(
-                repo: repo,
-                initial: movie,
-                resumeOnOpen: item,
+        if (!_openingPlayer) {
+          _openingPlayer = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => PlayerScreen(
+                  repo: widget.repo,
+                  movie: movie,
+                  server: server,
+                  episode: episode,
+                  serverIndex: item.serverIndex.clamp(
+                    0,
+                    movie.episodes.length - 1,
+                  ),
+                  resume: Duration(milliseconds: item.positionMs),
+                ),
               ),
-            ),
-          );
-        });
+            );
+          });
+        }
         return const LoadingPage(label: 'Đang mở player');
       },
     );
