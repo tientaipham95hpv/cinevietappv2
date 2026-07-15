@@ -8017,11 +8017,13 @@ class MovieDetailScreen extends StatefulWidget {
     required this.initial,
     this.autoplay = false,
     this.heroTag,
+    this.resumeOnOpen,
   });
   final MovieRepository repo;
   final Movie initial;
   final bool autoplay;
   final String? heroTag;
+  final WatchItem? resumeOnOpen;
 
   @override
   State<MovieDetailScreen> createState() => _MovieDetailScreenState();
@@ -8046,6 +8048,16 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     refreshResumeState(widget.initial);
     future.then(refreshFavoriteState).catchError((_) {});
     future.then(refreshResumeState).catchError((_) {});
+    if (widget.resumeOnOpen != null) {
+      future
+          .then((_) {
+            if (!mounted) return;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) unawaited(openResume(widget.resumeOnOpen!));
+            });
+          })
+          .catchError((_) {});
+    }
     if (widget.autoplay) {
       future.then((movie) {
         if (!mounted) return;
@@ -9708,15 +9720,13 @@ class ResumeLoaderScreen extends StatelessWidget {
           );
         }
         WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!context.mounted) return;
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
-              builder: (_) => PlayerScreen(
+              builder: (_) => MovieDetailScreen(
                 repo: repo,
-                movie: movie,
-                server: server,
-                episode: episode,
-                serverIndex: item.serverIndex,
-                resume: Duration(milliseconds: item.positionMs),
+                initial: movie,
+                resumeOnOpen: item,
               ),
             ),
           );
@@ -15377,6 +15387,7 @@ class ContinueCard extends StatelessWidget {
                   top: 8,
                   right: 8,
                   child: FocusButton(
+                    autofocus: false,
                     onPressed: () => onRemove!(),
                     child: Material(
                       color: Colors.black.withValues(alpha: .58),
