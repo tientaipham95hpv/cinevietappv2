@@ -1158,6 +1158,8 @@ class BilingualCaptionFile extends ClosedCaptionFile {
   BilingualCaptionFile(ClosedCaptionFile primary, ClosedCaptionFile secondary)
     : captions = _mergeCaptions(primary.captions, secondary.captions);
 
+  static const separator = '\u241eCINEVIET_BILINGUAL\u241e';
+
   @override
   final List<Caption> captions;
 
@@ -1172,6 +1174,7 @@ class BilingualCaptionFile extends ClosedCaptionFile {
       Caption? best;
       var bestOverlap = Duration.zero;
       for (var i = 0; i < secondary.length; i++) {
+        if (usedSecondary.contains(i)) continue;
         final second = secondary[i];
         final start = first.start > second.start ? first.start : second.start;
         final end = first.end < second.end ? first.end : second.end;
@@ -1187,7 +1190,7 @@ class BilingualCaptionFile extends ClosedCaptionFile {
       final text = [
         first.text.trim(),
         if (best != null && best.text.trim().isNotEmpty) best.text.trim(),
-      ].where((line) => line.isNotEmpty).join('\n');
+      ].where((line) => line.isNotEmpty).join(separator);
       if (text.isEmpty) continue;
       out.add(
         Caption(
@@ -12751,8 +12754,10 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Widget _buildStyledCaption(String text) {
     if (text.trim().isEmpty) return const SizedBox.shrink();
-    final lines = text.split(RegExp(r'\n+'));
     final dual = selectedSubtitleLang == 'dual';
+    final blocks = dual
+        ? text.split(BilingualCaptionFile.separator)
+        : <String>[text];
     // Trong chế độ song ngữ, dòng đầu là track Việt và dòng sau là track Anh.
     // Giá trị bottom lớn hơn nằm cao hơn trên màn hình, nên luôn dành vị trí
     // cao cho tiếng Việt để đồng nhất với player website.
@@ -12768,7 +12773,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       clipBehavior: Clip.none,
       alignment: Alignment.bottomCenter,
       children: [
-        for (var index = 0; index < lines.length; index++)
+        for (var index = 0; index < blocks.length; index++)
           Positioned(
             left: 0,
             right: 0,
@@ -12783,7 +12788,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                         : viSubtitleStyle.bottom) /
                     100),
             child: Text(
-              lines[index],
+              blocks[index].trim(),
               textAlign: TextAlign.center,
               style: _subtitleTextStyle(
                 dual && index > 0
@@ -12867,6 +12872,9 @@ class _PlayerScreenState extends State<PlayerScreen>
           onKeyEvent: (event) {
             if (event is! KeyDownEvent) return;
             final key = event.logicalKey;
+            final playerRouteIsCurrent =
+                ModalRoute.of(context)?.isCurrent ?? true;
+            if (!playerRouteIsCurrent) return;
             // Back phải hoạt động trên WebView StreamC cả khi không có native
             // VideoPlayer controller (Android TV remote, Windows Esc/back, keyboard).
             if (key == LogicalKeyboardKey.escape ||
