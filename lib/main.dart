@@ -2917,6 +2917,7 @@ class _AppShellState extends State<AppShell> {
       final forceUpdate =
           remote['forceUpdate'] == true || remote['forced'] == true;
       final url = cleanText(remote['url'] ?? remote['downloadUrl']);
+      final notes = cleanText(remote['notes'] ?? remote['releaseNotes']);
       if (!updateAvailable || url.isEmpty) return;
       await showDialog<void>(
         context: context,
@@ -2926,7 +2927,9 @@ class _AppShellState extends State<AppShell> {
             forceUpdate ? 'Cần cập nhật ứng dụng' : 'Có bản cập nhật mới',
           ),
           content: Text(
-            forceUpdate
+            notes.isNotEmpty
+                ? notes
+                : forceUpdate
                 ? 'Phiên bản hiện tại đã cũ. Vui lòng cập nhật để tiếp tục sử dụng CineViet.'
                 : 'Đã có phiên bản CineViet mới. Bạn có thể cập nhật trực tiếp trong app.',
           ),
@@ -6899,6 +6902,7 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
             remote['latestBuild'] ?? remote['build'] ?? remote['versionCode'],
           );
           final url = cleanText(remote['url'] ?? remote['downloadUrl']);
+          final notes = cleanText(remote['notes'] ?? remote['releaseNotes']);
           final updateAvailable = remote['updateAvailable'] == true;
           final latestLabel = [
             if (latestVersion.isNotEmpty) latestVersion,
@@ -6935,6 +6939,16 @@ class _UpdateInfoScreenState extends State<UpdateInfoScreen> {
                           : 'Bạn đang dùng bản mới nhất: $latestLabel',
                       style: const TextStyle(color: CvColors.muted),
                     ),
+                    if (notes.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        notes,
+                        style: const TextStyle(
+                          color: CvColors.muted,
+                          height: 1.45,
+                        ),
+                      ),
+                    ],
                     if (url.isNotEmpty && updateAvailable) ...[
                       const SizedBox(height: 16),
                       FilledButton.icon(
