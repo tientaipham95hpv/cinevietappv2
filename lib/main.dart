@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -6107,7 +6108,12 @@ class AccountPanel extends StatelessWidget {
     return Panel(
       child: Row(
         children: [
-          UserAvatar(name: name, avatarUrl: avatar, radius: 26),
+          UserAvatar(
+            name: name,
+            avatarUrl: avatar,
+            radius: 26,
+            isVip: isVipUser(user),
+          ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
@@ -6175,11 +6181,7 @@ class AccountPanel extends StatelessWidget {
 }
 
 String _vipLabel(Map<String, dynamic> user) {
-  final active =
-      user['is_vip'] == true ||
-      user['is_vip'] == 1 ||
-      cleanText(user['status']).toLowerCase() == 'vip';
-  if (!active) return 'Thành viên';
+  if (!isVipUser(user)) return 'Thành viên';
   final raw = cleanText(user['vip_expires_at'] ?? user['vipExpiresAt']);
   final parsed = DateTime.tryParse(raw)?.toLocal();
   if (parsed == null) return 'VIP';
@@ -6187,6 +6189,11 @@ String _vipLabel(Map<String, dynamic> user) {
   final month = parsed.month.toString().padLeft(2, '0');
   return 'VIP · hết hạn $day/$month/${parsed.year}';
 }
+
+bool isVipUser(Map<String, dynamic> user) =>
+    user['is_vip'] == true ||
+    user['is_vip'] == 1 ||
+    cleanText(user['status']).toLowerCase() == 'vip';
 
 String apiErrorMessage(Object error, String fallback) {
   if (error is DioException) {
@@ -6287,6 +6294,7 @@ class ProfileEditScreen extends StatefulWidget {
 class _ProfileEditScreenState extends State<ProfileEditScreen> {
   late final TextEditingController nameController;
   XFile? selectedImage;
+  bool removeAvatar = false;
   bool busy = false;
 
   @override
@@ -6297,14 +6305,130 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     );
   }
 
-  Future<void> pickAvatar() async {
-    final image = await ImagePicker().pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1024,
-      maxHeight: 1024,
-      imageQuality: 88,
+  bool get canUseCamera =>
+      !kIsWeb && !isTvBuild && (Platform.isAndroid || Platform.isIOS);
+
+  Future<void> showAvatarPicker() async {
+    if (busy) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) {
+        final hasAvatar = userAvatarUrlFrom(widget.user).isNotEmpty;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.photo_library_rounded),
+                title: const Text('Chọn từ thư viện'),
+                onTap: () {
+                  Navigator.pop(context);
+                  pickAvatar(ImageSource.gallery);
+                },
+              ),
+              if (canUseCamera)
+                ListTile(
+                  leading: const Icon(Icons.photo_camera_rounded),
+                  title: const Text('Chụp ảnh mới'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    pickAvatar(ImageSource.camera);
+                  },
+                ),
+              if (selectedImage != null)
+                ListTile(
+                  leading: const Icon(Icons.undo_rounded),
+                  title: const Text('Bỏ ảnh vừa chọn'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() => selectedImage = null);
+                  },
+                ),
+              if (removeAvatar)
+                ListTile(
+                  leading: const Icon(Icons.restore_rounded),
+                  title: const Text('Giữ ảnh hiện tại'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() => removeAvatar = false);
+                  },
+                ),
+              if (hasAvatar)
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: CvColors.danger,
+                  ),
+                  title: const Text('Xoá ảnh đại diện'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    setState(() {
+                      selectedImage = null;
+                      removeAvatar = true;
+                    });
+                  },
+                ),
+            ],
+          ),
+        );
+      },
     );
-    if (image != null && mounted) setState(() => selectedImage = image);
+  }
+
+  Future<void> pickAvatar(ImageSource source) async {
+    final image = await ImagePicker().pickImage(
+      source: source,
+      maxWidth: 1600,
+      maxHeight: 1600,
+      imageQuality: 95,
+    );
+    if (image == null) return;
+    try {
+      final prepared = await prepareAvatarImage(image);
+      if (mounted) {
+        setState(() {
+          selectedImage = prepared;
+          removeAvatar = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) showSnack(context, 'Không xử lý được ảnh đã chọn');
+    }
+  }
+
+  Future<XFile> prepareAvatarImage(XFile source) async {
+    final bytes = await source.readAsBytes();
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return source;
+    final oriented = img.bakeOrientation(decoded);
+    final side = math.min(oriented.width, oriented.height);
+    final cropped = img.copyCrop(
+      oriented,
+      x: ((oriented.width - side) / 2).round(),
+      y: ((oriented.height - side) / 2).round(),
+      width: side,
+      height: side,
+    );
+    final normalized = side > 1024
+        ? img.copyResize(
+            cropped,
+            width: 1024,
+            height: 1024,
+            interpolation: img.Interpolation.average,
+          )
+        : cropped;
+    final jpg = img.encodeJpg(normalized, quality: 88);
+    final dir = await getTemporaryDirectory();
+    final file = File(
+      '${dir.path}/cineviet-avatar-${DateTime.now().microsecondsSinceEpoch}.jpg',
+    );
+    await file.writeAsBytes(jpg, flush: true);
+    return XFile(
+      file.path,
+      name: 'cineviet-avatar.jpg',
+      mimeType: 'image/jpeg',
+    );
   }
 
   Future<void> save() async {
@@ -6315,6 +6439,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
     }
     setState(() => busy = true);
     try {
+      final previousAvatar = userAvatarUrlFrom(widget.user);
       Map<String, dynamic> updated;
       if (selectedImage != null) {
         final form = FormData.fromMap({
@@ -6331,15 +6456,24 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       } else {
         updated = Map<String, dynamic>.from(widget.user);
       }
+      if (selectedImage != null || removeAvatar) {
+        if (previousAvatar.isNotEmpty) {
+          await CachedNetworkImage.evictFromCache(previousAvatar);
+        }
+      }
       final response = await Api.instance.dio.patch(
         '/user/profile',
-        data: {'name': name},
+        data: {'name': name, if (removeAvatar) 'avatar': ''},
       );
       updated = {
         ...updated,
         ...Map<String, dynamic>.from(response.data as Map),
       };
       final refreshed = await Api.instance.currentUser(allowRefresh: false);
+      final nextAvatar = userAvatarUrlFrom(refreshed ?? updated);
+      if (nextAvatar.isNotEmpty && nextAvatar != previousAvatar) {
+        await CachedNetworkImage.evictFromCache(nextAvatar);
+      }
       if (mounted) Navigator.of(context).pop(refreshed ?? updated);
     } catch (error) {
       if (mounted) {
@@ -6357,47 +6491,117 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Chỉnh sửa hồ sơ')),
-    body: ListView(
-      padding: pagePadding(context).copyWith(top: 24, bottom: 32),
-      children: [
-        Center(
-          child: GestureDetector(
-            onTap: busy ? null : pickAvatar,
-            child: Stack(
-              alignment: Alignment.bottomRight,
+  Widget build(BuildContext context) {
+    final currentAvatar = userAvatarUrlFrom(widget.user);
+    final hasPreview = selectedImage != null;
+    final avatarRemoved = removeAvatar && !hasPreview;
+    final displayName = cleanText(
+      nameController.text.trim().isEmpty
+          ? widget.user['name']
+          : nameController.text,
+    );
+    return Scaffold(
+      appBar: AppBar(title: const Text('Chỉnh sửa hồ sơ')),
+      body: ListView(
+        padding: pagePadding(context).copyWith(top: 24, bottom: 32),
+        children: [
+          Center(
+            child: Column(
               children: [
-                UserAvatar(
-                  name: cleanText(widget.user['name']),
-                  avatarUrl: selectedImage == null
-                      ? userAvatarUrlFrom(widget.user)
-                      : '',
-                  radius: 52,
+                GestureDetector(
+                  onTap: busy ? null : showAvatarPicker,
+                  child: Stack(
+                    alignment: Alignment.bottomRight,
+                    children: [
+                      UserAvatar(
+                        name: displayName,
+                        avatarUrl: avatarRemoved ? '' : currentAvatar,
+                        imageProvider: hasPreview
+                            ? FileImage(File(selectedImage!.path))
+                            : null,
+                        radius: 56,
+                        isVip: isVipUser(widget.user),
+                      ),
+                      CircleAvatar(
+                        radius: 17,
+                        backgroundColor: CvColors.accent,
+                        child: Icon(
+                          hasPreview
+                              ? Icons.check_rounded
+                              : Icons.camera_alt_rounded,
+                          color: CvColors.black,
+                          size: 18,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                const CircleAvatar(
-                  radius: 16,
-                  child: Icon(Icons.camera_alt_rounded, size: 17),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: busy ? null : showAvatarPicker,
+                      icon: const Icon(Icons.add_a_photo_rounded),
+                      label: const Text('Đổi ảnh'),
+                    ),
+                    if (hasPreview)
+                      TextButton.icon(
+                        onPressed: busy
+                            ? null
+                            : () => setState(() => selectedImage = null),
+                        icon: const Icon(Icons.close_rounded),
+                        label: const Text('Bỏ ảnh chọn'),
+                      ),
+                    if (avatarRemoved)
+                      TextButton.icon(
+                        onPressed: busy
+                            ? null
+                            : () => setState(() => removeAvatar = false),
+                        icon: const Icon(Icons.restore_rounded),
+                        label: const Text('Giữ ảnh hiện tại'),
+                      ),
+                  ],
                 ),
+                if (avatarRemoved) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Ảnh đại diện sẽ được xoá khi lưu',
+                    style: TextStyle(color: CvColors.muted, fontSize: 12),
+                  ),
+                ] else if (hasPreview) ...[
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Ảnh sẽ được crop vuông và nén trước khi tải lên',
+                    style: TextStyle(color: CvColors.muted, fontSize: 12),
+                  ),
+                ],
               ],
             ),
           ),
-        ),
-        const SizedBox(height: 24),
-        TextField(
-          controller: nameController,
-          enabled: !busy,
-          decoration: const InputDecoration(labelText: 'Tên hiển thị'),
-        ),
-        const SizedBox(height: 20),
-        FilledButton.icon(
-          onPressed: busy ? null : save,
-          icon: const Icon(Icons.save_rounded),
-          label: Text(busy ? 'Đang lưu...' : 'Lưu thay đổi'),
-        ),
-      ],
-    ),
-  );
+          const SizedBox(height: 24),
+          TextField(
+            controller: nameController,
+            enabled: !busy,
+            decoration: const InputDecoration(labelText: 'Tên hiển thị'),
+            onChanged: (_) => setState(() {}),
+          ),
+          const SizedBox(height: 20),
+          if (busy) ...[
+            const LinearProgressIndicator(),
+            const SizedBox(height: 12),
+          ],
+          FilledButton.icon(
+            onPressed: busy ? null : save,
+            icon: Icon(busy ? Icons.cloud_upload_rounded : Icons.save_rounded),
+            label: Text(busy ? 'Đang lưu...' : 'Lưu thay đổi'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class UserAvatar extends StatelessWidget {
@@ -6406,24 +6610,31 @@ class UserAvatar extends StatelessWidget {
     required this.name,
     required this.avatarUrl,
     this.radius = 22,
+    this.imageProvider,
+    this.isVip = false,
+    this.showVipBadge = true,
   });
 
   final String name;
   final String avatarUrl;
   final double radius;
+  final ImageProvider? imageProvider;
+  final bool isVip;
+  final bool showVipBadge;
 
   @override
   Widget build(BuildContext context) {
     final initial = name.characters.isEmpty
         ? ''
         : name.characters.first.toUpperCase();
-    return CircleAvatar(
+    final provider =
+        imageProvider ??
+        (avatarUrl.isNotEmpty ? CachedNetworkImageProvider(avatarUrl) : null);
+    final avatar = CircleAvatar(
       radius: radius,
       backgroundColor: CvColors.panel2,
-      backgroundImage: avatarUrl.isNotEmpty
-          ? CachedNetworkImageProvider(avatarUrl)
-          : null,
-      child: avatarUrl.isEmpty
+      backgroundImage: provider,
+      child: provider == null
           ? Text(
               initial.isEmpty ? 'C' : initial,
               style: TextStyle(
@@ -6433,6 +6644,60 @@ class UserAvatar extends StatelessWidget {
               ),
             )
           : null,
+    );
+    if (!isVip) return avatar;
+
+    final frameSize = radius * 2 + 8;
+    final badgeRadius = math.max(8.0, radius * .24);
+    return SizedBox.square(
+      dimension: frameSize + (showVipBadge ? badgeRadius * .75 : 0),
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          Container(
+            width: frameSize,
+            height: frameSize,
+            padding: const EdgeInsets.all(3),
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xfffff2a8), CvColors.amber, Color(0xffb7791f)],
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: CvColors.amber.withValues(alpha: .22),
+                  blurRadius: 16,
+                  spreadRadius: 1,
+                ),
+              ],
+            ),
+            child: avatar,
+          ),
+          if (showVipBadge)
+            Positioned(
+              right: radius * .02,
+              bottom: radius * .02,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: CvColors.black,
+                  shape: BoxShape.circle,
+                  border: Border.all(color: const Color(0xfffff2a8), width: 2),
+                ),
+                child: Padding(
+                  padding: EdgeInsets.all(math.max(3, radius * .08)),
+                  child: Icon(
+                    Icons.workspace_premium_rounded,
+                    size: badgeRadius * 1.25,
+                    color: const Color(0xffffd76a),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
