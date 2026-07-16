@@ -746,6 +746,7 @@ class Movie {
     this.directors = const [],
     this.episodes = const [],
     this.related = const [],
+    this.collection,
   });
 
   final int id;
@@ -774,6 +775,7 @@ class Movie {
   final List<MoviePerson> directors;
   final List<EpisodeServer> episodes;
   final List<Movie> related;
+  final MovieCollection? collection;
 
   bool get hasTmdbId => tmdbId.trim().isNotEmpty && tmdbId.trim() != 'null';
   String get sourcePosterUrl =>
@@ -887,6 +889,12 @@ class Movie {
           .toList();
     }
 
+    MovieCollection? parseCollection(dynamic value) {
+      if (value is! Map) return null;
+      final parsed = MovieCollection.fromJson(Map<String, dynamic>.from(value));
+      return parsed.items.isEmpty ? null : parsed;
+    }
+
     List<MoviePerson> parsePeople(dynamic value) {
       dynamic decoded = value;
       if (value is String && value.trim().isNotEmpty) {
@@ -974,6 +982,7 @@ class Movie {
       directors: parsePeople(json['director'] ?? json['directors']),
       episodes: episodes,
       related: parseRelated(json['related']),
+      collection: parseCollection(json['collection']),
     );
   }
 
@@ -1002,6 +1011,91 @@ class Movie {
     'total_episodes': totalEpisodes,
     'part_number': partNumber,
     'genres': genres,
+    if (collection != null) 'collection': collection!.toJson(),
+  };
+}
+
+class MovieCollection {
+  const MovieCollection({
+    required this.id,
+    required this.title,
+    required this.items,
+  });
+
+  final int id;
+  final String title;
+  final List<MovieCollectionItem> items;
+
+  factory MovieCollection.fromJson(Map<String, dynamic> json) {
+    final rawItems = json['items'];
+    final items =
+        (rawItems is List ? rawItems : const [])
+            .whereType<Map>()
+            .map(
+              (item) =>
+                  MovieCollectionItem.fromJson(Map<String, dynamic>.from(item)),
+            )
+            .where((item) => item.movieId > 0 && item.slug.isNotEmpty)
+            .toList()
+          ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    return MovieCollection(
+      id: asInt(json['id']) ?? 0,
+      title: cleanText(json['title']),
+      items: List.unmodifiable(items),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'items': items.map((item) => item.toJson()).toList(),
+  };
+}
+
+class MovieCollectionItem {
+  const MovieCollectionItem({
+    required this.movieId,
+    required this.slug,
+    required this.title,
+    required this.displayName,
+    required this.sortOrder,
+    required this.isCurrent,
+    this.posterUrl = '',
+    this.year,
+  });
+
+  final int movieId;
+  final String slug;
+  final String title;
+  final String displayName;
+  final int sortOrder;
+  final bool isCurrent;
+  final String posterUrl;
+  final int? year;
+
+  String get label => displayName.isNotEmpty ? displayName : title;
+
+  factory MovieCollectionItem.fromJson(Map<String, dynamic> json) =>
+      MovieCollectionItem(
+        movieId: asInt(json['movie_id']) ?? 0,
+        slug: cleanText(json['slug']),
+        title: cleanText(json['title']),
+        displayName: cleanText(json['display_name']),
+        sortOrder: asInt(json['sort_order']) ?? 0,
+        isCurrent: json['is_current'] == true || asInt(json['is_current']) == 1,
+        posterUrl: cleanText(json['poster_url']),
+        year: asInt(json['year']),
+      );
+
+  Map<String, dynamic> toJson() => {
+    'movie_id': movieId,
+    'slug': slug,
+    'title': title,
+    'display_name': displayName,
+    'sort_order': sortOrder,
+    'is_current': isCurrent,
+    if (posterUrl.isNotEmpty) 'poster_url': posterUrl,
+    if (year != null) 'year': year,
   };
 }
 
@@ -8973,6 +9067,56 @@ class CollapsibleMovieDescription extends StatelessWidget {
   }
 }
 
+class MovieCollectionSelector extends StatelessWidget {
+  const MovieCollectionSelector({
+    super.key,
+    required this.collection,
+    required this.currentMovieId,
+    required this.onSelected,
+  });
+  final MovieCollection collection;
+  final int currentMovieId;
+  final ValueChanged<MovieCollectionItem> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final chips = ListView.separated(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.only(right: 4),
+      itemCount: collection.items.length,
+      separatorBuilder: (_, _) => const SizedBox(width: 8),
+      itemBuilder: (_, index) {
+        final part = collection.items[index];
+        final selected = part.movieId == currentMovieId || part.isCurrent;
+        return FocusableActionDetector(
+          autofocus: selected,
+          child: ChoiceChip(
+            label: Text(part.label),
+            selected: selected,
+            onSelected: (_) => onSelected(part),
+            selectedColor: CvColors.accent,
+            labelStyle: TextStyle(
+              color: selected ? CvColors.black : CvColors.text,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        );
+      },
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          collection.title.isEmpty ? 'Các phần' : collection.title,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 10),
+        SizedBox(height: 42, child: chips),
+      ],
+    );
+  }
+}
+
 class MovieDetailScreen extends StatefulWidget {
   const MovieDetailScreen({
     super.key,
@@ -9033,6 +9177,22 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         }
       });
     }
+  }
+
+  Future<void> selectCollectionPart(MovieCollectionItem part) async {
+    final current = await future.catchError((_) => widget.initial);
+    if (part.movieId == current.id || part.isCurrent) return;
+    setState(() {
+      future = widget.repo.detail(part.slug);
+      serverIndex = 0;
+      detailSectionIndex = 0;
+      descriptionExpanded = false;
+      resumeItem = null;
+      favoriteMovieId = part.movieId;
+      isFavorite = false;
+    });
+    future.then(refreshFavoriteState).catchError((_) {});
+    future.then(refreshResumeState).catchError((_) {});
   }
 
   Future<void> refreshFavoriteState(Movie movie, {bool force = false}) async {
@@ -9436,6 +9596,14 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                             () => descriptionExpanded = !descriptionExpanded,
                           ),
                         ),
+                      if ((movie.collection?.items.length ?? 0) >= 2) ...[
+                        const SizedBox(height: 22),
+                        MovieCollectionSelector(
+                          collection: movie.collection!,
+                          currentMovieId: movie.id,
+                          onSelected: selectCollectionPart,
+                        ),
+                      ],
                       if (movie.genres.isNotEmpty) ...[
                         const SizedBox(height: 18),
                         Wrap(

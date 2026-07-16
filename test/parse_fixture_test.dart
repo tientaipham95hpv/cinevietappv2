@@ -19,6 +19,60 @@ void main() {
     }
   });
 
+  test('Movie collection parses, sorts, and survives cache serialization', () {
+    final movie = Movie.fromJson({
+      'id': 20,
+      'title': 'Phần 2',
+      'slug': 'phan-2',
+      'collection': {
+        'id': 3,
+        'title': 'Các phần',
+        'items': [
+          {
+            'movie_id': 20,
+            'slug': 'phan-2',
+            'title': 'Phần 2',
+            'display_name': 'Phần hai',
+            'sort_order': 2,
+            'is_current': true,
+          },
+          {
+            'movie_id': 10,
+            'slug': 'phan-1',
+            'title': 'Phần 1',
+            'display_name': 'Phần một',
+            'sort_order': 1,
+            'is_current': false,
+            'poster_url': 'https://example.com/1.jpg',
+            'year': 2024,
+          },
+        ],
+      },
+    });
+    expect(movie.collection!.items.map((item) => item.movieId), [10, 20]);
+    expect(movie.collection!.items.last.isCurrent, isTrue);
+
+    final cached = Movie.fromJson(movie.toCacheJson());
+    expect(cached.collection!.items.first.label, 'Phần một');
+    expect(cached.collection!.items.first.year, 2024);
+  });
+
+  test('Movie collection is safely nullable and ignores invalid shapes', () {
+    expect(
+      Movie.fromJson({'id': 1, 'title': 'A', 'slug': 'a'}).collection,
+      isNull,
+    );
+    expect(
+      Movie.fromJson({
+        'id': 1,
+        'title': 'A',
+        'slug': 'a',
+        'collection': {'id': 2, 'items': 'invalid'},
+      }).collection,
+      isNull,
+    );
+  });
+
   test('Movie.fromJson vẫn sort được episodes hợp lệ theo ưu tiên nguồn', () {
     final m = Movie.fromJson({
       'id': 2,
