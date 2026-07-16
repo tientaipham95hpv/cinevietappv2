@@ -3263,14 +3263,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     onRemove: _removeHistory,
                   ),
                 MovieRow(
-                  title: 'Top CineViet',
-                  movies: featured.length > 1
-                      ? featured.skip(1).toList()
-                      : featured,
-                  repo: widget.repo,
-                  padded: false,
-                ),
-                MovieRow(
                   title: 'Mới cập nhật hôm nay',
                   movies: home.latest,
                   repo: widget.repo,
@@ -3955,10 +3947,18 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
                     final selected = index == page;
                     return FocusButton(
                       autofocus: selected,
-                      onPressed: () => controller.animateToPage(
-                        index,
-                        duration: const Duration(milliseconds: 260),
-                        curve: Curves.easeOutCubic,
+                      onFocus: () {
+                        if (index == page || !controller.hasClients) return;
+                        controller.animateToPage(
+                          index,
+                          duration: const Duration(milliseconds: 260),
+                          curve: Curves.easeOutCubic,
+                        );
+                      },
+                      onPressed: () => openDetail(
+                        context,
+                        widget.repo,
+                        widget.movies[index],
                       ),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 160),
@@ -4043,19 +4043,6 @@ class HeroBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    void revealWholeHero() {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!context.mounted) return;
-        Scrollable.ensureVisible(
-          context,
-          duration: const Duration(milliseconds: 260),
-          curve: Curves.easeOutCubic,
-          alignment: 0,
-          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
-        );
-      });
-    }
-
     final size = MediaQuery.sizeOf(context);
     final compact = size.width < 600 && !isTvBuild;
     final tablet = size.width >= 600 && size.width < 1100 && !isTvBuild;
@@ -4172,32 +4159,12 @@ class HeroBanner extends StatelessWidget {
                               ),
                             ),
                           ],
-                          SizedBox(height: tablet ? 16 : 22),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
-                            children: [
-                              if (useLeanbackControls) ...[
-                                TvActionButton(
-                                  icon: Icons.play_arrow_rounded,
-                                  label: 'Xem ngay',
-                                  primary: true,
-                                  onFocus: revealWholeHero,
-                                  onPressed: () => openDetail(
-                                    context,
-                                    repo,
-                                    movie,
-                                    autoplay: true,
-                                  ),
-                                ),
-                                TvActionButton(
-                                  icon: Icons.info_outline_rounded,
-                                  label: 'Chi tiết',
-                                  onFocus: revealWholeHero,
-                                  onPressed: () =>
-                                      openDetail(context, repo, movie),
-                                ),
-                              ] else ...[
+                          if (!isTvBuild) ...[
+                            SizedBox(height: tablet ? 16 : 22),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
                                 FilledButton.icon(
                                   style: FilledButton.styleFrom(
                                     backgroundColor: Colors.white,
@@ -4235,8 +4202,8 @@ class HeroBanner extends StatelessWidget {
                                   label: const Text('Chi tiết'),
                                 ),
                               ],
-                            ],
-                          ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
