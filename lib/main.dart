@@ -3940,7 +3940,67 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
             itemBuilder: (context, index) =>
                 HeroBanner(movie: widget.movies[index], repo: widget.repo),
           ),
-          if (widget.movies.length > 1)
+          if (isTvBuild && widget.movies.length > 1)
+            Positioned(
+              left: 28,
+              right: 28,
+              bottom: 18,
+              child: SizedBox(
+                height: 74,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: widget.movies.length.clamp(0, 12),
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) {
+                    final selected = index == page;
+                    return FocusButton(
+                      autofocus: selected,
+                      onPressed: () => controller.animateToPage(
+                        index,
+                        duration: const Duration(milliseconds: 260),
+                        curve: Curves.easeOutCubic,
+                      ),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 160),
+                        width: selected ? 112 : 96,
+                        height: selected ? 68 : 58,
+                        padding: EdgeInsets.all(selected ? 3 : 1),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: selected
+                                ? CvColors.accent
+                                : Colors.white.withValues(alpha: .35),
+                            width: selected ? 3 : 1,
+                          ),
+                          boxShadow: selected
+                              ? [
+                                  BoxShadow(
+                                    color: CvColors.accent.withValues(
+                                      alpha: .42,
+                                    ),
+                                    blurRadius: 14,
+                                  ),
+                                ]
+                              : null,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(6),
+                          child: NetworkBackdrop(
+                            url: widget.movies[index].backdropUrl.isNotEmpty
+                                ? widget.movies[index].backdropUrl
+                                : widget.movies[index].posterUrl,
+                            fallbackUrl: widget.movies[index].posterFallbackUrl,
+                            fit: BoxFit.cover,
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            )
+          else if (widget.movies.length > 1)
             Positioned(
               bottom: 18,
               child: Row(
@@ -16308,7 +16368,37 @@ class ContinueCard extends StatelessWidget {
             FocusTraversalOrder(
               order: const NumericFocusOrder(0),
               child: FocusButton(
-                onPressed: onTap,
+                onPressed: () async {
+                  if (!isTvBuild || onRemove == null) {
+                    onTap();
+                    return;
+                  }
+                  final choice = await showDialog<String>(
+                    context: context,
+                    builder: (dialogContext) => AlertDialog(
+                      title: Text(item.title),
+                      content: const Text('Bạn muốn làm gì với phim này?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () =>
+                              Navigator.pop(dialogContext, 'remove'),
+                          child: const Text('Xoá khỏi Xem tiếp'),
+                        ),
+                        FilledButton(
+                          onPressed: () =>
+                              Navigator.pop(dialogContext, 'resume'),
+                          child: const Text('Xem tiếp'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (!context.mounted) return;
+                  if (choice == 'remove') {
+                    await onRemove!();
+                  } else if (choice == 'resume') {
+                    onTap();
+                  }
+                },
                 child: ClipRRect(
                   borderRadius: BorderRadius.circular(8),
                   child: Stack(
@@ -16392,7 +16482,7 @@ class ContinueCard extends StatelessWidget {
                 ),
               ),
             ),
-            if (onRemove != null)
+            if (!isTvBuild && onRemove != null)
               Positioned(
                 top: 8,
                 right: 8,
