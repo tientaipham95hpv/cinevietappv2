@@ -6176,10 +6176,27 @@ class AccountPanel extends StatelessWidget {
 
 String _vipLabel(Map<String, dynamic> user) {
   final active =
-      user['is_vip'] == true || user['is_vip'] == 1 || user['status'] == 'vip';
+      user['is_vip'] == true ||
+      user['is_vip'] == 1 ||
+      cleanText(user['status']).toLowerCase() == 'vip';
   if (!active) return 'Thành viên';
-  final expires = cleanText(user['vip_expires_at'] ?? user['vipExpiresAt']);
-  return expires.isEmpty ? 'VIP' : 'VIP · $expires';
+  final raw = cleanText(user['vip_expires_at'] ?? user['vipExpiresAt']);
+  final parsed = DateTime.tryParse(raw)?.toLocal();
+  if (parsed == null) return 'VIP';
+  final day = parsed.day.toString().padLeft(2, '0');
+  final month = parsed.month.toString().padLeft(2, '0');
+  return 'VIP · hết hạn $day/$month/${parsed.year}';
+}
+
+String apiErrorMessage(Object error, String fallback) {
+  if (error is DioException) {
+    final data = error.response?.data;
+    if (data is Map) {
+      final message = cleanText(data['error'] ?? data['message']);
+      if (message.isNotEmpty) return message;
+    }
+  }
+  return fallback;
 }
 
 class ChangePasswordScreen extends StatefulWidget {
@@ -6209,8 +6226,10 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
         showSnack(context, 'Đã đổi mật khẩu');
         Navigator.pop(context);
       }
-    } catch (_) {
-      if (mounted) showSnack(context, 'Không đổi được mật khẩu');
+    } catch (error) {
+      if (mounted) {
+        showSnack(context, apiErrorMessage(error, 'Không đổi được mật khẩu'));
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -6320,9 +6339,12 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         ...updated,
         ...Map<String, dynamic>.from(response.data as Map),
       };
-      if (mounted) Navigator.of(context).pop(updated);
-    } catch (_) {
-      if (mounted) showSnack(context, 'Không cập nhật được hồ sơ');
+      final refreshed = await Api.instance.currentUser(allowRefresh: false);
+      if (mounted) Navigator.of(context).pop(refreshed ?? updated);
+    } catch (error) {
+      if (mounted) {
+        showSnack(context, apiErrorMessage(error, 'Không cập nhật được hồ sơ'));
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
