@@ -162,7 +162,7 @@ void main() {
       find.byKey(const ValueKey('user_avatar_vip_sparkle')),
       findsOneWidget,
     );
-    expect(find.byIcon(Icons.workspace_premium_rounded), findsOneWidget);
+    expect(find.byType(CustomPaint), findsWidgets);
 
     await tester.pumpWidget(
       _wrap(

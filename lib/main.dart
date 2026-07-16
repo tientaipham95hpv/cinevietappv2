@@ -6683,34 +6683,31 @@ class _UserAvatarState extends State<UserAvatar>
     super.initState();
     shimmer = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 2800),
+      duration: const Duration(milliseconds: 4200),
     );
+  }
+
+  void syncAnimation() {
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (widget.isVip && !reduceMotion) {
+      if (!shimmer.isAnimating) shimmer.repeat();
+    } else {
+      shimmer.stop();
+      shimmer.value = .18;
+    }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    final reduceMotion =
-        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    if (widget.isVip && !reduceMotion) {
-      if (!shimmer.isAnimating) shimmer.repeat();
-    } else {
-      shimmer.stop();
-      shimmer.value = 0.12;
-    }
+    syncAnimation();
   }
 
   @override
   void didUpdateWidget(covariant UserAvatar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final reduceMotion =
-        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-    if (widget.isVip && !reduceMotion) {
-      if (!shimmer.isAnimating) shimmer.repeat();
-    } else {
-      shimmer.stop();
-      shimmer.value = 0.12;
-    }
+    syncAnimation();
   }
 
   @override
@@ -6718,6 +6715,22 @@ class _UserAvatarState extends State<UserAvatar>
     shimmer.dispose();
     super.dispose();
   }
+
+  Widget avatar(ImageProvider? provider, String initial) => CircleAvatar(
+    radius: widget.radius,
+    backgroundColor: CvColors.panel2,
+    backgroundImage: provider,
+    child: provider == null
+        ? Text(
+            initial.isEmpty ? 'C' : initial,
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: widget.radius * .78,
+              fontWeight: FontWeight.w900,
+            ),
+          )
+        : null,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -6729,117 +6742,102 @@ class _UserAvatarState extends State<UserAvatar>
         (widget.avatarUrl.isNotEmpty
             ? CachedNetworkImageProvider(widget.avatarUrl)
             : null);
-    final avatar = CircleAvatar(
-      radius: widget.radius,
-      backgroundColor: CvColors.panel2,
-      backgroundImage: provider,
-      child: provider == null
-          ? Text(
-              initial.isEmpty ? 'C' : initial,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: widget.radius * .78,
-                fontWeight: FontWeight.w900,
-              ),
-            )
-          : null,
-    );
-    if (!widget.isVip) return avatar;
+    if (!widget.isVip) return avatar(provider, initial);
 
     final radius = widget.radius;
-    final frameSize = radius * 2 + 10;
-    final crownSize = math.max(18.0, radius * .72);
-    final canvasSize = frameSize + crownSize * .62;
+    final compact = radius < 28;
+    final frameSize = radius * 2 + (compact ? 7 : 10);
+    final crownHeight = compact ? radius * .48 : radius * .62;
+    final crownWidth = compact ? radius * .82 : radius * 1.08;
+    final topSpace = widget.showVipBadge ? crownHeight * .72 : 2.0;
+    final canvasWidth = frameSize + (compact ? 8 : 18);
+    final canvasHeight = frameSize + topSpace + (compact ? 4 : 9);
+
     return SizedBox(
-      width: canvasSize,
-      height: canvasSize,
+      width: canvasWidth,
+      height: canvasHeight,
       child: AnimatedBuilder(
         animation: shimmer,
         builder: (context, _) {
-          final turn = shimmer.value * math.pi * 2;
-          final pulse = .5 + .5 * math.sin(turn * 2);
+          final phase = shimmer.value;
+          final pulse = .5 + .5 * math.sin(phase * math.pi * 2);
           return Stack(
             clipBehavior: Clip.none,
-            alignment: Alignment.bottomCenter,
+            alignment: Alignment.center,
             children: [
-              Container(
-                key: const ValueKey('user_avatar_vip_frame'),
-                width: frameSize,
-                height: frameSize,
-                padding: const EdgeInsets.all(3),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: SweepGradient(
-                    transform: GradientRotation(turn),
-                    colors: const [
-                      Color(0xff8b5a08),
-                      Color(0xffffd76a),
-                      Color(0xffffffff),
-                      Color(0xffffc83d),
-                      Color(0xff8b5a08),
-                    ],
-                    stops: const [0, .27, .36, .52, 1],
+              Positioned(
+                top: topSpace,
+                child: CustomPaint(
+                  key: const ValueKey('user_avatar_vip_frame'),
+                  painter: _RoyalAvatarFramePainter(
+                    phase: phase,
+                    pulse: pulse,
+                    compact: compact,
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(
-                        0xffffc83d,
-                      ).withValues(alpha: .24 + pulse * .22),
-                      blurRadius: 12 + pulse * 8,
-                      spreadRadius: pulse * 1.5,
-                    ),
-                  ],
-                ),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: const Color(0xfffff2a8),
-                      width: 1,
+                  child: Padding(
+                    padding: EdgeInsets.all(compact ? 3.5 : 5),
+                    child: ClipOval(
+                      child: Stack(
+                        children: [
+                          avatar(provider, initial),
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: FractionalTranslation(
+                                translation: Offset(phase * 3.2 - 1.6, 0),
+                                child: Transform.rotate(
+                                  angle: -.22,
+                                  child: Container(
+                                    width: radius * .55,
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: [
+                                          Colors.transparent,
+                                          Colors.white.withValues(
+                                            alpha: compact ? .12 : .20,
+                                          ),
+                                          Colors.transparent,
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                  child: avatar,
                 ),
               ),
               if (widget.showVipBadge)
                 Positioned(
-                  top: crownSize * .02,
+                  top: 0,
                   child: Transform.rotate(
-                    angle: math.sin(turn) * .035,
-                    child: Icon(
-                      Icons.workspace_premium_rounded,
+                    angle: math.sin(phase * math.pi * 2) * .025,
+                    child: CustomPaint(
                       key: const ValueKey('user_avatar_vip_crown'),
-                      size: crownSize,
-                      color: const Color(0xffffd76a),
-                      shadows: const [
-                        Shadow(color: Color(0xfffff4bd), blurRadius: 7),
-                        Shadow(color: Color(0xff7c4a00), blurRadius: 2),
-                      ],
+                      size: Size(crownWidth, crownHeight),
+                      painter: _RoyalCrownPainter(glow: pulse),
                     ),
                   ),
                 ),
-              Positioned(
-                left: frameSize * .05,
-                top: crownSize + frameSize * .04,
-                child: Opacity(
-                  opacity: .45 + pulse * .55,
-                  child: Icon(
-                    Icons.auto_awesome_rounded,
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(
                     key: const ValueKey('user_avatar_vip_sparkle'),
-                    size: math.max(10, radius * .32),
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-              Positioned(
-                right: frameSize * .02,
-                bottom: frameSize * .10,
-                child: Opacity(
-                  opacity: 1 - pulse * .58,
-                  child: Icon(
-                    Icons.star_rounded,
-                    size: math.max(9, radius * .26),
-                    color: const Color(0xffffe89a),
+                    painter: _RoyalSparklePainter(
+                      phase: phase,
+                      frameRect: Rect.fromCenter(
+                        center: Offset(
+                          canvasWidth / 2,
+                          topSpace + frameSize / 2,
+                        ),
+                        width: frameSize,
+                        height: frameSize,
+                      ),
+                      compact: compact,
+                    ),
                   ),
                 ),
               ),
@@ -6849,6 +6847,204 @@ class _UserAvatarState extends State<UserAvatar>
       ),
     );
   }
+}
+
+class _RoyalAvatarFramePainter extends CustomPainter {
+  const _RoyalAvatarFramePainter({
+    required this.phase,
+    required this.pulse,
+    required this.compact,
+  });
+  final double phase;
+  final double pulse;
+  final bool compact;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final outerRadius = size.shortestSide / 2;
+    final glow = Paint()
+      ..color = const Color(0xffffc95c).withValues(alpha: .12 + pulse * .14)
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, compact ? 5 : 10);
+    canvas.drawCircle(center, outerRadius - 1, glow);
+
+    final outerRect = Rect.fromCircle(
+      center: center,
+      radius: outerRadius - 1.2,
+    );
+    final champagne = SweepGradient(
+      transform: GradientRotation(phase * math.pi * 2),
+      colors: const [
+        Color(0xff7d4a08),
+        Color(0xffffd77c),
+        Color(0xfffff8d2),
+        Color(0xffc98a20),
+        Color(0xffffe6a0),
+        Color(0xff7d4a08),
+      ],
+      stops: const [0, .22, .34, .53, .72, 1],
+    ).createShader(outerRect);
+    canvas.drawCircle(
+      center,
+      outerRadius - 2,
+      Paint()
+        ..shader = champagne
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = compact ? 2.2 : 3.2,
+    );
+    canvas.drawCircle(
+      center,
+      outerRadius - (compact ? 4.2 : 5.6),
+      Paint()
+        ..color = const Color(0xfffff0b8).withValues(alpha: .9)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = compact ? .7 : 1.15,
+    );
+
+    final orbitAngle = phase * math.pi * 2;
+    final orbitRadius = outerRadius - 1.5;
+    final dot =
+        center +
+        Offset(math.cos(orbitAngle), math.sin(orbitAngle)) * orbitRadius;
+    canvas.drawCircle(
+      dot,
+      compact ? 1.2 : 1.8,
+      Paint()
+        ..color = Colors.white
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5),
+    );
+    canvas.drawCircle(dot, compact ? .7 : 1.1, Paint()..color = Colors.white);
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoyalAvatarFramePainter oldDelegate) =>
+      oldDelegate.phase != phase || oldDelegate.compact != compact;
+}
+
+class _RoyalCrownPainter extends CustomPainter {
+  const _RoyalCrownPainter({required this.glow});
+  final double glow;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = Path()
+      ..moveTo(size.width * .10, size.height * .82)
+      ..lineTo(size.width * .04, size.height * .29)
+      ..lineTo(size.width * .31, size.height * .49)
+      ..lineTo(size.width * .50, size.height * .08)
+      ..lineTo(size.width * .69, size.height * .49)
+      ..lineTo(size.width * .96, size.height * .29)
+      ..lineTo(size.width * .90, size.height * .82)
+      ..quadraticBezierTo(
+        size.width * .50,
+        size.height * .96,
+        size.width * .10,
+        size.height * .82,
+      )
+      ..close();
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = const Color(0xffffc83d).withValues(alpha: .2 + glow * .14)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..shader = const LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xfffff3ad), Color(0xffffc23a), Color(0xff9b5b05)],
+        ).createShader(Offset.zero & size),
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = const Color(0xfffff1a8)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(.7, size.width * .025),
+    );
+    final ruby = Offset(size.width * .5, size.height * .68);
+    canvas.drawCircle(
+      ruby,
+      size.width * .09,
+      Paint()
+        ..shader = const RadialGradient(
+          center: Alignment(-.3, -.35),
+          colors: [Color(0xffff9c9c), Color(0xffe3133c), Color(0xff760018)],
+        ).createShader(Rect.fromCircle(center: ruby, radius: size.width * .1)),
+    );
+    canvas.drawCircle(
+      ruby,
+      size.width * .09,
+      Paint()
+        ..color = const Color(0xffffe28a)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = math.max(.6, size.width * .02),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoyalCrownPainter oldDelegate) =>
+      oldDelegate.glow != glow;
+}
+
+class _RoyalSparklePainter extends CustomPainter {
+  const _RoyalSparklePainter({
+    required this.phase,
+    required this.frameRect,
+    required this.compact,
+  });
+  final double phase;
+  final Rect frameRect;
+  final bool compact;
+
+  void drawSparkle(
+    Canvas canvas,
+    Offset center,
+    double radius,
+    double opacity,
+  ) {
+    if (opacity <= .02) return;
+    final paint = Paint()
+      ..color = Colors.white.withValues(alpha: opacity)
+      ..strokeWidth = compact ? .8 : 1.2
+      ..strokeCap = StrokeCap.round;
+    canvas.drawLine(
+      center - Offset(radius, 0),
+      center + Offset(radius, 0),
+      paint,
+    );
+    canvas.drawLine(
+      center - Offset(0, radius),
+      center + Offset(0, radius),
+      paint,
+    );
+    canvas.drawCircle(
+      center,
+      radius * .22,
+      Paint()..color = Colors.white.withValues(alpha: opacity),
+    );
+  }
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final points = [
+      Offset(frameRect.left + 3, frameRect.top + frameRect.height * .27),
+      Offset(frameRect.right - 1, frameRect.top + frameRect.height * .38),
+      Offset(frameRect.left + frameRect.width * .18, frameRect.bottom - 2),
+      Offset(frameRect.right - frameRect.width * .13, frameRect.bottom - 6),
+    ];
+    for (var index = 0; index < points.length; index++) {
+      final wave = math.sin((phase * 4 - index) * math.pi * 2);
+      final opacity = math.pow(math.max(0.0, wave), 3).toDouble();
+      drawSparkle(canvas, points[index], compact ? 2.2 : 3.8, opacity);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _RoyalSparklePainter oldDelegate) =>
+      oldDelegate.phase != phase || oldDelegate.frameRect != frameRect;
 }
 
 class FavoritesScreen extends StatefulWidget {
