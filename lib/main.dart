@@ -4051,8 +4051,13 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
               right: 28,
               bottom: 18,
               child: SizedBox(
-                height: 74,
+                height: 88,
                 child: ListView.separated(
+                  clipBehavior: Clip.none,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 8,
+                  ),
                   scrollDirection: Axis.horizontal,
                   itemCount: widget.movies.length.clamp(0, 12),
                   separatorBuilder: (_, _) => const SizedBox(width: 8),
@@ -4078,8 +4083,8 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
                       ),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 160),
-                        width: selected ? 112 : 96,
-                        height: selected ? 68 : 58,
+                        width: 112,
+                        height: 68,
                         padding: EdgeInsets.all(selected ? 3 : 1),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(10),
@@ -4367,9 +4372,11 @@ class MovieRow extends StatelessWidget {
           SizedBox(
             // TV focus scale needs extra paint room; otherwise poster cards can be
             // clipped by the horizontal viewport and look like the poster is cut.
-            height: moviePosterRowHeight(cardWidth),
+            height: moviePosterRowHeight(cardWidth) + (isTvBuild ? 16 : 0),
             child: ListView.separated(
               key: PageStorageKey('movie-row-$title'),
+              clipBehavior: Clip.none,
+              padding: EdgeInsets.symmetric(vertical: isTvBuild ? 8 : 0),
               scrollDirection: Axis.horizontal,
               itemCount: movies.length,
               separatorBuilder: (_, _) => const SizedBox(width: 12),
@@ -17052,13 +17059,13 @@ class _FocusButtonState extends State<FocusButton> {
       child: AnimatedScale(
         duration: const Duration(milliseconds: 180),
         curve: Curves.easeOutCubic,
-        scale: focused && isTvBuild ? 1.055 : 1,
+        scale: focused && isTvBuild ? 1.025 : 1,
         child: Material(
           color: widget.selected
               ? CvColors.accent.withValues(alpha: .14)
               : Colors.transparent,
           borderRadius: BorderRadius.circular(widget.borderRadius),
-          clipBehavior: Clip.antiAlias,
+          clipBehavior: Clip.none,
           child: InkWell(
             onTap: widget.onPressed,
             borderRadius: BorderRadius.circular(widget.borderRadius),
