@@ -16,6 +16,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:qr_flutter/qr_flutter.dart';
@@ -5718,7 +5719,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       onLogin: login,
                       onGoogleLogin: loginWithGoogle,
                     ),
-            if (user != null) AccountPanel(user: user, onLogout: logout),
+            if (user != null)
+              AccountPanel(
+                user: user,
+                onLogout: logout,
+                onUpdated: (updated) =>
+                    setState(() => meFuture = Future.value(updated)),
+              ),
             const SizedBox(height: 22),
             if (useLeanbackControls)
               TvProfileHub(repo: widget.repo, onRequireLogin: requireLogin),
@@ -6083,9 +6090,15 @@ class LoginPanel extends StatelessWidget {
 }
 
 class AccountPanel extends StatelessWidget {
-  const AccountPanel({super.key, required this.user, required this.onLogout});
+  const AccountPanel({
+    super.key,
+    required this.user,
+    required this.onLogout,
+    required this.onUpdated,
+  });
   final Map<String, dynamic> user;
   final VoidCallback onLogout;
+  final ValueChanged<Map<String, dynamic>> onUpdated;
 
   @override
   Widget build(BuildContext context) {
@@ -6114,15 +6127,255 @@ class AccountPanel extends StatelessWidget {
               ],
             ),
           ),
-          TextButton.icon(
-            onPressed: onLogout,
-            icon: const Icon(Icons.logout_rounded),
-            label: const Text('Thoát'),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                _vipLabel(user),
+                style: const TextStyle(color: CvColors.muted, fontSize: 12),
+              ),
+              Wrap(
+                spacing: 6,
+                children: [
+                  IconButton(
+                    tooltip: 'Đổi mật khẩu',
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const ChangePasswordScreen(),
+                      ),
+                    ),
+                    icon: const Icon(Icons.lock_outline_rounded),
+                  ),
+                  IconButton(
+                    tooltip: 'Chỉnh sửa hồ sơ',
+                    onPressed: () async {
+                      final updated = await Navigator.of(context)
+                          .push<Map<String, dynamic>>(
+                            MaterialPageRoute(
+                              builder: (_) => ProfileEditScreen(user: user),
+                            ),
+                          );
+                      if (updated != null) onUpdated(updated);
+                    },
+                    icon: const Icon(Icons.edit_rounded),
+                  ),
+                  TextButton.icon(
+                    onPressed: onLogout,
+                    icon: const Icon(Icons.logout_rounded),
+                    label: const Text('Thoát'),
+                  ),
+                ],
+              ),
+            ],
           ),
         ],
       ),
     );
   }
+}
+
+String _vipLabel(Map<String, dynamic> user) {
+  final active =
+      user['is_vip'] == true || user['is_vip'] == 1 || user['status'] == 'vip';
+  if (!active) return 'Thành viên';
+  final expires = cleanText(user['vip_expires_at'] ?? user['vipExpiresAt']);
+  return expires.isEmpty ? 'VIP' : 'VIP · $expires';
+}
+
+class ChangePasswordScreen extends StatefulWidget {
+  const ChangePasswordScreen({super.key});
+  @override
+  State<ChangePasswordScreen> createState() => _ChangePasswordScreenState();
+}
+
+class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
+  final current = TextEditingController();
+  final next = TextEditingController();
+  final confirm = TextEditingController();
+  bool busy = false;
+
+  Future<void> save() async {
+    if (next.text.length < 6 || next.text != confirm.text) {
+      showSnack(context, 'Mật khẩu mới tối thiểu 6 ký tự và phải trùng nhau');
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      await Api.instance.dio.post(
+        '/user/change-password',
+        data: {'currentPassword': current.text, 'newPassword': next.text},
+      );
+      if (mounted) {
+        showSnack(context, 'Đã đổi mật khẩu');
+        Navigator.pop(context);
+      }
+    } catch (_) {
+      if (mounted) showSnack(context, 'Không đổi được mật khẩu');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    current.dispose();
+    next.dispose();
+    confirm.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Đổi mật khẩu')),
+    body: ListView(
+      padding: pagePadding(context).copyWith(top: 24),
+      children: [
+        TextField(
+          controller: current,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: 'Mật khẩu hiện tại'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: next,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: 'Mật khẩu mới'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: confirm,
+          obscureText: true,
+          decoration: const InputDecoration(labelText: 'Nhập lại mật khẩu mới'),
+        ),
+        const SizedBox(height: 20),
+        FilledButton(
+          onPressed: busy ? null : save,
+          child: Text(busy ? 'Đang lưu...' : 'Đổi mật khẩu'),
+        ),
+      ],
+    ),
+  );
+}
+
+class ProfileEditScreen extends StatefulWidget {
+  const ProfileEditScreen({super.key, required this.user});
+  final Map<String, dynamic> user;
+
+  @override
+  State<ProfileEditScreen> createState() => _ProfileEditScreenState();
+}
+
+class _ProfileEditScreenState extends State<ProfileEditScreen> {
+  late final TextEditingController nameController;
+  XFile? selectedImage;
+  bool busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    nameController = TextEditingController(
+      text: cleanText(widget.user['name']),
+    );
+  }
+
+  Future<void> pickAvatar() async {
+    final image = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 88,
+    );
+    if (image != null && mounted) setState(() => selectedImage = image);
+  }
+
+  Future<void> save() async {
+    final name = nameController.text.trim();
+    if (name.isEmpty) {
+      showSnack(context, 'Tên hiển thị không được để trống');
+      return;
+    }
+    setState(() => busy = true);
+    try {
+      Map<String, dynamic> updated;
+      if (selectedImage != null) {
+        final form = FormData.fromMap({
+          'avatar': await MultipartFile.fromFile(
+            selectedImage!.path,
+            filename: selectedImage!.name,
+          ),
+        });
+        final response = await Api.instance.dio.post(
+          '/user/avatar',
+          data: form,
+        );
+        updated = Map<String, dynamic>.from(response.data as Map);
+      } else {
+        updated = Map<String, dynamic>.from(widget.user);
+      }
+      final response = await Api.instance.dio.patch(
+        '/user/profile',
+        data: {'name': name},
+      );
+      updated = {
+        ...updated,
+        ...Map<String, dynamic>.from(response.data as Map),
+      };
+      if (mounted) Navigator.of(context).pop(updated);
+    } catch (_) {
+      if (mounted) showSnack(context, 'Không cập nhật được hồ sơ');
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  void dispose() {
+    nameController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Chỉnh sửa hồ sơ')),
+    body: ListView(
+      padding: pagePadding(context).copyWith(top: 24, bottom: 32),
+      children: [
+        Center(
+          child: GestureDetector(
+            onTap: busy ? null : pickAvatar,
+            child: Stack(
+              alignment: Alignment.bottomRight,
+              children: [
+                UserAvatar(
+                  name: cleanText(widget.user['name']),
+                  avatarUrl: selectedImage == null
+                      ? userAvatarUrlFrom(widget.user)
+                      : '',
+                  radius: 52,
+                ),
+                const CircleAvatar(
+                  radius: 16,
+                  child: Icon(Icons.camera_alt_rounded, size: 17),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 24),
+        TextField(
+          controller: nameController,
+          enabled: !busy,
+          decoration: const InputDecoration(labelText: 'Tên hiển thị'),
+        ),
+        const SizedBox(height: 20),
+        FilledButton.icon(
+          onPressed: busy ? null : save,
+          icon: const Icon(Icons.save_rounded),
+          label: Text(busy ? 'Đang lưu...' : 'Lưu thay đổi'),
+        ),
+      ],
+    ),
+  );
 }
 
 class UserAvatar extends StatelessWidget {
