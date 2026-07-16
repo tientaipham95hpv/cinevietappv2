@@ -3920,12 +3920,12 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
   void _revealWholeHero(BuildContext context) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || !context.mounted) return;
-      Scrollable.ensureVisible(
-        context,
-        duration: const Duration(milliseconds: 260),
+      final scrollable = Scrollable.maybeOf(context);
+      if (scrollable == null || !scrollable.position.hasPixels) return;
+      scrollable.position.animateTo(
+        scrollable.position.minScrollExtent,
+        duration: const Duration(milliseconds: 300),
         curve: Curves.easeOutCubic,
-        alignment: 0,
-        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
       );
     });
   }
