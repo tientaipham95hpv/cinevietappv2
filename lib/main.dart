@@ -9080,38 +9080,48 @@ class MovieCollectionSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chips = ListView.separated(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.only(right: 4),
-      itemCount: collection.items.length,
-      separatorBuilder: (_, _) => const SizedBox(width: 8),
-      itemBuilder: (_, index) {
-        final part = collection.items[index];
-        final selected = part.movieId == currentMovieId || part.isCurrent;
-        return FocusableActionDetector(
-          autofocus: selected,
-          child: ChoiceChip(
-            label: Text(part.label),
-            selected: selected,
-            onSelected: (_) => onSelected(part),
-            selectedColor: CvColors.accent,
-            labelStyle: TextStyle(
-              color: selected ? CvColors.black : CvColors.text,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        );
-      },
+    final currentIndex = collection.items.indexWhere(
+      (part) => part.movieId == currentMovieId || part.isCurrent,
     );
+    final safeIndex = currentIndex >= 0 ? currentIndex : 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          collection.title.isEmpty ? 'Các phần' : collection.title,
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
+        const Text(
+          'Các phần',
+          style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
         ),
         const SizedBox(height: 10),
-        SizedBox(height: 42, child: chips),
+        FocusableActionDetector(
+          autofocus: true,
+          child: DropdownButtonFormField<int>(
+            initialValue: safeIndex,
+            isExpanded: true,
+            decoration: InputDecoration(
+              filled: true,
+              fillColor: CvColors.panel,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: CvColors.border),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 14),
+            ),
+            dropdownColor: CvColors.panel,
+            items: [
+              for (var index = 0; index < collection.items.length; index++)
+                DropdownMenuItem<int>(
+                  value: index,
+                  child: Text(
+                    '${collection.items[index].label} — ${collection.items[index].title}',
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (index) {
+              if (index != null) onSelected(collection.items[index]);
+            },
+          ),
+        ),
       ],
     );
   }
