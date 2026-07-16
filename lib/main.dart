@@ -6105,72 +6105,120 @@ class AccountPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = cleanText(user['name'] ?? user['email']);
     final avatar = userAvatarUrlFrom(user);
+    final isVip = isVipUser(user);
     return Panel(
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          UserAvatar(
-            name: name,
-            avatarUrl: avatar,
-            radius: 26,
-            isVip: isVipUser(user),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name.isEmpty ? 'CineViet user' : name,
-                  style: const TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                Text(
-                  cleanText(user['email']),
-                  style: const TextStyle(color: CvColors.muted),
-                ),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Text(
-                vipLabel(user),
-                style: const TextStyle(color: CvColors.muted, fontSize: 12),
+              UserAvatar(
+                name: name,
+                avatarUrl: avatar,
+                radius: 34,
+                isVip: isVip,
               ),
-              Wrap(
-                spacing: 6,
-                children: [
-                  IconButton(
-                    tooltip: 'Đổi mật khẩu',
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const ChangePasswordScreen(),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name.isEmpty ? 'CineViet user' : name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w800,
                       ),
                     ),
-                    icon: const Icon(Icons.lock_outline_rounded),
+                    const SizedBox(height: 3),
+                    Text(
+                      cleanText(user['email']),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: CvColors.muted),
+                    ),
+                    const SizedBox(height: 9),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Container(
+                        key: const Key('account-membership-chip'),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isVip
+                              ? const Color(0xFFFFC83D).withValues(alpha: 0.13)
+                              : CvColors.panel2,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: isVip
+                                ? const Color(0xFFFFC83D).withValues(alpha: 0.7)
+                                : CvColors.border,
+                          ),
+                        ),
+                        child: Text(
+                          vipLabel(user),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: isVip
+                                ? const Color(0xFFFFD76A)
+                                : CvColors.muted,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Container(height: 1, color: CvColors.border),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const ChangePasswordScreen(),
+                    ),
                   ),
-                  IconButton(
-                    tooltip: 'Chỉnh sửa hồ sơ',
-                    onPressed: () async {
-                      final updated = await Navigator.of(context)
-                          .push<Map<String, dynamic>>(
-                            MaterialPageRoute(
-                              builder: (_) => ProfileEditScreen(user: user),
-                            ),
-                          );
-                      if (updated != null) onUpdated(updated);
-                    },
-                    icon: const Icon(Icons.edit_rounded),
+                  icon: const Icon(Icons.lock_outline_rounded, size: 19),
+                  label: const Text('Mật khẩu'),
+                ),
+              ),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: () async {
+                    final updated = await Navigator.of(context)
+                        .push<Map<String, dynamic>>(
+                          MaterialPageRoute(
+                            builder: (_) => ProfileEditScreen(user: user),
+                          ),
+                        );
+                    if (updated != null) onUpdated(updated);
+                  },
+                  icon: const Icon(Icons.edit_rounded, size: 19),
+                  label: const Text('Chỉnh sửa'),
+                ),
+              ),
+              Expanded(
+                child: TextButton.icon(
+                  onPressed: onLogout,
+                  icon: const Icon(Icons.logout_rounded, size: 19),
+                  label: const Text('Đăng xuất'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(0xFFFF7B86),
                   ),
-                  TextButton.icon(
-                    onPressed: onLogout,
-                    icon: const Icon(Icons.logout_rounded),
-                    label: const Text('Thoát'),
-                  ),
-                ],
+                ),
               ),
             ],
           ),

@@ -122,6 +122,32 @@ void main() {
     expect(userAvatarUrlFrom({'avatar': ''}), isEmpty);
   });
 
+  testWidgets('AccountPanel stays readable on a narrow phone', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _wrap(
+        AccountPanel(
+          user: _user(vip: true, vipExpiresAt: '2100-01-01T00:00:00Z')
+            ..['name'] = 'Administrator CineViet với tên rất dài',
+          onLogout: () {},
+          onUpdated: (_) {},
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('account-membership-chip')), findsOneWidget);
+    expect(find.text('Mật khẩu'), findsOneWidget);
+    expect(find.text('Chỉnh sửa'), findsOneWidget);
+    expect(find.text('Đăng xuất'), findsOneWidget);
+    expect(
+      tester.getSize(find.byType(AccountPanel)).width,
+      lessThanOrEqualTo(390),
+    );
+  });
+
   testWidgets('UserAvatar renders VIP frame only for VIP users', (
     tester,
   ) async {
