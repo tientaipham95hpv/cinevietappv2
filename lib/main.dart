@@ -4090,20 +4090,9 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
                             color: selected
-                                ? CvColors.accent
+                                ? Colors.transparent
                                 : Colors.white.withValues(alpha: .35),
-                            width: selected ? 3 : 1,
                           ),
-                          boxShadow: selected
-                              ? [
-                                  BoxShadow(
-                                    color: CvColors.accent.withValues(
-                                      alpha: .42,
-                                    ),
-                                    blurRadius: 14,
-                                  ),
-                                ]
-                              : null,
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(6),
