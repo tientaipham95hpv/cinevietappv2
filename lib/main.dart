@@ -5647,6 +5647,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Api.instance.currentUser();
   }
 
+  Future<Map<String, dynamic>?> _benefits() async {
+    try {
+      final response = await Api.instance.dio.get('/donations/me');
+      return response.data is Map
+          ? Map<String, dynamic>.from(response.data as Map)
+          : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<void> login() async {
     setState(() => busy = true);
     try {
@@ -5862,13 +5873,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       onLogin: login,
                       onGoogleLogin: loginWithGoogle,
                     ),
-            if (user != null)
+            if (user != null) ...[
               AccountPanel(
                 user: user,
                 onLogout: logout,
                 onUpdated: (updated) =>
                     setState(() => meFuture = Future.value(updated)),
               ),
+              const SizedBox(height: 14),
+              BenefitsSummaryCard(load: _benefits),
+            ],
             const SizedBox(height: 22),
             if (useLeanbackControls)
               TvProfileHub(repo: widget.repo, onRequireLogin: requireLogin),
@@ -5921,6 +5935,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 },
               ),
               ProfileTile(
+                icon: Icons.volunteer_activism_rounded,
+                title: 'Ủng hộ CineViet',
+                subtitle: 'Đồng hành và nhận đặc quyền không quảng cáo',
+                onTap: () => launchUrl(
+                  Uri.parse('$siteBase/ung-ho'),
+                  mode: LaunchMode.externalApplication,
+                ),
+              ),
+              ProfileTile(
                 icon: Icons.system_update_alt_rounded,
                 title: 'Kiểm tra cập nhật',
                 subtitle: '',
@@ -5939,6 +5962,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ],
           ],
+        );
+      },
+    );
+  }
+}
+
+class BenefitsSummaryCard extends StatelessWidget {
+  const BenefitsSummaryCard({super.key, required this.load});
+  final Future<Map<String, dynamic>?> Function() load;
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, dynamic>?>(
+      future: load(),
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        final entitlement = data?['entitlement'] is Map
+            ? Map<String, dynamic>.from(data!['entitlement'] as Map)
+            : <String, dynamic>{};
+        final active = entitlement['active'] == true;
+        final remaining = entitlement['remainingDays'];
+        final detail = active
+            ? (remaining == null
+                  ? 'Đang hoạt động • Không thời hạn'
+                  : 'Đang hoạt động • Còn $remaining ngày')
+            : 'Chưa kích hoạt hoặc đã hết hạn';
+        return Panel(
+          child: Row(
+            children: [
+              const Icon(
+                Icons.verified_rounded,
+                color: CvColors.accent,
+                size: 30,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Đặc quyền của tôi',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(detail, style: const TextStyle(color: CvColors.muted)),
+                  ],
+                ),
+              ),
+              TextButton.icon(
+                onPressed: () => launchUrl(
+                  Uri.parse('$siteBase/ung-ho'),
+                  mode: LaunchMode.externalApplication,
+                ),
+                icon: const Icon(Icons.volunteer_activism_rounded, size: 18),
+                label: Text(active ? 'Đồng hành tiếp' : 'Ủng hộ'),
+              ),
+            ],
+          ),
         );
       },
     );
@@ -5994,6 +6078,15 @@ class TvProfileHub extends StatelessWidget {
             );
           }();
         },
+      ),
+      TvHubAction(
+        icon: Icons.volunteer_activism_rounded,
+        title: 'Ủng hộ CineViet',
+        subtitle: 'Đồng hành và nhận đặc quyền không quảng cáo',
+        onPressed: () => launchUrl(
+          Uri.parse('$siteBase/ung-ho'),
+          mode: LaunchMode.externalApplication,
+        ),
       ),
       TvHubAction(
         icon: Icons.system_update_alt_rounded,
