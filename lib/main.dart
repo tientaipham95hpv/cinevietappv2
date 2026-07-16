@@ -6137,7 +6137,7 @@ class AccountPanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                _vipLabel(user),
+                vipLabel(user),
                 style: const TextStyle(color: CvColors.muted, fontSize: 12),
               ),
               Wrap(
@@ -6180,7 +6180,7 @@ class AccountPanel extends StatelessWidget {
   }
 }
 
-String _vipLabel(Map<String, dynamic> user) {
+String vipLabel(Map<String, dynamic> user) {
   if (!isVipUser(user)) return 'Thành viên';
   final raw = cleanText(user['vip_expires_at'] ?? user['vipExpiresAt']);
   final parsed = DateTime.tryParse(raw)?.toLocal();
@@ -6656,6 +6656,7 @@ class UserAvatar extends StatelessWidget {
         alignment: Alignment.center,
         children: [
           Container(
+            key: const ValueKey('user_avatar_vip_frame'),
             width: frameSize,
             height: frameSize,
             padding: const EdgeInsets.all(3),
@@ -6681,6 +6682,7 @@ class UserAvatar extends StatelessWidget {
               right: radius * .02,
               bottom: radius * .02,
               child: DecoratedBox(
+                key: const ValueKey('user_avatar_vip_badge'),
                 decoration: BoxDecoration(
                   color: CvColors.black,
                   shape: BoxShape.circle,
