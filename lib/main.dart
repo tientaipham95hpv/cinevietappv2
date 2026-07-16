@@ -854,7 +854,8 @@ class Movie {
       if (includeQuality && quality.isNotEmpty) quality,
       if (language.isNotEmpty)
         compactLanguage ? compactLanguageLabel(language) : language,
-      if (episodeCurrent.isNotEmpty) episodeCurrent,
+      if (isSeriesLike && episodeCurrent.isNotEmpty) episodeCurrent,
+      if (!isSeriesLike && hasPlayableVideo) 'Full',
       if (duration != null && duration! > 0) '${duration}p',
     ];
     return parts.join('  •  ');

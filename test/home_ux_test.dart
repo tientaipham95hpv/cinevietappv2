@@ -18,26 +18,70 @@ void main() {
     expect(compactLanguageLabel('Vietsub + Lồng tiếng'), 'VS + LT');
   });
 
-  test('portrait movie card meta omits quality when badge already shows it', () {
-    final movie = Movie(
-      id: 8,
-      title: 'Gọn Meta',
-      slug: 'gon-meta',
-      poster: '',
-      backdrop: '',
-      releaseYear: 2026,
-      quality: 'HD',
-      language: 'Vietsub + Thuyết minh',
+  test(
+    'portrait movie card meta omits quality when badge already shows it',
+    () {
+      final movie = Movie(
+        id: 8,
+        title: 'Gọn Meta',
+        slug: 'gon-meta',
+        poster: '',
+        backdrop: '',
+        releaseYear: 2026,
+        quality: 'HD',
+        language: 'Vietsub + Thuyết minh',
+      );
+
+      expect(
+        movie.metaLineFor(compactLanguage: true, includeQuality: false),
+        '2026  •  VS + TM',
+      );
+      expect(
+        movie.metaLineFor(compactLanguage: false, includeQuality: true),
+        '2026  •  HD  •  Vietsub + Thuyết minh',
+      );
+    },
+  );
+
+  test('single movies show Full instead of misleading episode one', () {
+    final single = Movie(
+      id: 9,
+      title: 'Phim lẻ',
+      slug: 'phim-le',
+      type: 'movie',
+      episodeCurrent: '1',
+      totalEpisodes: 1,
+      episodes: const [
+        EpisodeServer(
+          name: 'Server',
+          items: [
+            EpisodeItem(name: '1', linkM3u8: 'https://example.com/a.m3u8'),
+          ],
+        ),
+      ],
+    );
+    final series = Movie(
+      id: 10,
+      title: 'Phim bộ',
+      slug: 'phim-bo',
+      type: 'series',
+      episodeCurrent: '1',
+      totalEpisodes: 12,
+      episodes: const [
+        EpisodeServer(
+          name: 'Server',
+          items: [
+            EpisodeItem(name: '1', linkM3u8: 'https://example.com/b.m3u8'),
+          ],
+        ),
+      ],
     );
 
-    expect(
-      movie.metaLineFor(compactLanguage: true, includeQuality: false),
-      '2026  •  VS + TM',
-    );
-    expect(
-      movie.metaLineFor(compactLanguage: false, includeQuality: true),
-      '2026  •  HD  •  Vietsub + Thuyết minh',
-    );
+    expect(single.availabilityBadgeLabel, 'Full');
+    expect(single.metaLine, contains('Full'));
+    expect(single.metaLine, isNot(contains('Tập 1')));
+    expect(series.availabilityBadgeLabel, 'Tập 1/12');
+    expect(series.metaLine, contains('1'));
   });
 
   testWidgets('HomeSkeleton renders without throwing', (tester) async {
