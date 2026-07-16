@@ -10626,6 +10626,7 @@ class _SocialSectionState extends State<SocialSection> {
                             avatarUrl: item.userAvatar,
                             radius: 21,
                             isVip: item.isVip,
+                            showVipBadge: true,
                           ),
                           title: Text(
                             item.userName,
