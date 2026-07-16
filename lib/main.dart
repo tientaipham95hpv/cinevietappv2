@@ -8498,6 +8498,15 @@ class _WatchTogetherScreenState extends State<WatchTogetherScreen> {
   }
 
   @override
+  void didUpdateWidget(covariant WatchTogetherScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // IndexedStack keeps this State alive while the user logs in on the
+    // Profile tab. Refresh the cached auth check whenever AppShell rebuilds
+    // while switching back to Xem chung.
+    loggedIn = isLoggedIn();
+  }
+
+  @override
   void dispose() {
     code.dispose();
     super.dispose();
