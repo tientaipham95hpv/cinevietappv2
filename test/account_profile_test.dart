@@ -157,7 +157,11 @@ void main() {
       ),
     );
     expect(find.byKey(const ValueKey('user_avatar_vip_frame')), findsOneWidget);
-    expect(find.byKey(const ValueKey('user_avatar_vip_badge')), findsOneWidget);
+    expect(find.byKey(const ValueKey('user_avatar_vip_crown')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('user_avatar_vip_sparkle')),
+      findsOneWidget,
+    );
     expect(find.byIcon(Icons.workspace_premium_rounded), findsOneWidget);
 
     await tester.pumpWidget(
@@ -166,7 +170,8 @@ void main() {
       ),
     );
     expect(find.byKey(const ValueKey('user_avatar_vip_frame')), findsNothing);
-    expect(find.byKey(const ValueKey('user_avatar_vip_badge')), findsNothing);
+    expect(find.byKey(const ValueKey('user_avatar_vip_crown')), findsNothing);
+    expect(find.byKey(const ValueKey('user_avatar_vip_sparkle')), findsNothing);
   });
 
   testWidgets('ProfileEditScreen blocks empty display names before API calls', (

@@ -6652,7 +6652,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 }
 
-class UserAvatar extends StatelessWidget {
+class UserAvatar extends StatefulWidget {
   const UserAvatar({
     super.key,
     required this.name,
@@ -6671,15 +6671,66 @@ class UserAvatar extends StatelessWidget {
   final bool showVipBadge;
 
   @override
+  State<UserAvatar> createState() => _UserAvatarState();
+}
+
+class _UserAvatarState extends State<UserAvatar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController shimmer;
+
+  @override
+  void initState() {
+    super.initState();
+    shimmer = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2800),
+    );
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (widget.isVip && !reduceMotion) {
+      if (!shimmer.isAnimating) shimmer.repeat();
+    } else {
+      shimmer.stop();
+      shimmer.value = 0.12;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant UserAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final reduceMotion =
+        MediaQuery.maybeOf(context)?.disableAnimations ?? false;
+    if (widget.isVip && !reduceMotion) {
+      if (!shimmer.isAnimating) shimmer.repeat();
+    } else {
+      shimmer.stop();
+      shimmer.value = 0.12;
+    }
+  }
+
+  @override
+  void dispose() {
+    shimmer.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final initial = name.characters.isEmpty
+    final initial = widget.name.characters.isEmpty
         ? ''
-        : name.characters.first.toUpperCase();
+        : widget.name.characters.first.toUpperCase();
     final provider =
-        imageProvider ??
-        (avatarUrl.isNotEmpty ? CachedNetworkImageProvider(avatarUrl) : null);
+        widget.imageProvider ??
+        (widget.avatarUrl.isNotEmpty
+            ? CachedNetworkImageProvider(widget.avatarUrl)
+            : null);
     final avatar = CircleAvatar(
-      radius: radius,
+      radius: widget.radius,
       backgroundColor: CvColors.panel2,
       backgroundImage: provider,
       child: provider == null
@@ -6687,66 +6738,114 @@ class UserAvatar extends StatelessWidget {
               initial.isEmpty ? 'C' : initial,
               style: TextStyle(
                 color: Colors.white,
-                fontSize: radius * .78,
+                fontSize: widget.radius * .78,
                 fontWeight: FontWeight.w900,
               ),
             )
           : null,
     );
-    if (!isVip) return avatar;
+    if (!widget.isVip) return avatar;
 
-    final frameSize = radius * 2 + 8;
-    final badgeRadius = math.max(8.0, radius * .24);
-    return SizedBox.square(
-      dimension: frameSize + (showVipBadge ? badgeRadius * .75 : 0),
-      child: Stack(
-        clipBehavior: Clip.none,
-        alignment: Alignment.center,
-        children: [
-          Container(
-            key: const ValueKey('user_avatar_vip_frame'),
-            width: frameSize,
-            height: frameSize,
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [Color(0xfffff2a8), CvColors.amber, Color(0xffb7791f)],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: CvColors.amber.withValues(alpha: .22),
-                  blurRadius: 16,
-                  spreadRadius: 1,
-                ),
-              ],
-            ),
-            child: avatar,
-          ),
-          if (showVipBadge)
-            Positioned(
-              right: radius * .02,
-              bottom: radius * .02,
-              child: DecoratedBox(
-                key: const ValueKey('user_avatar_vip_badge'),
+    final radius = widget.radius;
+    final frameSize = radius * 2 + 10;
+    final crownSize = math.max(18.0, radius * .72);
+    final canvasSize = frameSize + crownSize * .62;
+    return SizedBox(
+      width: canvasSize,
+      height: canvasSize,
+      child: AnimatedBuilder(
+        animation: shimmer,
+        builder: (context, _) {
+          final turn = shimmer.value * math.pi * 2;
+          final pulse = .5 + .5 * math.sin(turn * 2);
+          return Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.bottomCenter,
+            children: [
+              Container(
+                key: const ValueKey('user_avatar_vip_frame'),
+                width: frameSize,
+                height: frameSize,
+                padding: const EdgeInsets.all(3),
                 decoration: BoxDecoration(
-                  color: CvColors.black,
                   shape: BoxShape.circle,
-                  border: Border.all(color: const Color(0xfffff2a8), width: 2),
+                  gradient: SweepGradient(
+                    transform: GradientRotation(turn),
+                    colors: const [
+                      Color(0xff8b5a08),
+                      Color(0xffffd76a),
+                      Color(0xffffffff),
+                      Color(0xffffc83d),
+                      Color(0xff8b5a08),
+                    ],
+                    stops: const [0, .27, .36, .52, 1],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(
+                        0xffffc83d,
+                      ).withValues(alpha: .24 + pulse * .22),
+                      blurRadius: 12 + pulse * 8,
+                      spreadRadius: pulse * 1.5,
+                    ),
+                  ],
                 ),
-                child: Padding(
-                  padding: EdgeInsets.all(math.max(3, radius * .08)),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(0xfffff2a8),
+                      width: 1,
+                    ),
+                  ),
+                  child: avatar,
+                ),
+              ),
+              if (widget.showVipBadge)
+                Positioned(
+                  top: crownSize * .02,
+                  child: Transform.rotate(
+                    angle: math.sin(turn) * .035,
+                    child: Icon(
+                      Icons.workspace_premium_rounded,
+                      key: const ValueKey('user_avatar_vip_crown'),
+                      size: crownSize,
+                      color: const Color(0xffffd76a),
+                      shadows: const [
+                        Shadow(color: Color(0xfffff4bd), blurRadius: 7),
+                        Shadow(color: Color(0xff7c4a00), blurRadius: 2),
+                      ],
+                    ),
+                  ),
+                ),
+              Positioned(
+                left: frameSize * .05,
+                top: crownSize + frameSize * .04,
+                child: Opacity(
+                  opacity: .45 + pulse * .55,
                   child: Icon(
-                    Icons.workspace_premium_rounded,
-                    size: badgeRadius * 1.25,
-                    color: const Color(0xffffd76a),
+                    Icons.auto_awesome_rounded,
+                    key: const ValueKey('user_avatar_vip_sparkle'),
+                    size: math.max(10, radius * .32),
+                    color: Colors.white,
                   ),
                 ),
               ),
-            ),
-        ],
+              Positioned(
+                right: frameSize * .02,
+                bottom: frameSize * .10,
+                child: Opacity(
+                  opacity: 1 - pulse * .58,
+                  child: Icon(
+                    Icons.star_rounded,
+                    size: math.max(9, radius * .26),
+                    color: const Color(0xffffe89a),
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
