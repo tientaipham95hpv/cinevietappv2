@@ -4235,11 +4235,18 @@ class HeroBanner extends StatelessWidget {
                             maxLines: tablet ? 2 : 3,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
+                              fontFamily: 'Plus Jakarta Sans',
+                              fontFamilyFallback: const [
+                                'Roboto',
+                                'sans-serif',
+                              ],
                               fontSize: compact
                                   ? 34
                                   : (isTvBuild ? 54 : (tablet ? 32 : 38)),
-                              height: 1.02,
-                              fontWeight: FontWeight.w900,
+                              height: 1.08,
+                              // Asset cao nhất là 800; dùng 900 khiến một số TV
+                              // fallback sang font hệ thống khi gặp dấu tiếng Việt.
+                              fontWeight: FontWeight.w800,
                               letterSpacing: 0,
                             ),
                           ),
