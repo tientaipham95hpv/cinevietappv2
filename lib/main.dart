@@ -4235,8 +4235,9 @@ class HeroBanner extends StatelessWidget {
                             maxLines: tablet ? 2 : 3,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontFamily: 'Plus Jakarta Sans',
+                              fontFamily: 'Be Vietnam Pro',
                               fontFamilyFallback: const [
+                                'Plus Jakarta Sans',
                                 'Roboto',
                                 'sans-serif',
                               ],

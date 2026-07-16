@@ -96,6 +96,10 @@ flutter:
     - assets/branding/cineviet-sidebar-logo.jpg
 
   fonts:
+    - family: Be Vietnam Pro
+      fonts:
+        - asset: assets/fonts/BeVietnamPro-ExtraBold.ttf
+          weight: 800
     - family: Plus Jakarta Sans
       fonts:
         - asset: assets/fonts/PlusJakartaSans-Regular.ttf
