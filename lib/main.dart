@@ -6683,7 +6683,7 @@ class _UserAvatarState extends State<UserAvatar>
     super.initState();
     shimmer = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 4200),
+      duration: const Duration(milliseconds: 2800),
     );
   }
 
@@ -6747,11 +6747,11 @@ class _UserAvatarState extends State<UserAvatar>
     final radius = widget.radius;
     final compact = radius < 28;
     final frameSize = radius * 2 + (compact ? 7 : 10);
-    final crownHeight = compact ? radius * .48 : radius * .62;
-    final crownWidth = compact ? radius * .82 : radius * 1.08;
-    final topSpace = widget.showVipBadge ? crownHeight * .72 : 2.0;
-    final canvasWidth = frameSize + (compact ? 8 : 18);
-    final canvasHeight = frameSize + topSpace + (compact ? 4 : 9);
+    final crownHeight = compact ? radius * .68 : radius * .92;
+    final crownWidth = compact ? radius * 1.36 : radius * 1.32;
+    final topSpace = widget.showVipBadge ? crownHeight * .68 : 2.0;
+    final canvasWidth = frameSize + (compact ? 12 : 22);
+    final canvasHeight = frameSize + topSpace + (compact ? 7 : 12);
 
     return SizedBox(
       width: canvasWidth,
@@ -6793,7 +6793,7 @@ class _UserAvatarState extends State<UserAvatar>
                                         colors: [
                                           Colors.transparent,
                                           Colors.white.withValues(
-                                            alpha: compact ? .12 : .20,
+                                            alpha: compact ? .28 : .34,
                                           ),
                                           Colors.transparent,
                                         ],
@@ -6814,7 +6814,7 @@ class _UserAvatarState extends State<UserAvatar>
                 Positioned(
                   top: 0,
                   child: Transform.rotate(
-                    angle: math.sin(phase * math.pi * 2) * .025,
+                    angle: math.sin(phase * math.pi * 2) * .052,
                     child: CustomPaint(
                       key: const ValueKey('user_avatar_vip_crown'),
                       size: Size(crownWidth, crownHeight),
@@ -6864,7 +6864,7 @@ class _RoyalAvatarFramePainter extends CustomPainter {
     final center = size.center(Offset.zero);
     final outerRadius = size.shortestSide / 2;
     final glow = Paint()
-      ..color = const Color(0xffffc95c).withValues(alpha: .12 + pulse * .14)
+      ..color = const Color(0xffffc95c).withValues(alpha: .18 + pulse * .22)
       ..maskFilter = MaskFilter.blur(BlurStyle.normal, compact ? 5 : 10);
     canvas.drawCircle(center, outerRadius - 1, glow);
 
@@ -6908,12 +6908,12 @@ class _RoyalAvatarFramePainter extends CustomPainter {
         Offset(math.cos(orbitAngle), math.sin(orbitAngle)) * orbitRadius;
     canvas.drawCircle(
       dot,
-      compact ? 1.2 : 1.8,
+      compact ? 1.6 : 2.2,
       Paint()
         ..color = Colors.white
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2.5),
     );
-    canvas.drawCircle(dot, compact ? .7 : 1.1, Paint()..color = Colors.white);
+    canvas.drawCircle(dot, compact ? .9 : 1.35, Paint()..color = Colors.white);
   }
 
   @override
@@ -6945,8 +6945,8 @@ class _RoyalCrownPainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = const Color(0xffffc83d).withValues(alpha: .2 + glow * .14)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 7),
+        ..color = const Color(0xffffc83d).withValues(alpha: .3 + glow * .22)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9),
     );
     canvas.drawPath(
       path,
@@ -7006,9 +7006,24 @@ class _RoyalSparklePainter extends CustomPainter {
     double opacity,
   ) {
     if (opacity <= .02) return;
+    final glowPaint = Paint()
+      ..color = const Color(0xffffd45f).withValues(alpha: opacity * .85)
+      ..strokeWidth = compact ? 2.8 : 4.5
+      ..strokeCap = StrokeCap.round
+      ..maskFilter = MaskFilter.blur(BlurStyle.normal, compact ? 3.2 : 5.2);
+    canvas.drawLine(
+      center - Offset(radius, 0),
+      center + Offset(radius, 0),
+      glowPaint,
+    );
+    canvas.drawLine(
+      center - Offset(0, radius),
+      center + Offset(0, radius),
+      glowPaint,
+    );
     final paint = Paint()
       ..color = Colors.white.withValues(alpha: opacity)
-      ..strokeWidth = compact ? .8 : 1.2
+      ..strokeWidth = compact ? 1.15 : 1.55
       ..strokeCap = StrokeCap.round;
     canvas.drawLine(
       center - Offset(radius, 0),
@@ -7037,8 +7052,8 @@ class _RoyalSparklePainter extends CustomPainter {
     ];
     for (var index = 0; index < points.length; index++) {
       final wave = math.sin((phase * 4 - index) * math.pi * 2);
-      final opacity = math.pow(math.max(0.0, wave), 3).toDouble();
-      drawSparkle(canvas, points[index], compact ? 2.2 : 3.8, opacity);
+      final opacity = math.pow(math.max(0.0, wave), 1.7).toDouble();
+      drawSparkle(canvas, points[index], compact ? 3.1 : 5.2, opacity);
     }
   }
 
