@@ -9092,34 +9092,120 @@ class MovieCollectionSelector extends StatelessWidget {
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
         ),
         const SizedBox(height: 10),
-        FocusableActionDetector(
+        FocusButton(
           autofocus: true,
-          child: DropdownButtonFormField<int>(
-            initialValue: safeIndex,
-            isExpanded: true,
-            decoration: InputDecoration(
-              filled: true,
-              fillColor: CvColors.panel,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(10),
-                borderSide: BorderSide(color: CvColors.border),
-              ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14),
-            ),
-            dropdownColor: CvColors.panel,
-            items: [
-              for (var index = 0; index < collection.items.length; index++)
-                DropdownMenuItem<int>(
-                  value: index,
-                  child: Text(
-                    '${collection.items[index].label} — ${collection.items[index].title}',
-                    overflow: TextOverflow.ellipsis,
+          borderRadius: 10,
+          onPressed: () async {
+            final selected = await showDialog<MovieCollectionItem>(
+              context: context,
+              builder: (dialogContext) => Dialog(
+                backgroundColor: CvColors.panel,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(color: CvColors.border),
+                ),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    maxWidth: 620,
+                    maxHeight: 520,
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(14),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(8, 4, 8, 12),
+                          child: Text(
+                            'Chọn phần phim',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                        Flexible(
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: collection.items.length,
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 6),
+                            itemBuilder: (_, index) {
+                              final part = collection.items[index];
+                              final active = index == safeIndex;
+                              return FocusButton(
+                                autofocus: active,
+                                selected: active,
+                                borderRadius: 10,
+                                onPressed: () =>
+                                    Navigator.pop(dialogContext, part),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 14,
+                                    vertical: 13,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '${part.label} — ${part.title}',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: TextStyle(
+                                            fontWeight: active
+                                                ? FontWeight.w900
+                                                : FontWeight.w700,
+                                          ),
+                                        ),
+                                      ),
+                                      if (active)
+                                        const Icon(
+                                          Icons.check_rounded,
+                                          color: CvColors.accent,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
-            ],
-            onChanged: (index) {
-              if (index != null) onSelected(collection.items[index]);
-            },
+              ),
+            );
+            if (selected != null && selected.movieId != currentMovieId) {
+              onSelected(selected);
+            }
+          },
+          child: Container(
+            height: 48,
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            decoration: BoxDecoration(
+              color: CvColors.panel,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(color: CvColors.border),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${collection.items[safeIndex].label} — ${collection.items[safeIndex].title}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                const Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: CvColors.muted,
+                ),
+              ],
+            ),
           ),
         ),
       ],
@@ -16203,10 +16289,11 @@ class MoviePosterCard extends StatelessWidget {
         width: width,
         child: FocusButton(
           onPressed: onTap,
+          borderRadius: 14,
           child: SizedBox(
             height: moviePosterCardHeight(width),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(14),
               child: Stack(
                 fit: StackFit.expand,
                 children: [
@@ -16324,6 +16411,7 @@ class MoviePosterCard extends StatelessWidget {
       width: width,
       child: FocusButton(
         onPressed: onTap,
+        borderRadius: 12,
         child: SizedBox(
           height: moviePosterCardHeight(width),
           child: Column(
@@ -16910,6 +16998,7 @@ class FocusButton extends StatefulWidget {
     this.autofocus = false,
     this.focusNode,
     this.onFocus,
+    this.borderRadius = 8,
   });
   final Widget child;
   final VoidCallback onPressed;
@@ -16917,6 +17006,7 @@ class FocusButton extends StatefulWidget {
   final bool autofocus;
   final FocusNode? focusNode;
   final VoidCallback? onFocus;
+  final double borderRadius;
 
   @override
   State<FocusButton> createState() => _FocusButtonState();
@@ -16960,21 +17050,22 @@ class _FocusButtonState extends State<FocusButton> {
         return KeyEventResult.ignored;
       },
       child: AnimatedScale(
-        duration: const Duration(milliseconds: 120),
-        scale: focused && isTvBuild ? 1.06 : 1,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        scale: focused && isTvBuild ? 1.055 : 1,
         child: Material(
           color: widget.selected
               ? CvColors.accent.withValues(alpha: .14)
               : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(widget.borderRadius),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: widget.onPressed,
-            borderRadius: BorderRadius.circular(8),
+            borderRadius: BorderRadius.circular(widget.borderRadius),
             child: AnimatedContainer(
-              duration: const Duration(milliseconds: 120),
+              duration: const Duration(milliseconds: 180),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(widget.borderRadius),
                 border: Border.all(
                   color: focused
                       ? (isTvBuild ? CvColors.accent : Colors.white)
