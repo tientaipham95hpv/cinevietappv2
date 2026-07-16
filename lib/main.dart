@@ -1615,6 +1615,7 @@ class MovieComment {
     this.userAvatar = '',
     this.likes = 0,
     this.isSpoiler = false,
+    this.isVip = false,
   });
 
   final int id;
@@ -1624,6 +1625,7 @@ class MovieComment {
   final String createdAt;
   final int likes;
   final bool isSpoiler;
+  final bool isVip;
 
   factory MovieComment.fromJson(Map<String, dynamic> json) {
     final nestedUser = cleanMap(json['user']).isNotEmpty
@@ -1647,6 +1649,9 @@ class MovieComment {
           asInt(json['likes'] ?? json['like_count'] ?? json['likeCount']) ?? 0,
       isSpoiler:
           json['is_spoiler'] == true || (asInt(json['is_spoiler']) ?? 0) == 1,
+      isVip:
+          json['user_is_vip'] == true ||
+          (asInt(json['user_is_vip'] ?? json['is_vip']) ?? 0) == 1,
     );
   }
 }
@@ -10620,6 +10625,7 @@ class _SocialSectionState extends State<SocialSection> {
                             name: item.userName,
                             avatarUrl: item.userAvatar,
                             radius: 21,
+                            isVip: item.isVip,
                           ),
                           title: Text(
                             item.userName,
