@@ -3962,7 +3962,9 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
                     return FocusButton(
                       autofocus: selected,
                       onFocus: () {
-                        _revealWholeHero(context);
+                        // Dùng context của carousel, không dùng context của item
+                        // nằm trong ListView ngang (nếu không sẽ cuộn nhầm trục).
+                        _revealWholeHero(this.context);
                         if (index == page || !controller.hasClients) return;
                         controller.animateToPage(
                           index,
