@@ -4112,9 +4112,12 @@ class HeroBanner extends StatelessWidget {
             ),
           ),
           Padding(
-            padding: pagePadding(
-              context,
-            ).copyWith(top: compact ? 64 : 86, bottom: compact ? 34 : 56),
+            padding: pagePadding(context).copyWith(
+              top: compact ? 64 : 86,
+              // Android TV dành riêng vùng đáy cho dải thumbnail; không để
+              // thumbnail phủ lên mô tả của hero.
+              bottom: isTvBuild ? 124 : (compact ? 34 : 56),
+            ),
             child: Align(
               alignment: Alignment.bottomLeft,
               child: FittedBox(
@@ -4166,7 +4169,7 @@ class HeroBanner extends StatelessWidget {
                               movie.description,
                               maxLines: compact || tablet
                                   ? 2
-                                  : (isTvBuild ? 4 : 3),
+                                  : (isTvBuild ? 3 : 3),
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 fontSize: 15.5,
