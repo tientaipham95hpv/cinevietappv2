@@ -3917,6 +3917,19 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
     super.dispose();
   }
 
+  void _revealWholeHero(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !context.mounted) return;
+      Scrollable.ensureVisible(
+        context,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+        alignment: 0,
+        alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final height = heroBannerHeight(context);
@@ -3948,6 +3961,7 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
                     return FocusButton(
                       autofocus: selected,
                       onFocus: () {
+                        _revealWholeHero(context);
                         if (index == page || !controller.hasClients) return;
                         controller.animateToPage(
                           index,
