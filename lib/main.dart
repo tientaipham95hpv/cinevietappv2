@@ -3288,6 +3288,8 @@ class ShortEpisodePage extends StatefulWidget {
 
 class _ShortEpisodePageState extends State<ShortEpisodePage> {
   VideoPlayerController? controller;
+  Timer? controlsTimer;
+  bool controlsVisible = true;
   String error = '';
 
   @override
@@ -3313,7 +3315,10 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
       await next.initialize().timeout(const Duration(seconds: 18));
       await next.setLooping(true);
       await next.play();
-      if (mounted) setState(() {});
+      if (mounted) {
+        setState(() {});
+        scheduleControlsHide();
+      }
     } catch (_) {
       await next.dispose();
       controller = null;
@@ -3321,8 +3326,40 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
     }
   }
 
+  void scheduleControlsHide() {
+    controlsTimer?.cancel();
+    if (controller?.value.isPlaying != true) return;
+    controlsTimer = Timer(const Duration(seconds: 3), () {
+      if (mounted && controller?.value.isPlaying == true) {
+        setState(() => controlsVisible = false);
+      }
+    });
+  }
+
+  Future<void> handleTap() async {
+    final video = controller;
+    if (video?.value.isInitialized != true) return;
+    if (!controlsVisible) {
+      setState(() => controlsVisible = true);
+      scheduleControlsHide();
+      return;
+    }
+    if (video!.value.isPlaying) {
+      controlsTimer?.cancel();
+      await video.pause();
+      if (mounted) setState(() => controlsVisible = true);
+    } else {
+      await video.play();
+      if (mounted) {
+        setState(() => controlsVisible = true);
+        scheduleControlsHide();
+      }
+    }
+  }
+
   @override
   void dispose() {
+    controlsTimer?.cancel();
     controller?.dispose();
     super.dispose();
   }
@@ -3333,12 +3370,7 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
     final ready = video?.value.isInitialized == true;
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-      onTap: !ready
-          ? null
-          : () async {
-              video!.value.isPlaying ? await video.pause() : await video.play();
-              if (mounted) setState(() {});
-            },
+      onTap: ready ? handleTap : null,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -3357,21 +3389,32 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
               fallbackUrl: widget.movie.posterFallbackUrl,
               fit: BoxFit.cover,
             ),
-          const DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.black45, Colors.transparent, Colors.black87],
+          AnimatedOpacity(
+            opacity: controlsVisible ? 1 : 0,
+            duration: const Duration(milliseconds: 220),
+            child: const DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.black45, Colors.transparent, Colors.black87],
+                ),
               ),
             ),
           ),
-          SafeArea(
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: IconButton.filledTonal(
-                onPressed: () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.arrow_back_rounded),
+          AnimatedOpacity(
+            opacity: controlsVisible ? 1 : 0,
+            duration: const Duration(milliseconds: 220),
+            child: IgnorePointer(
+              ignoring: !controlsVisible,
+              child: SafeArea(
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: IconButton.filledTonal(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.arrow_back_rounded),
+                  ),
+                ),
               ),
             ),
           ),
@@ -3381,7 +3424,7 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
             const Center(child: CircularProgressIndicator()),
           if (ready && !video!.value.isPlaying)
             const Center(child: Icon(Icons.play_arrow_rounded, size: 76)),
-          if (ready)
+          if (ready && controlsVisible)
             Positioned(
               left: 0,
               right: 0,
@@ -3397,34 +3440,35 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
                 ),
               ),
             ),
-          Positioned(
-            left: 18,
-            right: 18,
-            bottom: 52,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.movie.title,
-                  style: const TextStyle(
-                    fontSize: 21,
-                    fontWeight: FontWeight.w900,
+          if (controlsVisible)
+            Positioned(
+              left: 18,
+              right: 18,
+              bottom: 52,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.movie.title,
+                    style: const TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                ),
-                const SizedBox(height: 5),
-                Text(
-                  '${widget.episode.displayName}  •  ${widget.index + 1}/${widget.total}',
-                  style: const TextStyle(color: Colors.white70),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  isTvBuild
-                      ? 'Dùng phím ↑ ↓ để chuyển tập • OK để phát/tạm dừng'
-                      : 'Vuốt lên để xem tập tiếp theo',
-                ),
-              ],
+                  const SizedBox(height: 5),
+                  Text(
+                    '${widget.episode.displayName}  •  ${widget.index + 1}/${widget.total}',
+                    style: const TextStyle(color: Colors.white70),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    isTvBuild
+                        ? 'Dùng phím ↑ ↓ để chuyển tập • OK để phát/tạm dừng'
+                        : 'Vuốt lên để xem tập tiếp theo',
+                  ),
+                ],
+              ),
             ),
-          ),
         ],
       ),
     );
