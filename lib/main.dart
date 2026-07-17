@@ -2963,12 +2963,11 @@ class _AppShellState extends State<AppShell> {
         label: isTvBuild ? 'Tìm kiếm' : 'Tìm',
         screen: BrowseScreen(repo: repo, embedded: true),
       ),
-      if (!isTvBuild)
-        AppDestination(
-          icon: Icons.play_circle_fill_rounded,
-          label: 'Short',
-          screen: ShortDramaScreen(repo: repo),
-        ),
+      AppDestination(
+        icon: Icons.play_circle_fill_rounded,
+        label: 'Short',
+        screen: ShortDramaScreen(repo: repo),
+      ),
       if (!isTvBuild)
         AppDestination(
           icon: Icons.groups_rounded,
@@ -3189,6 +3188,36 @@ class ShortDramaViewerScreen extends StatefulWidget {
 
 class _ShortDramaViewerScreenState extends State<ShortDramaViewerScreen> {
   late final Future<Movie> movie = widget.repo.detail(widget.movie.routeKey);
+  final pageController = PageController();
+  final focusNode = FocusNode();
+
+  @override
+  void dispose() {
+    pageController.dispose();
+    focusNode.dispose();
+    super.dispose();
+  }
+
+  KeyEventResult handleTvKey(KeyEvent event, int total) {
+    if (!isTvBuild || event is! KeyDownEvent) return KeyEventResult.ignored;
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowDown) {
+      final current = (pageController.page ?? 0).round();
+      final target = key == LogicalKeyboardKey.arrowUp
+          ? current - 1
+          : current + 1;
+      if (target >= 0 && target < total) {
+        pageController.animateToPage(
+          target,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+        );
+      }
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -3211,7 +3240,11 @@ class _ShortDramaViewerScreenState extends State<ShortDramaViewerScreen> {
         if (episodes.isEmpty) {
           return const EmptyState('Phim chưa có tập phát trực tiếp');
         }
-        return PageView.builder(
+        final pages = PageView.builder(
+          controller: pageController,
+          physics: isTvBuild
+              ? const NeverScrollableScrollPhysics()
+              : const PageScrollPhysics(),
           scrollDirection: Axis.vertical,
           itemCount: episodes.length,
           itemBuilder: (context, index) => ShortEpisodePage(
@@ -3221,6 +3254,13 @@ class _ShortDramaViewerScreenState extends State<ShortDramaViewerScreen> {
             index: index,
             total: episodes.length,
           ),
+        );
+        if (!isTvBuild) return pages;
+        return KeyboardListener(
+          autofocus: true,
+          focusNode: focusNode,
+          onKeyEvent: (event) => handleTvKey(event, episodes.length),
+          child: pages,
         );
       },
     ),
@@ -3359,7 +3399,11 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
                   style: const TextStyle(color: Colors.white70),
                 ),
                 const SizedBox(height: 8),
-                const Text('Vuốt lên để xem tập tiếp theo'),
+                Text(
+                  isTvBuild
+                      ? 'Dùng phím ↑ ↓ để chuyển tập • OK để phát/tạm dừng'
+                      : 'Vuốt lên để xem tập tiếp theo',
+                ),
               ],
             ),
           ),
