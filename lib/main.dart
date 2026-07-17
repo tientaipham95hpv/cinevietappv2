@@ -2965,6 +2965,12 @@ class _AppShellState extends State<AppShell> {
       ),
       if (!isTvBuild)
         AppDestination(
+          icon: Icons.play_circle_fill_rounded,
+          label: 'Short',
+          screen: ShortDramaScreen(repo: repo),
+        ),
+      if (!isTvBuild)
+        AppDestination(
           icon: Icons.groups_rounded,
           label: 'Xem chung',
           screen: WatchTogetherScreen(repo: repo),
@@ -3088,6 +3094,279 @@ class AppDestination {
   final String label;
   final Widget screen;
   final bool requiresLogin;
+}
+
+class ShortDramaScreen extends StatefulWidget {
+  const ShortDramaScreen({super.key, required this.repo});
+  final MovieRepository repo;
+
+  @override
+  State<ShortDramaScreen> createState() => _ShortDramaScreenState();
+}
+
+class _ShortDramaScreenState extends State<ShortDramaScreen> {
+  late Future<List<Movie>> movies;
+
+  @override
+  void initState() {
+    super.initState();
+    movies = widget.repo.list(genre: 'short-drama', limit: 100);
+  }
+
+  Future<void> reload() async {
+    final next = widget.repo.list(
+      genre: 'short-drama',
+      limit: 100,
+      forceRefresh: true,
+    );
+    setState(() => movies = next);
+    await next;
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Short Drama')),
+    body: FutureBuilder<List<Movie>>(
+      future: movies,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const LoadingPage(label: 'Đang tải Short Drama');
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: FilledButton.icon(
+              onPressed: reload,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Tải lại'),
+            ),
+          );
+        }
+        final items = snapshot.data ?? const <Movie>[];
+        if (items.isEmpty) return const EmptyState('Chưa có Short Drama');
+        final width = cardExtent(context);
+        return RefreshIndicator(
+          onRefresh: reload,
+          child: GridView.builder(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
+            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: width + 24,
+              mainAxisExtent: moviePosterCardHeight(width),
+              crossAxisSpacing: 14,
+              mainAxisSpacing: 18,
+            ),
+            itemCount: items.length,
+            itemBuilder: (context, index) => MoviePosterCard(
+              movie: items[index],
+              width: width,
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => ShortDramaViewerScreen(
+                    repo: widget.repo,
+                    movie: items[index],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class ShortDramaViewerScreen extends StatefulWidget {
+  const ShortDramaViewerScreen({
+    super.key,
+    required this.repo,
+    required this.movie,
+  });
+  final MovieRepository repo;
+  final Movie movie;
+
+  @override
+  State<ShortDramaViewerScreen> createState() => _ShortDramaViewerScreenState();
+}
+
+class _ShortDramaViewerScreenState extends State<ShortDramaViewerScreen> {
+  late final Future<Movie> movie = widget.repo.detail(widget.movie.routeKey);
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: Colors.black,
+    body: FutureBuilder<Movie>(
+      future: movie,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const LoadingPage(label: 'Đang mở Short Drama');
+        }
+        if (snapshot.hasError || !snapshot.hasData) {
+          return const EmptyState('Không thể tải phim');
+        }
+        final detail = snapshot.data!;
+        final episodes = <(EpisodeServer, EpisodeItem)>[
+          for (final server in detail.episodes)
+            for (final episode in server.items)
+              if (episode.linkM3u8.isNotEmpty) (server, episode),
+        ];
+        if (episodes.isEmpty) {
+          return const EmptyState('Phim chưa có tập phát trực tiếp');
+        }
+        return PageView.builder(
+          scrollDirection: Axis.vertical,
+          itemCount: episodes.length,
+          itemBuilder: (context, index) => ShortEpisodePage(
+            key: ValueKey('${detail.id}-$index'),
+            movie: detail,
+            episode: episodes[index].$2,
+            index: index,
+            total: episodes.length,
+          ),
+        );
+      },
+    ),
+  );
+}
+
+class ShortEpisodePage extends StatefulWidget {
+  const ShortEpisodePage({
+    super.key,
+    required this.movie,
+    required this.episode,
+    required this.index,
+    required this.total,
+  });
+  final Movie movie;
+  final EpisodeItem episode;
+  final int index;
+  final int total;
+
+  @override
+  State<ShortEpisodePage> createState() => _ShortEpisodePageState();
+}
+
+class _ShortEpisodePageState extends State<ShortEpisodePage> {
+  VideoPlayerController? controller;
+  String error = '';
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(initVideo());
+  }
+
+  Future<void> initVideo() async {
+    final raw = widget.episode.linkM3u8.trim();
+    final direct = raw.startsWith('//') ? 'https:$raw' : raw;
+    final url = direct.startsWith('$apiBase/stream?')
+        ? direct
+        : '$apiBase/stream?url=${Uri.encodeComponent(direct)}';
+    final next = VideoPlayerController.networkUrl(
+      Uri.parse(url),
+      formatHint: direct.toLowerCase().contains('.m3u8')
+          ? VideoFormat.hls
+          : null,
+    );
+    controller = next;
+    try {
+      await next.initialize().timeout(const Duration(seconds: 18));
+      await next.setLooping(true);
+      await next.play();
+      if (mounted) setState(() {});
+    } catch (_) {
+      await next.dispose();
+      controller = null;
+      if (mounted) setState(() => error = 'Không thể phát tập này');
+    }
+  }
+
+  @override
+  void dispose() {
+    controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final video = controller;
+    final ready = video?.value.isInitialized == true;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: !ready
+          ? null
+          : () async {
+              video!.value.isPlaying ? await video.pause() : await video.play();
+              if (mounted) setState(() {});
+            },
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (ready)
+            FittedBox(
+              fit: BoxFit.contain,
+              child: SizedBox(
+                width: video!.value.size.width,
+                height: video.value.size.height,
+                child: VideoPlayer(video),
+              ),
+            )
+          else
+            NetworkBackdrop(
+              url: widget.movie.posterUrl,
+              fallbackUrl: widget.movie.posterFallbackUrl,
+              fit: BoxFit.cover,
+            ),
+          const DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Colors.black45, Colors.transparent, Colors.black87],
+              ),
+            ),
+          ),
+          SafeArea(
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: IconButton.filledTonal(
+                onPressed: () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.arrow_back_rounded),
+              ),
+            ),
+          ),
+          if (error.isNotEmpty)
+            Center(child: Text(error, style: const TextStyle(fontSize: 16)))
+          else if (!ready)
+            const Center(child: CircularProgressIndicator()),
+          if (ready && !video!.value.isPlaying)
+            const Center(child: Icon(Icons.play_arrow_rounded, size: 76)),
+          Positioned(
+            left: 18,
+            right: 18,
+            bottom: 28,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.movie.title,
+                  style: const TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  '${widget.episode.displayName}  •  ${widget.index + 1}/${widget.total}',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+                const SizedBox(height: 8),
+                const Text('Vuốt lên để xem tập tiếp theo'),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class SplashScreen extends StatelessWidget {
