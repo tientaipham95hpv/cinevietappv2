@@ -3381,10 +3381,26 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
             const Center(child: CircularProgressIndicator()),
           if (ready && !video!.value.isPlaying)
             const Center(child: Icon(Icons.play_arrow_rounded, size: 76)),
+          if (ready)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: VideoProgressIndicator(
+                video!,
+                allowScrubbing: true,
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                colors: VideoProgressColors(
+                  playedColor: CvColors.accent,
+                  bufferedColor: Colors.white54,
+                  backgroundColor: Colors.white24,
+                ),
+              ),
+            ),
           Positioned(
             left: 18,
             right: 18,
-            bottom: 28,
+            bottom: 52,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
