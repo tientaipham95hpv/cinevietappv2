@@ -2955,7 +2955,7 @@ class _AppShellState extends State<AppShell> {
     final destinations = [
       AppDestination(
         icon: Icons.home_rounded,
-        label: isTvBuild ? 'Trang chủ' : 'Chủ',
+        label: isTvBuild ? 'Trang chủ' : 'Home',
         screen: HomeScreen(repo: repo),
       ),
       AppDestination(
