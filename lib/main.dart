@@ -2955,7 +2955,7 @@ class _AppShellState extends State<AppShell> {
     final destinations = [
       AppDestination(
         icon: Icons.home_rounded,
-        label: 'Trang chủ',
+        label: isTvBuild ? 'Trang chủ' : 'Chủ',
         screen: HomeScreen(repo: repo),
       ),
       AppDestination(
@@ -2971,13 +2971,13 @@ class _AppShellState extends State<AppShell> {
       if (!isTvBuild)
         AppDestination(
           icon: Icons.groups_rounded,
-          label: 'Xem chung',
+          label: 'Xem',
           screen: WatchTogetherScreen(repo: repo),
           requiresLogin: true,
         ),
       AppDestination(
         icon: Icons.person_rounded,
-        label: 'Của tôi',
+        label: isTvBuild ? 'Của tôi' : 'Tôi',
         screen: ProfileScreen(repo: repo),
       ),
     ];
@@ -3067,7 +3067,7 @@ class _AppShellState extends State<AppShell> {
 
   void openProfileTab() {
     if (!mounted) return;
-    setState(() => index = isTvBuild ? 2 : 3);
+    setState(() => index = isTvBuild ? 3 : 4);
   }
 
   Future<void> setTab(int value, List<AppDestination> destinations) async {
@@ -3342,7 +3342,7 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
         children: [
           if (ready)
             FittedBox(
-              fit: BoxFit.contain,
+              fit: BoxFit.cover,
               child: SizedBox(
                 width: video!.value.size.width,
                 height: video.value.size.height,
