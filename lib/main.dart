@@ -2971,7 +2971,7 @@ class _AppShellState extends State<AppShell> {
       if (!isTvBuild)
         AppDestination(
           icon: Icons.groups_rounded,
-          label: 'Xem',
+          label: 'Xem chung',
           screen: WatchTogetherScreen(repo: repo),
           requiresLogin: true,
         ),
