@@ -230,6 +230,7 @@ class CineVietV2App extends StatelessWidget {
                 ? CvColors.accent
                 : CvColors.muted,
             fontWeight: FontWeight.w700,
+            fontSize: 12,
           ),
         ),
       ),
@@ -2971,7 +2972,7 @@ class _AppShellState extends State<AppShell> {
       if (!isTvBuild)
         AppDestination(
           icon: Icons.groups_rounded,
-          label: 'Xem chung',
+          label: 'Xem\u00a0chung',
           screen: WatchTogetherScreen(repo: repo),
           requiresLogin: true,
         ),
@@ -3005,6 +3006,7 @@ class _AppShellState extends State<AppShell> {
               selectedIndex: index,
               backgroundColor: CvColors.ink,
               indicatorColor: CvColors.accent.withValues(alpha: .22),
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
               destinations: [
                 for (final item in destinations)
                   NavigationDestination(
