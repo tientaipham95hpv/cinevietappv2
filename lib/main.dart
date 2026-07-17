@@ -3392,8 +3392,8 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 colors: VideoProgressColors(
                   playedColor: CvColors.accent,
-                  bufferedColor: Colors.white54,
-                  backgroundColor: Colors.white24,
+                  bufferedColor: CvColors.accent.withValues(alpha: .42),
+                  backgroundColor: CvColors.border,
                 ),
               ),
             ),
