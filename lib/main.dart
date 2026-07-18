@@ -15356,13 +15356,16 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Widget _buildLockButton({required bool locked}) => Positioned(
-    top: 14,
-    right: 16,
+    left: 16,
+    top: 0,
+    bottom: 0,
     child: SafeArea(
-      child: IconButton.filledTonal(
-        tooltip: locked ? 'Mở khóa cử chỉ' : 'Khóa cử chỉ',
-        onPressed: _toggleControlsLock,
-        icon: Icon(locked ? Icons.lock_open_rounded : Icons.lock_rounded),
+      child: Center(
+        child: IconButton.filledTonal(
+          tooltip: locked ? 'Mở khóa cử chỉ' : 'Khóa cử chỉ',
+          onPressed: _toggleControlsLock,
+          icon: Icon(locked ? Icons.lock_open_rounded : Icons.lock_rounded),
+        ),
       ),
     ),
   );
