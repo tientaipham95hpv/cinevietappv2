@@ -616,6 +616,22 @@ class Api {
     return _accessToken.isNotEmpty || _refreshToken.isNotEmpty;
   }
 
+  Future<Map<String, dynamic>?> cachedUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('cineviet_v2_cached_user');
+    if (raw == null || raw.isEmpty) return null;
+    try {
+      return Map<String, dynamic>.from(jsonDecode(raw) as Map);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _cacheUser(Map<String, dynamic> user) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('cineviet_v2_cached_user', jsonEncode(user));
+  }
+
   Future<void> _ensureTokensLoaded() async {
     if (_tokensLoaded) return;
     final prefs = await SharedPreferences.getInstance();
@@ -697,6 +713,7 @@ class Api {
     await prefs.remove('cineviet_v2_refresh_token');
     await prefs.remove('cineviet_access_token');
     await prefs.remove('cineviet_refresh_token');
+    await prefs.remove('cineviet_v2_cached_user');
     _accessToken = '';
     _refreshToken = '';
     _tokensLoaded = true;
@@ -710,15 +727,20 @@ class Api {
     try {
       final res = await dio.get('/auth/me');
       final user = userMapFromAuthResponse(res.data);
+      if (user != null) await _cacheUser(user);
       if (user != null || !allowRefresh) return user;
       if (!await refreshToken()) return null;
       final retry = await dio.get('/auth/me');
-      return userMapFromAuthResponse(retry.data);
+      final refreshedUser = userMapFromAuthResponse(retry.data);
+      if (refreshedUser != null) await _cacheUser(refreshedUser);
+      return refreshedUser;
     } catch (_) {
       if (!allowRefresh || !await refreshToken()) return null;
       try {
         final retry = await dio.get('/auth/me');
-        return userMapFromAuthResponse(retry.data);
+        final user = userMapFromAuthResponse(retry.data);
+        if (user != null) await _cacheUser(user);
+        return user;
       } catch (_) {
         return null;
       }
@@ -1733,6 +1755,7 @@ class MovieComment {
     this.likes = 0,
     this.isSpoiler = false,
     this.isVip = false,
+    this.isAdmin = false,
   });
 
   final int id;
@@ -1743,6 +1766,7 @@ class MovieComment {
   final int likes;
   final bool isSpoiler;
   final bool isVip;
+  final bool isAdmin;
 
   factory MovieComment.fromJson(Map<String, dynamic> json) {
     final nestedUser = cleanMap(json['user']).isNotEmpty
@@ -1769,6 +1793,7 @@ class MovieComment {
       isVip:
           json['user_is_vip'] == true ||
           (asInt(json['user_is_vip'] ?? json['is_vip']) ?? 0) == 1,
+      isAdmin: isAdminUser({...json, ...nestedUser}),
     );
   }
 }
@@ -6184,7 +6209,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<Map<String, dynamic>?> _me() async {
-    return Api.instance.currentUser();
+    return await Api.instance.currentUser() ?? Api.instance.cachedUser();
   }
 
   Future<Map<String, dynamic>?> _benefits() async {
@@ -6433,7 +6458,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: 'Tải xuống',
                   subtitle: 'Xem phim khi không có mạng',
                   onTap: () async {
-                    if (!await requireOfflineLogin(context)) return;
+                    if (!await requireOfflineVip(context)) return;
                     if (!context.mounted) return;
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -6896,7 +6921,8 @@ class AccountPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = cleanText(user['name'] ?? user['email']);
     final avatar = userAvatarUrlFrom(user);
-    final isVip = isVipUser(user);
+    final isAdmin = isAdminUser(user);
+    final isVip = isVipUser(user) || isAdmin;
     return Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -6941,13 +6967,17 @@ class AccountPanel extends StatelessWidget {
                           vertical: 5,
                         ),
                         decoration: BoxDecoration(
-                          color: isVip
+                          color: isAdmin
                               ? const Color(0xFFFFC83D).withValues(alpha: 0.13)
+                              : isVip
+                              ? const Color(0xFF9B59FF).withValues(alpha: 0.16)
                               : CvColors.panel2,
                           borderRadius: BorderRadius.circular(999),
                           border: Border.all(
-                            color: isVip
+                            color: isAdmin
                                 ? const Color(0xFFFFC83D).withValues(alpha: 0.7)
+                                : isVip
+                                ? const Color(0xFFB983FF).withValues(alpha: 0.8)
                                 : CvColors.border,
                           ),
                         ),
@@ -6956,8 +6986,10 @@ class AccountPanel extends StatelessWidget {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: isVip
+                            color: isAdmin
                                 ? const Color(0xFFFFD76A)
+                                : isVip
+                                ? const Color(0xFFD8B4FE)
                                 : CvColors.muted,
                             fontSize: 12,
                             fontWeight: FontWeight.w700,
@@ -7019,7 +7051,18 @@ class AccountPanel extends StatelessWidget {
   }
 }
 
+bool isAdminUser(Map<String, dynamic> user) {
+  final role = cleanText(
+    user['role'] ?? user['user_role'] ?? user['type'],
+  ).toLowerCase();
+  return user['is_admin'] == true ||
+      user['is_admin'] == 1 ||
+      role == 'admin' ||
+      role == 'administrator';
+}
+
 String vipLabel(Map<String, dynamic> user) {
+  if (isAdminUser(user)) return 'Administrator';
   if (!isVipUser(user)) return 'Thành viên';
   final raw = cleanText(user['vip_expires_at'] ?? user['vipExpiresAt']);
   final parsed = DateTime.tryParse(raw)?.toLocal();
@@ -10236,7 +10279,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                         icon: Icons.download_rounded,
                                         label: 'Tải xuống',
                                         onPressed: () async {
-                                          if (!await requireOfflineLogin(
+                                          if (!await requireOfflineVip(
                                             context,
                                           )) {
                                             return;
@@ -11565,9 +11608,24 @@ class _SocialSectionState extends State<SocialSection> {
                             isVip: item.isVip,
                             showVipBadge: true,
                           ),
-                          title: Text(
-                            item.userName,
-                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          title: Wrap(
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            spacing: 6,
+                            children: [
+                              Text(
+                                item.userName,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                              if (item.isAdmin || item.isVip)
+                                _MembershipTag(
+                                  label: item.isAdmin
+                                      ? 'Administrator'
+                                      : 'Chủ Tịch Donate',
+                                  isAdmin: item.isAdmin,
+                                ),
+                            ],
                           ),
                           subtitle: Text(
                             item.isSpoiler
@@ -11591,6 +11649,36 @@ class _SocialSectionState extends State<SocialSection> {
       },
     );
   }
+}
+
+class _MembershipTag extends StatelessWidget {
+  const _MembershipTag({required this.label, required this.isAdmin});
+  final String label;
+  final bool isAdmin;
+
+  @override
+  Widget build(BuildContext context) => DecoratedBox(
+    decoration: BoxDecoration(
+      color: isAdmin
+          ? const Color(0xFFFFC83D).withValues(alpha: .16)
+          : const Color(0xFF9B59FF).withValues(alpha: .2),
+      borderRadius: BorderRadius.circular(999),
+      border: Border.all(
+        color: isAdmin ? const Color(0xFFFFC83D) : const Color(0xFFB983FF),
+      ),
+    ),
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: isAdmin ? const Color(0xFFFFD76A) : const Color(0xFFD8B4FE),
+          fontSize: 10,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+    ),
+  );
 }
 
 class ResumeLoaderScreen extends StatefulWidget {
@@ -18582,6 +18670,15 @@ Map<String, dynamic>? userMapFromAuthResponse(dynamic data) {
   return id.isEmpty ? null : user;
 }
 
+Future<bool> requireOfflineVip(BuildContext context) async {
+  final user =
+      await Api.instance.currentUser() ?? await Api.instance.cachedUser();
+  if (user != null && (isVipUser(user) || isAdminUser(user))) return true;
+  if (!context.mounted) return false;
+  showSnack(context, 'Tải xuống cần tài khoản VIP hoặc Administrator');
+  return false;
+}
+
 Future<bool> requireOfflineLogin(BuildContext context) async {
   // Không gọi /auth/me ở đây: thư viện tải xuống phải mở được khi mất mạng.
   // Phiên lưu cục bộ chỉ tồn tại sau khi đăng nhập thành công và bị xóa khi
@@ -18925,6 +19022,31 @@ class _OfflineDownloadsScreenState extends State<OfflineDownloadsScreen> {
     );
   }
 
+  Future<void> _confirmDeleteMovie(List<OfflineDownloadItem> items) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Xóa folder phim?'),
+        content: Text(
+          '${items.first.movieTitle} và toàn bộ ${items.length} tập sẽ bị xóa.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Giữ lại'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Xóa'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await manager.deleteMovie(items.map((item) => item.id));
+    }
+  }
+
   Future<void> _confirmDelete(OfflineDownloadItem item) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -18984,39 +19106,61 @@ class _OfflineDownloadsScreenState extends State<OfflineDownloadsScreen> {
                   0,
                   (total, item) => total + item.receivedBytes,
                 );
-                return Panel(
-                  child: ExpansionTile(
-                    tilePadding: const EdgeInsets.all(12),
-                    childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-                    leading: ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: SizedBox(
-                        width: 56,
-                        height: 76,
-                        child: movie.posterUrl.isEmpty
-                            ? const ColoredBox(
-                                color: CvColors.panel2,
-                                child: Icon(Icons.movie_rounded),
-                              )
-                            : CachedNetworkImage(
-                                imageUrl: movie.posterUrl,
-                                fit: BoxFit.cover,
-                              ),
+                return Dismissible(
+                  key: ValueKey(
+                    'download-movie-${movie.movieId}-${movie.movieSlug}',
+                  ),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 24),
+                    decoration: BoxDecoration(
+                      color: CvColors.danger.withValues(alpha: .85),
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: const Icon(
+                      Icons.delete_forever_rounded,
+                      color: Colors.white,
+                    ),
+                  ),
+                  confirmDismiss: (_) async {
+                    await _confirmDeleteMovie(episodes);
+                    return false;
+                  },
+                  child: Panel(
+                    child: ExpansionTile(
+                      tilePadding: const EdgeInsets.all(12),
+                      childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                      leading: ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: SizedBox(
+                          width: 56,
+                          height: 76,
+                          child: movie.posterUrl.isEmpty
+                              ? const ColoredBox(
+                                  color: CvColors.panel2,
+                                  child: Icon(Icons.movie_rounded),
+                                )
+                              : CachedNetworkImage(
+                                  imageUrl: movie.posterUrl,
+                                  fit: BoxFit.cover,
+                                ),
+                        ),
                       ),
+                      title: Text(
+                        movie.movieTitle,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w900),
+                      ),
+                      subtitle: Text(
+                        '$completed/${episodes.length} tập đã tải • ${formatOfflineBytes(totalBytes)}',
+                        style: const TextStyle(color: CvColors.muted),
+                      ),
+                      children: [
+                        for (final item in episodes) _downloadEpisodeTile(item),
+                      ],
                     ),
-                    title: Text(
-                      movie.movieTitle,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    subtitle: Text(
-                      '$completed/${episodes.length} tập đã tải • ${formatOfflineBytes(totalBytes)}',
-                      style: const TextStyle(color: CvColors.muted),
-                    ),
-                    children: [
-                      for (final item in episodes) _downloadEpisodeTile(item),
-                    ],
                   ),
                 );
               },

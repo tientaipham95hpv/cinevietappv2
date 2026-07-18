@@ -272,6 +272,19 @@ class OfflineDownloadManager extends ChangeNotifier {
     _cancelTokens[id]?.cancel('Người dùng đã hủy');
   }
 
+  Future<void> deleteMovie(Iterable<String> ids) async {
+    for (final id in ids.toList()) {
+      _cancelTokens[id]?.cancel('Đã xóa');
+      _cancelTokens.remove(id);
+      final directory = await _downloadDirectory(id);
+      if (await directory.exists()) await directory.delete(recursive: true);
+    }
+    final deleting = ids.toSet();
+    _items = _items.where((item) => !deleting.contains(item.id)).toList();
+    await _persist();
+    notifyListeners();
+  }
+
   Future<void> delete(String id) async {
     _cancelTokens[id]?.cancel('Đã xóa');
     _cancelTokens.remove(id);
