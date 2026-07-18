@@ -69,7 +69,12 @@ class OfflineDownloadItem {
   final int totalFiles;
   final String error;
 
-  double? get progress => totalFiles > 0 ? completedFiles / totalFiles : null;
+  double? get progress {
+    if (state == OfflineDownloadState.completed) return 1;
+    if (totalFiles <= 0) return null;
+    return (completedFiles / totalFiles).clamp(0, .99);
+  }
+
   bool get isActive =>
       state == OfflineDownloadState.queued ||
       state == OfflineDownloadState.downloading;
@@ -408,28 +413,30 @@ class OfflineDownloadManager extends ChangeNotifier {
         }
         try {
           final audioDirectory = Directory('${directory.path}/audio_$index');
-          final result =
-              await _downloadHlsTrack(
-                Uri.parse(url),
-                audioDirectory,
-                token,
-                prefix: 'audio',
-              ).timeout(
-                const Duration(minutes: 3),
-                onTimeout: () =>
-                    throw TimeoutException('Quá thời gian tải audio phụ'),
+          final result = await _downloadHlsTrack(
+            Uri.parse(url),
+            audioDirectory,
+            token,
+            prefix: 'audio',
+            onResources: (count) {
+              _update(
+                initial.id,
+                (item) => item.copyWith(totalFiles: item.totalFiles + count),
               );
-          received += result.bytes;
-          localAudio.add({...source, 'url': result.manifestPath});
-          _update(
-            initial.id,
-            (item) => item.copyWith(
-              receivedBytes: received,
-              totalBytes: received,
-              completedFiles: item.completedFiles + result.files,
-              totalFiles: item.totalFiles + result.files,
-            ),
+            },
+            onResourceDownloaded: (bytes) {
+              received += bytes;
+              _update(
+                initial.id,
+                (item) => item.copyWith(
+                  receivedBytes: received,
+                  totalBytes: mathMax(item.totalBytes, received),
+                  completedFiles: item.completedFiles + 1,
+                ),
+              );
+            },
           );
+          localAudio.add({...source, 'url': result.manifestPath});
         } catch (_) {
           // Một track phụ không được làm hỏng bản video chính.
         }
@@ -509,6 +516,8 @@ class OfflineDownloadManager extends ChangeNotifier {
     Directory directory,
     CancelToken token, {
     required String prefix,
+    void Function(int count)? onResources,
+    void Function(int bytes)? onResourceDownloaded,
   }) async {
     await directory.create(recursive: true);
     var manifestUri = source;
@@ -530,6 +539,7 @@ class OfflineDownloadManager extends ChangeNotifier {
     }
     final resources = _manifestResources(manifest, manifestUri);
     if (resources.isEmpty) throw const FormatException('Audio HLS rỗng');
+    onResources?.call(resources.length);
     var rewritten = manifest;
     var bytes = 0;
     for (var index = 0; index < resources.length; index++) {
@@ -543,7 +553,9 @@ class OfflineDownloadManager extends ChangeNotifier {
         file.path,
         cancelToken: token,
       );
-      bytes += await file.length();
+      final fileBytes = await file.length();
+      bytes += fileBytes;
+      onResourceDownloaded?.call(fileBytes);
       rewritten = rewriteHlsResourceReference(
         rewritten,
         resource.rawReference,

@@ -13355,11 +13355,19 @@ class _PlayerScreenState extends State<PlayerScreen>
         if (!await localFile.exists()) {
           throw Exception('Tệp tải xuống không còn tồn tại');
         }
-        final localUrl = await _serveOfflineMedia(localFile);
-        final next = VideoPlayerController.networkUrl(
-          localUrl,
-          closedCaptionFile: _closedCaptionFileForSelectedTracks(),
-        );
+        final VideoPlayerController next;
+        if (Platform.isIOS) {
+          final localUrl = await _serveOfflineMedia(localFile);
+          next = VideoPlayerController.networkUrl(
+            localUrl,
+            closedCaptionFile: _closedCaptionFileForSelectedTracks(),
+          );
+        } else {
+          next = VideoPlayerController.file(
+            localFile,
+            closedCaptionFile: _closedCaptionFileForSelectedTracks(),
+          );
+        }
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 45));
         await next.setPlaybackSpeed(playbackSpeed);
