@@ -342,6 +342,8 @@ String userAvatarUrlFrom(Map<String, dynamic> user) {
   for (final map in maps) {
     final avatar = cleanText(
       map['avatar'] ??
+          map['user_avatar'] ??
+          map['userAvatar'] ??
           map['avatarUrl'] ??
           map['avatar_url'] ??
           map['photo'] ??
@@ -11599,45 +11601,74 @@ class _SocialSectionState extends State<SocialSection> {
                   return Column(
                     children: [
                       for (final item in rows.take(12))
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: UserAvatar(
-                            name: item.userName,
-                            avatarUrl: item.userAvatar,
-                            radius: 21,
-                            isVip: item.isVip,
-                            showVipBadge: true,
-                          ),
-                          title: Wrap(
-                            crossAxisAlignment: WrapCrossAlignment.center,
-                            spacing: 6,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 9),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Text(
-                                item.userName,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w800,
+                              UserAvatar(
+                                name: item.userName,
+                                avatarUrl: item.userAvatar,
+                                radius: 20,
+                                isVip: item.isVip || item.isAdmin,
+                                showVipBadge: true,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            item.userName,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 15,
+                                            ),
+                                          ),
+                                        ),
+                                        if (item.likes > 0) ...[
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            '${item.likes} thích',
+                                            style: const TextStyle(
+                                              color: CvColors.muted,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ],
+                                    ),
+                                    if (item.isAdmin || item.isVip) ...[
+                                      const SizedBox(height: 4),
+                                      _MembershipTag(
+                                        label: item.isAdmin
+                                            ? 'Administrator'
+                                            : 'Chủ Tịch Donate',
+                                        isAdmin: item.isAdmin,
+                                      ),
+                                    ],
+                                    const SizedBox(height: 5),
+                                    Text(
+                                      item.isSpoiler
+                                          ? '[Spoiler] ${item.content}'
+                                          : item.content,
+                                      style: const TextStyle(
+                                        height: 1.35,
+                                        color: CvColors.text,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              if (item.isAdmin || item.isVip)
-                                _MembershipTag(
-                                  label: item.isAdmin
-                                      ? 'Administrator'
-                                      : 'Chủ Tịch Donate',
-                                  isAdmin: item.isAdmin,
-                                ),
                             ],
                           ),
-                          subtitle: Text(
-                            item.isSpoiler
-                                ? '[Spoiler] ${item.content}'
-                                : item.content,
-                          ),
-                          trailing: item.likes > 0
-                              ? Text(
-                                  '${item.likes} thích',
-                                  style: const TextStyle(color: CvColors.muted),
-                                )
-                              : null,
                         ),
                     ],
                   );
@@ -11669,13 +11700,26 @@ class _MembershipTag extends StatelessWidget {
     ),
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: isAdmin ? const Color(0xFFFFD76A) : const Color(0xFFD8B4FE),
-          fontSize: 10,
-          fontWeight: FontWeight.w900,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.workspace_premium_rounded,
+            size: 12,
+            color: isAdmin ? const Color(0xFFFFD76A) : const Color(0xFFD8B4FE),
+          ),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(
+              color: isAdmin
+                  ? const Color(0xFFFFD76A)
+                  : const Color(0xFFD8B4FE),
+              fontSize: 10,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+        ],
       ),
     ),
   );
