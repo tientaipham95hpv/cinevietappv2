@@ -3192,6 +3192,11 @@ class _ShortDramaViewerScreenState extends State<ShortDramaViewerScreen> {
   late final Future<Movie> movie = widget.repo.detail(widget.movie.routeKey);
   final pageController = PageController();
   final focusNode = FocusNode();
+  final episodeKeys = <int, GlobalKey<_ShortEpisodePageState>>{};
+  int currentPage = 0;
+
+  GlobalKey<_ShortEpisodePageState> episodeKey(int index) =>
+      episodeKeys.putIfAbsent(index, GlobalKey<_ShortEpisodePageState>.new);
 
   @override
   void dispose() {
@@ -3201,15 +3206,35 @@ class _ShortDramaViewerScreenState extends State<ShortDramaViewerScreen> {
   }
 
   KeyEventResult handleTvKey(KeyEvent event, int total) {
-    if (!isTvBuild || event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (!isTvBuild) return KeyEventResult.ignored;
     final key = event.logicalKey;
+    final player = episodeKeys[currentPage]?.currentState;
+    if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.arrowRight) {
+      if (event is KeyRepeatEvent) {
+        unawaited(player?.setFastForward(true));
+      } else if (event is KeyDownEvent) {
+        unawaited(player?.seekBy(key == LogicalKeyboardKey.arrowLeft ? -5 : 5));
+      } else if (event is KeyUpEvent) {
+        unawaited(player?.setFastForward(false));
+      }
+      return KeyEventResult.handled;
+    }
+    if ((key == LogicalKeyboardKey.enter ||
+            key == LogicalKeyboardKey.select ||
+            key == LogicalKeyboardKey.space) &&
+        event is KeyDownEvent) {
+      unawaited(player?.togglePlayback());
+      return KeyEventResult.handled;
+    }
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
     if (key == LogicalKeyboardKey.arrowUp ||
         key == LogicalKeyboardKey.arrowDown) {
-      final current = (pageController.page ?? 0).round();
       final target = key == LogicalKeyboardKey.arrowUp
-          ? current - 1
-          : current + 1;
+          ? currentPage - 1
+          : currentPage + 1;
       if (target >= 0 && target < total) {
+        unawaited(player?.setFastForward(false));
         pageController.animateToPage(
           target,
           duration: const Duration(milliseconds: 260),
@@ -3244,13 +3269,14 @@ class _ShortDramaViewerScreenState extends State<ShortDramaViewerScreen> {
         }
         final pages = PageView.builder(
           controller: pageController,
+          onPageChanged: (index) => currentPage = index,
           physics: isTvBuild
               ? const NeverScrollableScrollPhysics()
               : const PageScrollPhysics(),
           scrollDirection: Axis.vertical,
           itemCount: episodes.length,
           itemBuilder: (context, index) => ShortEpisodePage(
-            key: ValueKey('${detail.id}-$index'),
+            key: episodeKey(index),
             movie: detail,
             episode: episodes[index].$2,
             index: index,
@@ -3290,6 +3316,7 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
   VideoPlayerController? controller;
   Timer? controlsTimer;
   bool controlsVisible = true;
+  bool fastForwarding = false;
   String error = '';
 
   @override
@@ -3337,13 +3364,18 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
   }
 
   Future<void> handleTap() async {
-    final video = controller;
-    if (video?.value.isInitialized != true) return;
     if (!controlsVisible) {
       setState(() => controlsVisible = true);
       scheduleControlsHide();
       return;
     }
+    await togglePlayback();
+  }
+
+  Future<void> togglePlayback() async {
+    final video = controller;
+    if (video?.value.isInitialized != true) return;
+    await setFastForward(false);
     if (video!.value.isPlaying) {
       controlsTimer?.cancel();
       await video.pause();
@@ -3357,9 +3389,36 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
     }
   }
 
+  Future<void> seekBy(int seconds) async {
+    final video = controller;
+    if (video?.value.isInitialized != true) return;
+    final duration = video!.value.duration;
+    final target = video.value.position + Duration(seconds: seconds);
+    final clamped = target < Duration.zero
+        ? Duration.zero
+        : target > duration
+        ? duration
+        : target;
+    await video.seekTo(clamped);
+    if (mounted) {
+      setState(() => controlsVisible = true);
+      scheduleControlsHide();
+    }
+  }
+
+  Future<void> setFastForward(bool enabled) async {
+    final video = controller;
+    if (video?.value.isInitialized != true || fastForwarding == enabled) return;
+    fastForwarding = enabled;
+    await video!.setPlaybackSpeed(enabled ? 2 : 1);
+    if (enabled && !video.value.isPlaying) await video.play();
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     controlsTimer?.cancel();
+    if (fastForwarding) controller?.setPlaybackSpeed(1);
     controller?.dispose();
     super.dispose();
   }
@@ -3371,6 +3430,18 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
       onTap: ready ? handleTap : null,
+      onDoubleTapDown: ready && !isTvBuild
+          ? (details) {
+              final width = MediaQuery.sizeOf(context).width;
+              unawaited(seekBy(details.localPosition.dx < width / 2 ? -5 : 5));
+            }
+          : null,
+      onLongPressStart: ready && !isTvBuild
+          ? (_) => unawaited(setFastForward(true))
+          : null,
+      onLongPressEnd: ready && !isTvBuild
+          ? (_) => unawaited(setFastForward(false))
+          : null,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -3424,6 +3495,34 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
             const Center(child: CircularProgressIndicator()),
           if (ready && !video!.value.isPlaying)
             const Center(child: Icon(Icons.play_arrow_rounded, size: 76)),
+          if (ready && fastForwarding)
+            const Positioned(
+              top: 56,
+              right: 20,
+              child: Chip(
+                avatar: Icon(Icons.fast_forward_rounded, size: 20),
+                label: Text('2x'),
+              ),
+            ),
+          if (ready && controlsVisible)
+            Center(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton.filledTonal(
+                    tooltip: 'Lùi 5 giây',
+                    onPressed: () => seekBy(-5),
+                    icon: const Icon(Icons.replay_5_rounded, size: 34),
+                  ),
+                  const SizedBox(width: 72),
+                  IconButton.filledTonal(
+                    tooltip: 'Tới 5 giây',
+                    onPressed: () => seekBy(5),
+                    icon: const Icon(Icons.forward_5_rounded, size: 34),
+                  ),
+                ],
+              ),
+            ),
           if (ready && controlsVisible)
             Positioned(
               left: 0,
@@ -3463,8 +3562,8 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
                   const SizedBox(height: 8),
                   Text(
                     isTvBuild
-                        ? 'Dùng phím ↑ ↓ để chuyển tập • OK để phát/tạm dừng'
-                        : 'Vuốt lên để xem tập tiếp theo',
+                        ? '↑ ↓ đổi tập • ← → tua 5s • giữ ← → xem 2x • OK phát/tạm dừng'
+                        : 'Vuốt để đổi tập • chạm đúp trái/phải tua 5s • giữ để xem 2x',
                   ),
                 ],
               ),
