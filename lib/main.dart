@@ -13365,7 +13365,14 @@ class _PlayerScreenState extends State<PlayerScreen>
           throw Exception('Tệp tải xuống không còn tồn tại');
         }
         final VideoPlayerController next;
-        if (Platform.isIOS || Platform.isWindows) {
+        if (Platform.isWindows) {
+          final localUrl = await _serveOfflineTransportStream(localFile);
+          next = VideoPlayerController.networkUrl(
+            localUrl,
+            formatHint: VideoFormat.other,
+            closedCaptionFile: _closedCaptionFileForSelectedTracks(),
+          );
+        } else if (Platform.isIOS) {
           final localUrl = await _serveOfflineMedia(localFile);
           next = VideoPlayerController.networkUrl(
             localUrl,
@@ -15116,6 +15123,90 @@ class _PlayerScreenState extends State<PlayerScreen>
       canRequestFocus: false,
       descendantsAreFocusable: false,
       child: WebViewWidget(controller: controller),
+    );
+  }
+
+  Future<Uri> _serveOfflineTransportStream(File manifest) async {
+    final text = await manifest.readAsString();
+    if (text.contains('#EXT-X-KEY:') || text.contains('#EXT-X-MAP:')) {
+      throw const FormatException(
+        'Bản tải mã hóa/fMP4 chưa tương thích player Windows',
+      );
+    }
+    final segments = <File>[];
+    for (final rawLine in const LineSplitter().convert(text)) {
+      final line = rawLine.trim();
+      if (line.isEmpty || line.startsWith('#')) continue;
+      final segment = File('${manifest.parent.path}/$line');
+      if (!await segment.exists()) {
+        throw FormatException('Thiếu segment tải xuống: $line');
+      }
+      segments.add(segment);
+    }
+    if (segments.isEmpty) {
+      throw const FormatException('Playlist tải xuống không có segment');
+    }
+    await offlineMediaServer?.close(force: true);
+    offlineMediaRoot = manifest.parent;
+    final lengths = await Future.wait(segments.map((file) => file.length()));
+    final totalLength = lengths.fold<int>(0, (sum, length) => sum + length);
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    offlineMediaServer = server;
+    unawaited(
+      server.forEach((request) async {
+        request.response.headers.contentType = ContentType('video', 'mp2t');
+        request.response.headers.set('Accept-Ranges', 'bytes');
+        final range = request.headers.value('range');
+        final match = range == null
+            ? null
+            : RegExp(r'^bytes=(\d+)-(\d*)$').firstMatch(range);
+        var start = 0;
+        var end = totalLength - 1;
+        if (match != null) {
+          start = int.tryParse(match.group(1)!) ?? 0;
+          final rawEnd = match.group(2) ?? '';
+          if (rawEnd.isNotEmpty) end = int.tryParse(rawEnd) ?? end;
+          if (start >= totalLength || start > end) {
+            request.response.statusCode =
+                HttpStatus.requestedRangeNotSatisfiable;
+            request.response.headers.set(
+              'Content-Range',
+              'bytes */$totalLength',
+            );
+            await request.response.close();
+            return;
+          }
+          end = math.min(end, totalLength - 1);
+          request.response.statusCode = HttpStatus.partialContent;
+          request.response.headers.set(
+            'Content-Range',
+            'bytes $start-$end/$totalLength',
+          );
+        }
+        request.response.contentLength = end - start + 1;
+        var offset = 0;
+        for (var index = 0; index < segments.length; index++) {
+          final segmentEnd = offset + lengths[index] - 1;
+          if (segmentEnd < start) {
+            offset += lengths[index];
+            continue;
+          }
+          if (offset > end) break;
+          final localStart = math.max(0, start - offset);
+          final localEnd = math.min(lengths[index] - 1, end - offset);
+          await request.response.addStream(
+            segments[index].openRead(localStart, localEnd + 1),
+          );
+          offset += lengths[index];
+        }
+        await request.response.close();
+      }),
+    );
+    return Uri(
+      scheme: 'http',
+      host: InternetAddress.loopbackIPv4.address,
+      port: server.port,
+      path: '/offline.ts',
     );
   }
 
