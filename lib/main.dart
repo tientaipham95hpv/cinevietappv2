@@ -15138,15 +15138,25 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<Uri> _serveOfflineTransportStream(File manifest) async {
     final text = await manifest.readAsString();
-    final keyMatch = RegExp(r'#EXT-X-KEY:([^\r\n]+)').firstMatch(text);
+    final keyLines = RegExp(
+      r'#EXT-X-KEY:([^\r\n]+)',
+      caseSensitive: false,
+    ).allMatches(text).map((match) => match.group(1)!).toList();
+    final aesAttributes = keyLines
+        .where(
+          (attributes) => RegExp(
+            r'(?:^|,)\s*METHOD\s*=\s*AES-128\s*(?:,|$)',
+            caseSensitive: false,
+          ).hasMatch(attributes),
+        )
+        .firstOrNull;
     Uint8List? aesKey;
     Uint8List? explicitIv;
-    if (keyMatch != null) {
-      final attributes = keyMatch.group(1)!;
-      if (!attributes.contains('METHOD=AES-128')) {
-        throw const FormatException('Kiểu mã hóa HLS chưa được hỗ trợ');
-      }
-      final uriMatch = RegExp(r'URI="([^"]+)"').firstMatch(attributes);
+    if (aesAttributes != null) {
+      final uriMatch = RegExp(
+        r'URI\s*=\s*"([^"]+)"',
+        caseSensitive: false,
+      ).firstMatch(aesAttributes);
       if (uriMatch == null) throw const FormatException('Thiếu URI AES key');
       final keyFile = File('${manifest.parent.path}/${uriMatch.group(1)}');
       if (!await keyFile.exists()) throw const FormatException('Thiếu AES key');
@@ -15154,8 +15164,20 @@ class _PlayerScreenState extends State<PlayerScreen>
       if (aesKey.length != 16) {
         throw const FormatException('AES key không hợp lệ');
       }
-      final ivMatch = RegExp(r'IV=0x([0-9a-fA-F]{32})').firstMatch(attributes);
+      final ivMatch = RegExp(
+        r'IV\s*=\s*0x([0-9a-fA-F]{32})',
+        caseSensitive: false,
+      ).firstMatch(aesAttributes);
       if (ivMatch != null) explicitIv = _hexBytes(ivMatch.group(1)!);
+    } else if (keyLines.any(
+      (attributes) => !RegExp(
+        r'(?:^|,)\s*METHOD\s*=\s*NONE\s*(?:,|$)',
+        caseSensitive: false,
+      ).hasMatch(attributes),
+    )) {
+      throw FormatException(
+        'Kiểu mã hóa HLS chưa được hỗ trợ: ${keyLines.join('; ')}',
+      );
     }
     final sequence =
         int.tryParse(
