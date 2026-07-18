@@ -3315,8 +3315,10 @@ class ShortEpisodePage extends StatefulWidget {
 class _ShortEpisodePageState extends State<ShortEpisodePage> {
   VideoPlayerController? controller;
   Timer? controlsTimer;
+  Timer? seekFeedbackTimer;
   bool controlsVisible = true;
   bool fastForwarding = false;
+  int? seekFeedbackSeconds;
   String error = '';
 
   @override
@@ -3400,10 +3402,11 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
         ? duration
         : target;
     await video.seekTo(clamped);
-    if (mounted) {
-      setState(() => controlsVisible = true);
-      scheduleControlsHide();
-    }
+    seekFeedbackTimer?.cancel();
+    if (mounted) setState(() => seekFeedbackSeconds = seconds);
+    seekFeedbackTimer = Timer(const Duration(milliseconds: 750), () {
+      if (mounted) setState(() => seekFeedbackSeconds = null);
+    });
   }
 
   Future<void> setFastForward(bool enabled) async {
@@ -3418,6 +3421,7 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
   @override
   void dispose() {
     controlsTimer?.cancel();
+    seekFeedbackTimer?.cancel();
     if (fastForwarding) controller?.setPlaybackSpeed(1);
     controller?.dispose();
     super.dispose();
@@ -3504,23 +3508,45 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
                 label: Text('2x'),
               ),
             ),
-          if (ready && controlsVisible)
-            Center(
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  IconButton.filledTonal(
-                    tooltip: 'Lùi 5 giây',
-                    onPressed: () => seekBy(-5),
-                    icon: const Icon(Icons.replay_5_rounded, size: 34),
+          if (ready && seekFeedbackSeconds != null)
+            Align(
+              alignment: seekFeedbackSeconds! < 0
+                  ? const Alignment(-.58, 0)
+                  : const Alignment(.58, 0),
+              child: AnimatedOpacity(
+                opacity: seekFeedbackSeconds == null ? 0 : 1,
+                duration: const Duration(milliseconds: 120),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black54,
+                    borderRadius: BorderRadius.circular(999),
                   ),
-                  const SizedBox(width: 72),
-                  IconButton.filledTonal(
-                    tooltip: 'Tới 5 giây',
-                    onPressed: () => seekBy(5),
-                    icon: const Icon(Icons.forward_5_rounded, size: 34),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          seekFeedbackSeconds! < 0
+                              ? Icons.replay_5_rounded
+                              : Icons.forward_5_rounded,
+                          size: 30,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          seekFeedbackSeconds! < 0 ? '−5 giây' : '+5 giây',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
+                ),
               ),
             ),
           if (ready && controlsVisible)
