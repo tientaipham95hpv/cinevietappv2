@@ -11700,6 +11700,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool savingProgress = false;
   bool reportingPlaybackIssue = false;
   bool androidBrightnessSettingsPrompted = false;
+  bool landscapeFullscreen = false;
   bool introSkipped = false;
   bool savedCurrentEpisodeProgress = false;
   int lastAutoNextPromptSecond = -1;
@@ -13977,6 +13978,21 @@ class _PlayerScreenState extends State<PlayerScreen>
     activeWebViewUrl = null;
   }
 
+  Future<void> _setLandscapeFullscreen(bool enabled) async {
+    if (isTvBuild || kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
+    if (landscapeFullscreen == enabled) return;
+    landscapeFullscreen = enabled;
+    await SystemChrome.setPreferredOrientations(
+      enabled
+          ? const [
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ]
+          : DeviceOrientation.values,
+    );
+    if (mounted) setState(() {});
+  }
+
   Future<void> _exitPlayer() async {
     if (leavingPlayer) return;
     setState(() => leavingPlayer = true);
@@ -13985,6 +14001,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     } catch (_) {}
     await _disposePlaybackNow();
     await _stopWebViewNow();
+    await _setLandscapeFullscreen(false);
     if (mounted) setState(() {});
     if (isWatchTogether) {
       try {
@@ -14767,6 +14784,9 @@ class _PlayerScreenState extends State<PlayerScreen>
       brightnessChannel.invokeMethod<double>('reset').catchError((_) => null);
     }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    if (landscapeFullscreen) {
+      SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    }
     super.dispose();
   }
 
@@ -15064,6 +15084,12 @@ class _PlayerScreenState extends State<PlayerScreen>
                           onEpisodes: _showEpisodeSheet,
                           onSettings: _showSettingsSheet,
                           onFit: _cycleFitMode,
+                          landscapeFullscreen: landscapeFullscreen,
+                          onToggleFullscreen: isTvBuild
+                              ? null
+                              : () => unawaited(
+                                  _setLandscapeFullscreen(!landscapeFullscreen),
+                                ),
                           onBack: _exitPlayer,
                           playFocusNode: playButtonFocusNode,
                           seekBarFocusNode: seekBarFocusNode,
@@ -15579,6 +15605,8 @@ class PlayerOverlay extends StatelessWidget {
     required this.onEpisodes,
     required this.onSettings,
     required this.onFit,
+    required this.landscapeFullscreen,
+    this.onToggleFullscreen,
     this.playFocusNode,
     this.seekBarFocusNode,
     this.backFocusNode,
@@ -15603,6 +15631,8 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onEpisodes;
   final VoidCallback onSettings;
   final VoidCallback onFit;
+  final bool landscapeFullscreen;
+  final VoidCallback? onToggleFullscreen;
   final FocusNode? playFocusNode;
   final FocusNode? seekBarFocusNode;
   final FocusNode? backFocusNode;
@@ -15657,6 +15687,18 @@ class PlayerOverlay extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (onToggleFullscreen != null)
+                    IconButton.filledTonal(
+                      tooltip: landscapeFullscreen
+                          ? 'Thoát màn hình ngang'
+                          : 'Xem toàn màn hình ngang',
+                      onPressed: onToggleFullscreen,
+                      icon: Icon(
+                        landscapeFullscreen
+                            ? Icons.fullscreen_exit_rounded
+                            : Icons.fullscreen_rounded,
+                      ),
+                    ),
                 ],
               ),
               const Spacer(),
