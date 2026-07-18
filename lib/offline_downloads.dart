@@ -25,6 +25,8 @@ class OfflineDownloadItem {
     required this.serverName,
     required this.sourceUrl,
     required this.posterUrl,
+    this.audioSources = const [],
+    this.subtitles = const [],
     required this.state,
     required this.createdAt,
     this.localManifestPath = '',
@@ -43,6 +45,8 @@ class OfflineDownloadItem {
   final String serverName;
   final String sourceUrl;
   final String posterUrl;
+  final List<Map<String, dynamic>> audioSources;
+  final List<Map<String, dynamic>> subtitles;
   final OfflineDownloadState state;
   final DateTime createdAt;
   final String localManifestPath;
@@ -74,6 +78,8 @@ class OfflineDownloadItem {
     serverName: serverName,
     sourceUrl: sourceUrl,
     posterUrl: posterUrl,
+    audioSources: audioSources,
+    subtitles: subtitles,
     state: state ?? this.state,
     createdAt: createdAt,
     localManifestPath: localManifestPath ?? this.localManifestPath,
@@ -93,6 +99,8 @@ class OfflineDownloadItem {
     'serverName': serverName,
     'sourceUrl': sourceUrl,
     'posterUrl': posterUrl,
+    'audioSources': audioSources,
+    'subtitles': subtitles,
     'state': state.name,
     'createdAt': createdAt.toIso8601String(),
     'localManifestPath': localManifestPath,
@@ -123,6 +131,18 @@ class OfflineDownloadItem {
       serverName: json['serverName']?.toString() ?? '',
       sourceUrl: json['sourceUrl']?.toString() ?? '',
       posterUrl: json['posterUrl']?.toString() ?? '',
+      audioSources:
+          (json['audioSources'] as List?)
+              ?.whereType<Map>()
+              .map((value) => Map<String, dynamic>.from(value))
+              .toList() ??
+          const [],
+      subtitles:
+          (json['subtitles'] as List?)
+              ?.whereType<Map>()
+              .map((value) => Map<String, dynamic>.from(value))
+              .toList() ??
+          const [],
       state: state,
       createdAt:
           DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
@@ -195,6 +215,8 @@ class OfflineDownloadManager extends ChangeNotifier {
     required String serverName,
     required String sourceUrl,
     required String posterUrl,
+    List<Map<String, dynamic>> audioSources = const [],
+    List<Map<String, dynamic>> subtitles = const [],
   }) async {
     await load();
     final uri = Uri.tryParse(sourceUrl.trim());
@@ -216,6 +238,8 @@ class OfflineDownloadManager extends ChangeNotifier {
       serverName: serverName,
       sourceUrl: sourceUrl,
       posterUrl: posterUrl,
+      audioSources: audioSources,
+      subtitles: subtitles,
       state: OfflineDownloadState.queued,
       createdAt: old?.createdAt ?? DateTime.now(),
     );
@@ -237,6 +261,8 @@ class OfflineDownloadManager extends ChangeNotifier {
       serverName: item.serverName,
       sourceUrl: item.sourceUrl,
       posterUrl: item.posterUrl,
+      audioSources: item.audioSources,
+      subtitles: item.subtitles,
     );
   }
 

@@ -6410,13 +6410,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
               if (supportsOfflineDownloads)
                 ProfileTile(
                   icon: Icons.download_done_rounded,
-                  title: 'Nội dung đã tải',
-                  subtitle: 'Xem khi không có mạng',
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => OfflineDownloadsScreen(repo: widget.repo),
-                    ),
-                  ),
+                  title: 'Tải xuống',
+                  subtitle: 'Xem phim khi không có mạng',
+                  onTap: () async {
+                    if (!await requireLogin(context, 'Tải xuống')) return;
+                    if (!context.mounted) return;
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            OfflineDownloadsScreen(repo: widget.repo),
+                      ),
+                    );
+                  },
                 ),
               ProfileTile(
                 icon: Icons.favorite_rounded,
@@ -10204,27 +10209,38 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                               serverIndex,
                                             ),
                                     ),
-                                    if (supportsOfflineDownloads)
+                                    if (supportsOfflineDownloads &&
+                                        selectedServer != null &&
+                                        selectedServer.items.any(
+                                          (episode) => episode.linkM3u8
+                                              .trim()
+                                              .isNotEmpty,
+                                        ))
                                       detailAction(
                                         icon: Icons.download_rounded,
                                         label: 'Tải xuống',
-                                        onPressed:
-                                            selectedServer == null ||
-                                                selectedServer.items.isEmpty
-                                            ? null
-                                            : () => showModalBottomSheet<void>(
-                                                context: context,
-                                                backgroundColor: CvColors.ink,
-                                                showDragHandle: true,
-                                                isScrollControlled: true,
-                                                builder: (_) =>
-                                                    OfflineEpisodePicker(
-                                                      movie: movie,
-                                                      servers: servers,
-                                                      initialServerIndex:
-                                                          serverIndex,
-                                                    ),
-                                              ),
+                                        onPressed: () async {
+                                          if (!await requireLogin(
+                                            context,
+                                            'Tải xuống',
+                                          )) {
+                                            return;
+                                          }
+                                          if (!context.mounted) return;
+                                          await showModalBottomSheet<void>(
+                                            context: context,
+                                            backgroundColor: CvColors.ink,
+                                            showDragHandle: true,
+                                            isScrollControlled: true,
+                                            builder: (_) =>
+                                                OfflineEpisodePicker(
+                                                  movie: movie,
+                                                  servers: servers,
+                                                  initialServerIndex:
+                                                      serverIndex,
+                                                ),
+                                          );
+                                        },
                                       ),
                                     detailAction(
                                       icon: isFavorite
@@ -18638,6 +18654,25 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
         serverName: server.name,
         sourceUrl: source,
         posterUrl: widget.movie.posterUrl,
+        audioSources: episode.audioSources
+            .map(
+              (source) => {
+                'key': source.key,
+                'label': source.label,
+                'url': source.url,
+              },
+            )
+            .toList(),
+        subtitles: episode.subtitles
+            .map(
+              (subtitle) => {
+                'lang': subtitle.lang,
+                'label': subtitle.label,
+                'url': subtitle.url,
+                'format': subtitle.format,
+              },
+            )
+            .toList(),
       );
       if (mounted) {
         showSnack(context, 'Đã thêm ${episode.displayName} vào tải xuống');
@@ -18654,7 +18689,17 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
 
   @override
   Widget build(BuildContext context) {
-    final server = widget.servers[serverIndex];
+    final availableServers = widget.servers
+        .where(
+          (server) =>
+              server.items.any((episode) => episode.linkM3u8.trim().isNotEmpty),
+        )
+        .toList();
+    if (availableServers.isEmpty) {
+      return const SafeArea(child: EmptyState('Không có nguồn tải khả dụng'));
+    }
+    if (serverIndex >= availableServers.length) serverIndex = 0;
+    final server = availableServers[serverIndex];
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.sizeOf(context).height * .78,
@@ -18684,7 +18729,7 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  for (final entry in widget.servers.indexed)
+                  for (final entry in availableServers.indexed)
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
                       child: ChoiceChip(
@@ -18701,14 +18746,18 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 24),
-                itemCount: server.items.length,
+                itemCount: server.items
+                    .where((episode) => episode.linkM3u8.trim().isNotEmpty)
+                    .length,
                 separatorBuilder: (_, _) => const Divider(height: 1),
                 itemBuilder: (context, index) {
-                  final episode = server.items[index];
+                  final episodes = server.items
+                      .where((episode) => episode.linkM3u8.trim().isNotEmpty)
+                      .toList();
+                  final episode = episodes[index];
                   final item = manager.find(
                     offlineDownloadId(widget.movie, server, episode),
                   );
-                  final downloadable = episode.linkM3u8.trim().isNotEmpty;
                   return ListTile(
                     contentPadding: EdgeInsets.zero,
                     title: Text(
@@ -18716,11 +18765,7 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
                       style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
                     subtitle: item == null
-                        ? Text(
-                            downloadable
-                                ? server.sourceName
-                                : 'Nguồn embed • không tải được',
-                          )
+                        ? Text(server.sourceName)
                         : Text(_offlineStateLabel(item)),
                     trailing: item?.isActive == true
                         ? SizedBox(
@@ -18739,9 +18784,7 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
                           )
                         : IconButton(
                             tooltip: item == null ? 'Tải xuống' : 'Tải lại',
-                            onPressed: downloadable
-                                ? () => _download(server, episode)
-                                : null,
+                            onPressed: () => _download(server, episode),
                             icon: Icon(
                               item == null
                                   ? Icons.download_rounded
@@ -18819,6 +18862,12 @@ class _OfflineDownloadsScreenState extends State<OfflineDownloadsScreen> {
     final episode = EpisodeItem(
       name: item.episodeName,
       linkM3u8: item.sourceUrl,
+      audioSources: item.audioSources
+          .map((value) => EpisodeAudioSource.fromJson(value))
+          .toList(),
+      subtitles: item.subtitles
+          .map((value) => EpisodeSubtitleTrack.fromJson(value))
+          .toList(),
     );
     final server = EpisodeServer(name: item.serverName, items: [episode]);
     if (!mounted) return;
@@ -18861,103 +18910,72 @@ class _OfflineDownloadsScreenState extends State<OfflineDownloadsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final items = manager.items;
+    final groups = <String, List<OfflineDownloadItem>>{};
+    for (final item in manager.items) {
+      final key = item.movieId > 0
+          ? 'id:${item.movieId}'
+          : 'slug:${item.movieSlug}';
+      groups.putIfAbsent(key, () => []).add(item);
+    }
+    final movies = groups.values.toList()
+      ..sort((a, b) => b.first.createdAt.compareTo(a.first.createdAt));
     return Scaffold(
-      appBar: AppBar(title: const Text('Nội dung đã tải')),
-      body: items.isEmpty
+      appBar: AppBar(title: const Text('Tải xuống')),
+      body: movies.isEmpty
           ? const EmptyState('Chưa có nội dung tải xuống')
           : ListView.separated(
               padding: pagePadding(context).copyWith(top: 18, bottom: 32),
-              itemCount: items.length,
+              itemCount: movies.length,
               separatorBuilder: (_, _) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
-                final item = items[index];
+                final episodes = movies[index]
+                  ..sort(
+                    (a, b) => episodeNumber(
+                      a.episodeName,
+                    ).compareTo(episodeNumber(b.episodeName)),
+                  );
+                final movie = episodes.first;
+                final completed = episodes
+                    .where(
+                      (item) => item.state == OfflineDownloadState.completed,
+                    )
+                    .length;
+                final totalBytes = episodes.fold<int>(
+                  0,
+                  (total, item) => total + item.receivedBytes,
+                );
                 return Panel(
-                  child: Row(
+                  child: ExpansionTile(
+                    tilePadding: const EdgeInsets.all(12),
+                    childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+                    leading: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: SizedBox(
+                        width: 56,
+                        height: 76,
+                        child: movie.posterUrl.isEmpty
+                            ? const ColoredBox(
+                                color: CvColors.panel2,
+                                child: Icon(Icons.movie_rounded),
+                              )
+                            : CachedNetworkImage(
+                                imageUrl: movie.posterUrl,
+                                fit: BoxFit.cover,
+                              ),
+                      ),
+                    ),
+                    title: Text(
+                      movie.movieTitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    subtitle: Text(
+                      '$completed/${episodes.length} tập đã tải • ${formatOfflineBytes(totalBytes)}',
+                      style: const TextStyle(color: CvColors.muted),
+                    ),
                     children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: SizedBox(
-                          width: 72,
-                          height: 96,
-                          child: item.posterUrl.isEmpty
-                              ? const ColoredBox(
-                                  color: CvColors.panel2,
-                                  child: Icon(Icons.movie_rounded),
-                                )
-                              : CachedNetworkImage(
-                                  imageUrl: item.posterUrl,
-                                  fit: BoxFit.cover,
-                                ),
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.movieTitle,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              EpisodeItem(name: item.episodeName).displayName,
-                              style: const TextStyle(color: CvColors.muted),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              _offlineStateLabel(item),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: item.state == OfflineDownloadState.failed
-                                    ? CvColors.danger
-                                    : CvColors.soft,
-                                fontSize: 12,
-                              ),
-                            ),
-                            if (item.isActive) ...[
-                              const SizedBox(height: 7),
-                              LinearProgressIndicator(
-                                value: item.progress,
-                                color: CvColors.accent,
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      if (item.state == OfflineDownloadState.completed)
-                        IconButton(
-                          tooltip: 'Phát offline',
-                          onPressed: () => _play(item),
-                          icon: const Icon(
-                            Icons.play_circle_fill_rounded,
-                            color: CvColors.accent,
-                          ),
-                        )
-                      else if (item.isActive)
-                        IconButton(
-                          tooltip: 'Hủy',
-                          onPressed: () => manager.cancel(item.id),
-                          icon: const Icon(Icons.close_rounded),
-                        )
-                      else
-                        IconButton(
-                          tooltip: 'Tải lại',
-                          onPressed: () => manager.retry(item.id),
-                          icon: const Icon(Icons.refresh_rounded),
-                        ),
-                      IconButton(
-                        tooltip: 'Xóa',
-                        onPressed: () => _confirmDelete(item),
-                        icon: const Icon(Icons.delete_outline_rounded),
-                      ),
+                      for (final item in episodes) _downloadEpisodeTile(item),
                     ],
                   ),
                 );
@@ -18965,4 +18983,71 @@ class _OfflineDownloadsScreenState extends State<OfflineDownloadsScreen> {
             ),
     );
   }
+
+  Widget _downloadEpisodeTile(OfflineDownloadItem item) => Column(
+    children: [
+      const Divider(height: 1),
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text(
+          EpisodeItem(name: item.episodeName).displayName,
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              _offlineStateLabel(item),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: item.state == OfflineDownloadState.failed
+                    ? CvColors.danger
+                    : CvColors.soft,
+                fontSize: 12,
+              ),
+            ),
+            if (item.isActive) ...[
+              const SizedBox(height: 7),
+              LinearProgressIndicator(
+                value: item.progress,
+                color: CvColors.accent,
+              ),
+            ],
+          ],
+        ),
+        trailing: Wrap(
+          spacing: 2,
+          children: [
+            if (item.state == OfflineDownloadState.completed)
+              IconButton(
+                tooltip: 'Phát offline',
+                onPressed: () => _play(item),
+                icon: const Icon(
+                  Icons.play_circle_fill_rounded,
+                  color: CvColors.accent,
+                ),
+              )
+            else if (item.isActive)
+              IconButton(
+                tooltip: 'Hủy',
+                onPressed: () => manager.cancel(item.id),
+                icon: const Icon(Icons.close_rounded),
+              )
+            else
+              IconButton(
+                tooltip: 'Tải lại',
+                onPressed: () => manager.retry(item.id),
+                icon: const Icon(Icons.refresh_rounded),
+              ),
+            IconButton(
+              tooltip: 'Xóa',
+              onPressed: () => _confirmDelete(item),
+              icon: const Icon(Icons.delete_outline_rounded),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
 }
