@@ -11852,22 +11852,30 @@ class _PlayerScreenState extends State<PlayerScreen>
     unawaited(_saveSubtitleSettings());
   }
 
+  bool _isTrustedPlayerEmbedUrl(String raw) {
+    final parsed = Uri.tryParse(raw.trim());
+    if (parsed == null || parsed.scheme != 'https') return false;
+    final host = parsed.host.toLowerCase();
+    final path = parsed.path.toLowerCase();
+    final isStreamC = host.endsWith('streamc.xyz') && path.contains('/embed');
+    final isPhimApi = host == 'player.phimapi.com' && path.contains('/player');
+    return isStreamC || isPhimApi;
+  }
+
   bool _isStreamCEmbedUrl(String raw) {
     final parsed = Uri.tryParse(raw.trim());
     if (parsed == null) return false;
-    final host = parsed.host.toLowerCase();
-    final path = parsed.path.toLowerCase();
-    return host.contains('streamc.xyz') && path.contains('/embed');
+    return parsed.host.toLowerCase().endsWith('streamc.xyz') &&
+        parsed.path.toLowerCase().contains('/embed');
   }
 
   String? _webViewFallbackUrl(EpisodeItem episode) {
-    // Thử nghiệm có kiểm soát cho StreamC/NguồnC: nguồn này chỉ có embed,
-    // không có m3u8/direct nên native player không dùng được. Chỉ bật WebView
-    // cho chính link embed StreamC của tập hiện tại; không tự nhảy server khác.
+    // Chỉ mở WebView cho player embed đã allowlist. PhimAPI là fallback quan
+    // trọng khi ExoPlayer không giải mã được HLS trên một số thiết bị Android.
     final embed = episode.linkEmbed.trim();
-    if (_isStreamCEmbedUrl(embed)) return embed;
+    if (_isTrustedPlayerEmbedUrl(embed)) return embed;
     final play = episode.playUrl.trim();
-    if (_isStreamCEmbedUrl(play)) return play;
+    if (_isTrustedPlayerEmbedUrl(play)) return play;
     return null;
   }
 
@@ -12998,9 +13006,11 @@ class _PlayerScreenState extends State<PlayerScreen>
             final initial = Uri.tryParse(url);
             final host = requested?.host.toLowerCase() ?? '';
             final initialHost = initial?.host.toLowerCase() ?? '';
-            final isStreamCFrame =
-                host == initialHost || host.endsWith('.streamc.xyz');
-            if (request.isMainFrame && !isStreamCFrame) {
+            final isTrustedPlayerFrame =
+                host == initialHost ||
+                host.endsWith('.streamc.xyz') ||
+                host == 'player.phimapi.com';
+            if (request.isMainFrame && !isTrustedPlayerFrame) {
               // Chặn popup/redirect quảng cáo chiếm toàn màn hình. Tài nguyên phụ
               // (JS/CDN/ads iframe) vẫn để trang tự xử lý để player StreamC chạy.
               return NavigationDecision.prevent;
@@ -13363,7 +13373,29 @@ class _PlayerScreenState extends State<PlayerScreen>
       }
       _trackPlaybackEvent('auto_recover_source');
       await _init(startUrlIndex: activePlayableUrlIndex + 1, startAt: position);
-      if (controller != null) return;
+      if (controller != null || activeWebViewUrl != null) return;
+    }
+    final webViewSource = _currentPlaybackSources().firstWhere(
+      (source) => source.webViewUrl != null,
+      orElse: () => const PlaybackSourceCandidate(
+        server: EpisodeServer(name: '', items: []),
+        episode: EpisodeItem(name: ''),
+        serverIndex: -1,
+        qualityLabel: '',
+        qualityRank: 0,
+        sourceLabel: '',
+        urls: [],
+      ),
+    );
+    if (webViewSource.serverIndex >= 0 && webViewSource.webViewUrl != null) {
+      _trackPlaybackEvent(
+        'auto_recover_source',
+        errorCode: 'runtime_webview_fallback',
+        errorMessage: message,
+      );
+      await _openWebViewSource(webViewSource);
+      recoveringPlayback = false;
+      return;
     }
     if (mounted) {
       _trackPlaybackEvent(
