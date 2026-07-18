@@ -1,6 +1,16 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Directory, File, Platform, Process, ProcessStartMode;
+import 'dart:io'
+    show
+        ContentType,
+        Directory,
+        File,
+        HttpServer,
+        HttpStatus,
+        InternetAddress,
+        Platform,
+        Process,
+        ProcessStartMode;
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -4597,12 +4607,22 @@ class _FeaturedHeroCarouselState extends State<FeaturedHeroCarousel> {
       child: Stack(
         alignment: Alignment.bottomCenter,
         children: [
-          PageView.builder(
-            controller: controller,
-            itemCount: widget.movies.length,
-            onPageChanged: (value) => setState(() => page = value),
-            itemBuilder: (context, index) =>
-                HeroBanner(movie: widget.movies[index], repo: widget.repo),
+          ScrollConfiguration(
+            behavior: ScrollConfiguration.of(context).copyWith(
+              dragDevices: const {
+                ui.PointerDeviceKind.touch,
+                ui.PointerDeviceKind.mouse,
+                ui.PointerDeviceKind.trackpad,
+                ui.PointerDeviceKind.stylus,
+              },
+            ),
+            child: PageView.builder(
+              controller: controller,
+              itemCount: widget.movies.length,
+              onPageChanged: (value) => setState(() => page = value),
+              itemBuilder: (context, index) =>
+                  HeroBanner(movie: widget.movies[index], repo: widget.repo),
+            ),
           ),
           if (isTvBuild && widget.movies.length > 1)
             Positioned(
@@ -4702,7 +4722,10 @@ double heroBannerHeight(BuildContext context) {
   final compact = size.width < 600 && !isTvBuild;
   return compact
       ? (size.height * .72).clamp(520.0, 680.0)
-      : (size.height * (isTvBuild ? .72 : .56)).clamp(390.0, 690.0);
+      : (size.height * (isTvBuild || isWindowsDesktop ? .72 : .62)).clamp(
+          480.0,
+          760.0,
+        );
 }
 
 class HeroBanner extends StatelessWidget {
@@ -6452,7 +6475,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
             const SizedBox(height: 22),
             if (useLeanbackControls)
-              TvProfileHub(repo: widget.repo, onRequireLogin: requireLogin),
+              TvProfileHub(
+                repo: widget.repo,
+                onRequireLogin: requireLogin,
+                onOfflineDownloads: supportsOfflineDownloads
+                    ? () async {
+                        if (!await requireOfflineVip(context)) return;
+                        if (!context.mounted) return;
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                OfflineDownloadsScreen(repo: widget.repo),
+                          ),
+                        );
+                      }
+                    : null,
+              ),
             if (!useLeanbackControls) ...[
               if (supportsOfflineDownloads)
                 ProfileTile(
@@ -6617,15 +6655,24 @@ class TvProfileHub extends StatelessWidget {
     super.key,
     required this.repo,
     required this.onRequireLogin,
+    this.onOfflineDownloads,
   });
 
   final MovieRepository repo;
   final Future<bool> Function(BuildContext context, String feature)
   onRequireLogin;
+  final VoidCallback? onOfflineDownloads;
 
   @override
   Widget build(BuildContext context) {
     final actions = <TvHubAction>[
+      if (onOfflineDownloads != null)
+        TvHubAction(
+          icon: Icons.download_done_rounded,
+          title: 'Tải xuống',
+          subtitle: 'Xem phim khi không có mạng',
+          onPressed: onOfflineDownloads!,
+        ),
       TvHubAction(
         icon: Icons.history_rounded,
         title: 'Xem tiếp',
@@ -11829,6 +11876,8 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen>
     with WidgetsBindingObserver {
   VideoPlayerController? controller;
+  HttpServer? offlineMediaServer;
+  Directory? offlineMediaRoot;
   Timer? saveTimer;
   Timer? controlsTimer;
   Timer? levelApplyTimer;
@@ -13306,10 +13355,19 @@ class _PlayerScreenState extends State<PlayerScreen>
         if (!await localFile.exists()) {
           throw Exception('Tệp tải xuống không còn tồn tại');
         }
-        final next = VideoPlayerController.file(
-          localFile,
-          closedCaptionFile: _closedCaptionFileForSelectedTracks(),
-        );
+        final VideoPlayerController next;
+        if (Platform.isIOS) {
+          final localUrl = await _serveOfflineMedia(localFile);
+          next = VideoPlayerController.networkUrl(
+            localUrl,
+            closedCaptionFile: _closedCaptionFileForSelectedTracks(),
+          );
+        } else {
+          next = VideoPlayerController.file(
+            localFile,
+            closedCaptionFile: _closedCaptionFileForSelectedTracks(),
+          );
+        }
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));
         await next.setPlaybackSpeed(playbackSpeed);
@@ -15036,9 +15094,57 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  Future<Uri> _serveOfflineMedia(File manifest) async {
+    final root = File(widget.offlineManifestPath!).parent;
+    if (offlineMediaServer == null || offlineMediaRoot?.path != root.path) {
+      await offlineMediaServer?.close(force: true);
+      offlineMediaRoot = root;
+      final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      offlineMediaServer = server;
+      unawaited(
+        server.forEach((request) async {
+          final relative = Uri.decodeComponent(
+            request.uri.path,
+          ).replaceFirst(RegExp(r'^/+'), '');
+          final candidate = File('${root.path}/$relative');
+          final resolvedRoot = root.absolute.path;
+          final resolvedFile = candidate.absolute.path;
+          if (!resolvedFile.startsWith(
+                '$resolvedRoot${Platform.pathSeparator}',
+              ) ||
+              !await candidate.exists()) {
+            request.response.statusCode = HttpStatus.notFound;
+            await request.response.close();
+            return;
+          }
+          final extension = candidate.path.split('.').last.toLowerCase();
+          request.response.headers.contentType = switch (extension) {
+            'm3u8' => ContentType('application', 'vnd.apple.mpegurl'),
+            'ts' => ContentType('video', 'mp2t'),
+            'vtt' => ContentType('text', 'vtt'),
+            _ => ContentType.binary,
+          };
+          request.response.contentLength = await candidate.length();
+          await request.response.addStream(candidate.openRead());
+          await request.response.close();
+        }),
+      );
+    }
+    final relative = manifest.absolute.path.substring(
+      offlineMediaRoot!.absolute.path.length + 1,
+    );
+    return Uri(
+      scheme: 'http',
+      host: InternetAddress.loopbackIPv4.address,
+      port: offlineMediaServer!.port,
+      pathSegments: relative.split(Platform.pathSeparator),
+    );
+  }
+
   @override
   void dispose() {
     _stopPlaybackNow();
+    unawaited(offlineMediaServer?.close(force: true));
     unawaited(_stopWebViewNow());
     _save();
     controlsTimer?.cancel();
@@ -16205,11 +16311,15 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                   : (nextMs) => setState(() => dragValueMs = nextMs),
               onChangeEnd: durationMs <= 0
                   ? null
-                  : (nextMs) {
+                  : (nextMs) async {
+                      final wasPlaying = widget.controller.value.isPlaying;
                       setState(() => dragValueMs = null);
-                      widget.controller.seekTo(
+                      await widget.controller.seekTo(
                         Duration(milliseconds: nextMs.round()),
                       );
+                      if (wasPlaying && !widget.controller.value.isPlaying) {
+                        await widget.controller.play();
+                      }
                     },
             );
             return SliderTheme(
@@ -18665,7 +18775,7 @@ void showSnack(BuildContext context, String message) {
   messenger.clearSnackBars();
   messenger.showSnackBar(
     SnackBar(
-      duration: const Duration(seconds: 4),
+      duration: const Duration(seconds: 6),
       margin: EdgeInsets.fromLTRB(
         isTvBuild ? 48 : 16,
         0,
@@ -18691,11 +18801,6 @@ void showSnack(BuildContext context, String message) {
             ),
           ),
         ],
-      ),
-      action: SnackBarAction(
-        label: 'Đóng',
-        textColor: CvColors.accent,
-        onPressed: messenger.hideCurrentSnackBar,
       ),
     ),
   );
