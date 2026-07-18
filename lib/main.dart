@@ -13362,6 +13362,11 @@ class _PlayerScreenState extends State<PlayerScreen>
             localUrl,
             closedCaptionFile: _closedCaptionFileForSelectedTracks(),
           );
+        } else if (Platform.isWindows) {
+          next = VideoPlayerController.networkUrl(
+            localFile.uri,
+            closedCaptionFile: _closedCaptionFileForSelectedTracks(),
+          );
         } else {
           next = VideoPlayerController.file(
             localFile,
@@ -18964,6 +18969,20 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
       showSnack(context, 'Nguồn embed này không hỗ trợ tải offline');
       return;
     }
+    var selectedAudio = episode.audioSources;
+    var selectedSubtitles = episode.subtitles;
+    if (episode.audioSources.length > 1 || episode.subtitles.isNotEmpty) {
+      final selection = await showDialog<_OfflineTrackSelection>(
+        context: context,
+        builder: (_) => _OfflineTrackPicker(
+          audioSources: episode.audioSources,
+          subtitles: episode.subtitles,
+        ),
+      );
+      if (selection == null || !mounted) return;
+      selectedAudio = selection.audioSources;
+      selectedSubtitles = selection.subtitles;
+    }
     try {
       await manager.enqueue(
         id: offlineDownloadId(widget.movie, server, episode),
@@ -18974,7 +18993,7 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
         serverName: server.name,
         sourceUrl: source,
         posterUrl: widget.movie.posterUrl,
-        audioSources: episode.audioSources
+        audioSources: selectedAudio
             .map(
               (source) => {
                 'key': source.key,
@@ -18983,7 +19002,7 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
               },
             )
             .toList(),
-        subtitles: episode.subtitles
+        subtitles: selectedSubtitles
             .map(
               (subtitle) => {
                 'lang': subtitle.lang,
@@ -19117,6 +19136,109 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
       ),
     );
   }
+}
+
+class _OfflineTrackSelection {
+  const _OfflineTrackSelection(this.audioSources, this.subtitles);
+  final List<EpisodeAudioSource> audioSources;
+  final List<EpisodeSubtitleTrack> subtitles;
+}
+
+class _OfflineTrackPicker extends StatefulWidget {
+  const _OfflineTrackPicker({
+    required this.audioSources,
+    required this.subtitles,
+  });
+  final List<EpisodeAudioSource> audioSources;
+  final List<EpisodeSubtitleTrack> subtitles;
+
+  @override
+  State<_OfflineTrackPicker> createState() => _OfflineTrackPickerState();
+}
+
+class _OfflineTrackPickerState extends State<_OfflineTrackPicker> {
+  late final selectedAudio = widget.audioSources.map((e) => e.key).toSet();
+  late final selectedSubtitles = widget.subtitles.map((e) => e.url).toSet();
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Chọn nội dung tải'),
+    content: ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 440, maxHeight: 520),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (widget.audioSources.isNotEmpty) ...[
+              const Text(
+                'Audio',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              for (final track in widget.audioSources)
+                CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  value: selectedAudio.contains(track.key),
+                  title: Text(track.label),
+                  onChanged: (value) => setState(() {
+                    if (value == true) {
+                      selectedAudio.add(track.key);
+                    } else {
+                      selectedAudio.remove(track.key);
+                    }
+                  }),
+                ),
+              const SizedBox(height: 10),
+            ],
+            if (widget.subtitles.isNotEmpty) ...[
+              const Text(
+                'Phụ đề',
+                style: TextStyle(fontWeight: FontWeight.w900),
+              ),
+              for (final track in widget.subtitles)
+                CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  value: selectedSubtitles.contains(track.url),
+                  title: Text(track.label),
+                  onChanged: (value) => setState(() {
+                    if (value == true) {
+                      selectedSubtitles.add(track.url);
+                    } else {
+                      selectedSubtitles.remove(track.url);
+                    }
+                  }),
+                ),
+            ],
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Hủy'),
+      ),
+      FilledButton.icon(
+        onPressed: selectedAudio.isEmpty && widget.audioSources.isNotEmpty
+            ? null
+            : () => Navigator.pop(
+                context,
+                _OfflineTrackSelection(
+                  widget.audioSources
+                      .where((track) => selectedAudio.contains(track.key))
+                      .toList(),
+                  widget.subtitles
+                      .where((track) => selectedSubtitles.contains(track.url))
+                      .toList(),
+                ),
+              ),
+        icon: const Icon(Icons.download_rounded),
+        label: const Text('Tải xuống'),
+      ),
+    ],
+  );
 }
 
 String _offlineStateLabel(OfflineDownloadItem item) {
