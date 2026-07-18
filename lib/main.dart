@@ -15128,12 +15128,20 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<Uri> _serveOfflineTransportStream(File manifest) async {
     final text = await manifest.readAsString();
-    if (text.contains('#EXT-X-KEY:') || text.contains('#EXT-X-MAP:')) {
+    if (text.contains('#EXT-X-KEY:')) {
       throw const FormatException(
-        'Bản tải mã hóa/fMP4 chưa tương thích player Windows',
+        'Bản tải AES-128 chưa tương thích player Windows',
       );
     }
     final segments = <File>[];
+    final mapMatch = RegExp(r'#EXT-X-MAP:.*URI="([^"]+)"').firstMatch(text);
+    if (mapMatch != null) {
+      final map = File('${manifest.parent.path}/${mapMatch.group(1)}');
+      if (!await map.exists()) {
+        throw const FormatException('Thiếu init map tải xuống');
+      }
+      segments.add(map);
+    }
     for (final rawLine in const LineSplitter().convert(text)) {
       final line = rawLine.trim();
       if (line.isEmpty || line.startsWith('#')) continue;
@@ -15154,7 +15162,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     offlineMediaServer = server;
     unawaited(
       server.forEach((request) async {
-        request.response.headers.contentType = ContentType('video', 'mp2t');
+        request.response.headers.contentType = mapMatch == null
+            ? ContentType('video', 'mp2t')
+            : ContentType('video', 'mp4');
         request.response.headers.set('Accept-Ranges', 'bytes');
         final range = request.headers.value('range');
         final match = range == null
