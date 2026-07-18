@@ -1137,6 +1137,21 @@ class EpisodeServer {
     return 'Nguồn khác';
   }
 
+  bool get supportsOfflineDownload {
+    final normalized = name.toLowerCase();
+    final isNguonC =
+        normalized.contains('nguồn c') ||
+        normalized.contains('nguồnc') ||
+        normalized.contains('nguonc') ||
+        items.any(
+          (episode) =>
+              episode.linkEmbed.toLowerCase().contains('streamc.xyz') ||
+              episode.playUrl.toLowerCase().contains('streamc.xyz'),
+        );
+    if (isNguonC) return false;
+    return items.any((episode) => episode.linkM3u8.trim().isNotEmpty);
+  }
+
   String get displayName {
     final base = name
         .replaceAll(
@@ -10211,11 +10226,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                     ),
                                     if (supportsOfflineDownloads &&
                                         selectedServer != null &&
-                                        selectedServer.items.any(
-                                          (episode) => episode.linkM3u8
-                                              .trim()
-                                              .isNotEmpty,
-                                        ))
+                                        selectedServer.supportsOfflineDownload)
                                       detailAction(
                                         icon: Icons.download_rounded,
                                         label: 'Tải xuống',
@@ -18709,10 +18720,7 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
   @override
   Widget build(BuildContext context) {
     final availableServers = widget.servers
-        .where(
-          (server) =>
-              server.items.any((episode) => episode.linkM3u8.trim().isNotEmpty),
-        )
+        .where((server) => server.supportsOfflineDownload)
         .toList();
     if (availableServers.isEmpty) {
       return const SafeArea(child: EmptyState('Không có nguồn tải khả dụng'));
