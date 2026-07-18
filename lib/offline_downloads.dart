@@ -8,10 +8,23 @@ import 'package:path_provider/path_provider.dart';
 
 const _indexFileName = 'downloads.json';
 
-bool get supportsOfflineDownloads =>
-    !kIsWeb &&
-    Platform.isAndroid &&
-    const bool.fromEnvironment('APP_IS_TV') == false;
+bool offlineDownloadsSupportedFor({
+  required bool isWeb,
+  required String platform,
+}) => !isWeb && const {'android', 'ios', 'windows'}.contains(platform);
+
+bool get supportsOfflineDownloads => offlineDownloadsSupportedFor(
+  isWeb: kIsWeb,
+  platform: kIsWeb
+      ? 'web'
+      : Platform.isAndroid
+      ? 'android'
+      : Platform.isIOS
+      ? 'ios'
+      : Platform.isWindows
+      ? 'windows'
+      : 'unsupported',
+);
 
 enum OfflineDownloadState { queued, downloading, completed, failed, cancelled }
 

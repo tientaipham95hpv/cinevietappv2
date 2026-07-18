@@ -19154,7 +19154,9 @@ class _OfflineDownloadsScreenState extends State<OfflineDownloadsScreen> {
                   key: ValueKey(
                     'download-movie-${movie.movieId}-${movie.movieSlug}',
                   ),
-                  direction: DismissDirection.endToStart,
+                  direction: isTvBuild
+                      ? DismissDirection.none
+                      : DismissDirection.endToStart,
                   background: Container(
                     alignment: Alignment.centerRight,
                     padding: const EdgeInsets.only(right: 24),
@@ -19201,6 +19203,13 @@ class _OfflineDownloadsScreenState extends State<OfflineDownloadsScreen> {
                         '$completed/${episodes.length} tập đã tải • ${formatOfflineBytes(totalBytes)}',
                         style: const TextStyle(color: CvColors.muted),
                       ),
+                      trailing: isTvBuild
+                          ? IconButton(
+                              tooltip: 'Xóa toàn bộ phim',
+                              onPressed: () => _confirmDeleteMovie(episodes),
+                              icon: const Icon(Icons.delete_forever_rounded),
+                            )
+                          : null,
                       children: [
                         for (final item in episodes) _downloadEpisodeTile(item),
                       ],
