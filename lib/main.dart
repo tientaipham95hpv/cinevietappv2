@@ -15207,16 +15207,23 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     await offlineMediaServer?.close(force: true);
     offlineMediaRoot = manifest.parent;
-    if (aesKey != null) {
+    // fMP4 ViCDN can contain hundreds of short, highly variable-size
+    // fragments. Serving a byte range by opening a new file at every fragment
+    // boundary causes media_kit to underrun even though the media is local.
+    // Materialize one contiguous playback file for fMP4 (and encrypted TS)
+    // so every range request reads from a single file.
+    if (aesKey != null || mapMatch != null) {
       final previous = windowsDecryptedMedia;
       if (previous != null && await previous.exists()) await previous.delete();
-      final output = File('${manifest.parent.path}/.windows-playback.tmp');
+      final output = File(
+        '${manifest.parent.path}/.windows-playback.${mapMatch == null ? 'ts' : 'mp4'}',
+      );
       final sink = output.openWrite();
       var mediaIndex = 0;
       for (var index = 0; index < segments.length; index++) {
         final segment = segments[index];
         final isMap = mapMatch != null && index == 0;
-        if (isMap) {
+        if (isMap || aesKey == null) {
           sink.add(await segment.readAsBytes());
         } else {
           final iv = explicitIv ?? _sequenceIv(sequence + mediaIndex);
