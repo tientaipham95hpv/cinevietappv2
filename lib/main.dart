@@ -12219,8 +12219,15 @@ class _PlayerScreenState extends State<PlayerScreen>
     EpisodeSubtitleTrack track,
   ) async {
     final rawUrl = track.url.trim();
-    if (rawUrl.startsWith('/data/') || rawUrl.startsWith('/')) {
-      final file = File(rawUrl);
+    // Offline metadata stores an absolute platform path. Do not pass it to
+    // Dio: Windows paths such as `C:\\Users\\...` (or paths beginning with
+    // `/Users/...` from older builds) are not network URLs and Dio reports
+    // `No host specified in URI`.
+    final localPath = rawUrl.startsWith('file://')
+        ? Uri.tryParse(rawUrl)?.toFilePath()
+        : rawUrl;
+    if (localPath != null && localPath.isNotEmpty) {
+      final file = File(localPath);
       if (await file.exists()) {
         final contents = await file.readAsString();
         return track.format.toLowerCase().contains('srt')
