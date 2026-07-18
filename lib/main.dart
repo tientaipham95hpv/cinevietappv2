@@ -30,6 +30,15 @@ import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:pointycastle/export.dart'
+    show
+        AESEngine,
+        CBCBlockCipher,
+        KeyParameter,
+        PKCS7Padding,
+        PaddedBlockCipherImpl,
+        PaddedBlockCipherParameters,
+        ParametersWithIV;
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:socket_io_client/socket_io_client.dart' as io;
@@ -11878,6 +11887,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   VideoPlayerController? controller;
   HttpServer? offlineMediaServer;
   Directory? offlineMediaRoot;
+  File? windowsDecryptedMedia;
   Timer? saveTimer;
   Timer? controlsTimer;
   Timer? levelApplyTimer;
@@ -15128,11 +15138,31 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<Uri> _serveOfflineTransportStream(File manifest) async {
     final text = await manifest.readAsString();
-    if (text.contains('#EXT-X-KEY:')) {
-      throw const FormatException(
-        'Bản tải AES-128 chưa tương thích player Windows',
-      );
+    final keyMatch = RegExp(r'#EXT-X-KEY:([^\r\n]+)').firstMatch(text);
+    Uint8List? aesKey;
+    Uint8List? explicitIv;
+    if (keyMatch != null) {
+      final attributes = keyMatch.group(1)!;
+      if (!attributes.contains('METHOD=AES-128')) {
+        throw const FormatException('Kiểu mã hóa HLS chưa được hỗ trợ');
+      }
+      final uriMatch = RegExp(r'URI="([^"]+)"').firstMatch(attributes);
+      if (uriMatch == null) throw const FormatException('Thiếu URI AES key');
+      final keyFile = File('${manifest.parent.path}/${uriMatch.group(1)}');
+      if (!await keyFile.exists()) throw const FormatException('Thiếu AES key');
+      aesKey = await keyFile.readAsBytes();
+      if (aesKey.length != 16) {
+        throw const FormatException('AES key không hợp lệ');
+      }
+      final ivMatch = RegExp(r'IV=0x([0-9a-fA-F]{32})').firstMatch(attributes);
+      if (ivMatch != null) explicitIv = _hexBytes(ivMatch.group(1)!);
     }
+    final sequence =
+        int.tryParse(
+          RegExp(r'#EXT-X-MEDIA-SEQUENCE:(\d+)').firstMatch(text)?.group(1) ??
+              '0',
+        ) ??
+        0;
     final segments = <File>[];
     final mapMatch = RegExp(r'#EXT-X-MAP:.*URI="([^"]+)"').firstMatch(text);
     if (mapMatch != null) {
@@ -15156,6 +15186,29 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     await offlineMediaServer?.close(force: true);
     offlineMediaRoot = manifest.parent;
+    if (aesKey != null) {
+      final previous = windowsDecryptedMedia;
+      if (previous != null && await previous.exists()) await previous.delete();
+      final output = File('${manifest.parent.path}/.windows-playback.tmp');
+      final sink = output.openWrite();
+      var mediaIndex = 0;
+      for (var index = 0; index < segments.length; index++) {
+        final segment = segments[index];
+        final isMap = mapMatch != null && index == 0;
+        if (isMap) {
+          sink.add(await segment.readAsBytes());
+        } else {
+          final iv = explicitIv ?? _sequenceIv(sequence + mediaIndex);
+          sink.add(_decryptAes128(await segment.readAsBytes(), aesKey, iv));
+          mediaIndex++;
+        }
+      }
+      await sink.close();
+      windowsDecryptedMedia = output;
+      segments
+        ..clear()
+        ..add(output);
+    }
     final lengths = await Future.wait(segments.map((file) => file.length()));
     final totalLength = lengths.fold<int>(0, (sum, length) => sum + length);
     final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
@@ -15218,6 +15271,34 @@ class _PlayerScreenState extends State<PlayerScreen>
       port: server.port,
       path: '/offline.ts',
     );
+  }
+
+  Uint8List _hexBytes(String value) => Uint8List.fromList([
+    for (var index = 0; index < value.length; index += 2)
+      int.parse(value.substring(index, index + 2), radix: 16),
+  ]);
+
+  Uint8List _sequenceIv(int sequence) {
+    final iv = Uint8List(16);
+    var value = sequence;
+    for (var index = 15; index >= 0 && value > 0; index--) {
+      iv[index] = value & 0xff;
+      value >>= 8;
+    }
+    return iv;
+  }
+
+  Uint8List _decryptAes128(Uint8List encrypted, Uint8List key, Uint8List iv) {
+    final cipher =
+        PaddedBlockCipherImpl(PKCS7Padding(), CBCBlockCipher(AESEngine()))
+          ..init(
+            false,
+            PaddedBlockCipherParameters(
+              ParametersWithIV(KeyParameter(key), iv),
+              null,
+            ),
+          );
+    return cipher.process(encrypted);
   }
 
   Future<Uri> _serveOfflineMedia(File manifest) async {
@@ -15304,6 +15385,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     leavingPlayer = true;
     _stopPlaybackNow();
     unawaited(offlineMediaServer?.close(force: true));
+    final decrypted = windowsDecryptedMedia;
+    windowsDecryptedMedia = null;
+    if (decrypted != null) {
+      unawaited(decrypted.delete().catchError((_) => decrypted));
+    }
     unawaited(_stopWebViewNow());
     _save();
     controlsTimer?.cancel();
