@@ -12022,6 +12022,16 @@ class _PlayerScreenState extends State<PlayerScreen>
   Future<ClosedCaptionFile> _closedCaptionFileForTrack(
     EpisodeSubtitleTrack track,
   ) async {
+    final rawUrl = track.url.trim();
+    if (rawUrl.startsWith('/data/') || rawUrl.startsWith('/')) {
+      final file = File(rawUrl);
+      if (await file.exists()) {
+        final contents = await file.readAsString();
+        return track.format.toLowerCase().contains('srt')
+            ? SubRipCaptionFile(contents)
+            : WebVTTCaptionFile(contents);
+      }
+    }
     final res = await Dio(
       BaseOptions(
         responseType: ResponseType.plain,
@@ -13139,11 +13149,20 @@ class _PlayerScreenState extends State<PlayerScreen>
     final offlinePath = widget.offlineManifestPath?.trim() ?? '';
     if (offlinePath.isNotEmpty) {
       try {
-        final localFile = File(offlinePath);
+        final selectedLocalAudio = _selectedAudioSource?.url.trim() ?? '';
+        final playbackPath =
+            selectedLocalAudio.startsWith('/') &&
+                await File(selectedLocalAudio).exists()
+            ? selectedLocalAudio
+            : offlinePath;
+        final localFile = File(playbackPath);
         if (!await localFile.exists()) {
           throw Exception('Tệp tải xuống không còn tồn tại');
         }
-        final next = VideoPlayerController.file(localFile);
+        final next = VideoPlayerController.file(
+          localFile,
+          closedCaptionFile: _closedCaptionFileForSelectedTracks(),
+        );
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));
         await next.setPlaybackSpeed(playbackSpeed);

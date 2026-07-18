@@ -69,6 +69,8 @@ class OfflineDownloadItem {
     int? completedFiles,
     int? totalFiles,
     String? error,
+    List<Map<String, dynamic>>? audioSources,
+    List<Map<String, dynamic>>? subtitles,
   }) => OfflineDownloadItem(
     id: id,
     movieId: movieId,
@@ -78,8 +80,8 @@ class OfflineDownloadItem {
     serverName: serverName,
     sourceUrl: sourceUrl,
     posterUrl: posterUrl,
-    audioSources: audioSources,
-    subtitles: subtitles,
+    audioSources: audioSources ?? this.audioSources,
+    subtitles: subtitles ?? this.subtitles,
     state: state ?? this.state,
     createdAt: createdAt,
     localManifestPath: localManifestPath ?? this.localManifestPath,
@@ -364,15 +366,80 @@ class OfflineDownloadManager extends ChangeNotifier {
       }
       final localManifest = File('${directory.path}/index.m3u8');
       await localManifest.writeAsString(rewritten, flush: true);
+
+      final localAudio = <Map<String, dynamic>>[];
+      for (var index = 0; index < initial.audioSources.length; index++) {
+        final source = initial.audioSources[index];
+        final url = source['url']?.toString().trim() ?? '';
+        if (url.isEmpty) continue;
+        if (url == initial.sourceUrl) {
+          localAudio.add({...source, 'url': localManifest.path});
+          continue;
+        }
+        try {
+          final audioDirectory = Directory('${directory.path}/audio_$index');
+          final result = await _downloadHlsTrack(
+            Uri.parse(url),
+            audioDirectory,
+            token,
+            prefix: 'audio',
+          );
+          received += result.bytes;
+          localAudio.add({...source, 'url': result.manifestPath});
+          _update(
+            initial.id,
+            (item) => item.copyWith(
+              receivedBytes: received,
+              totalBytes: received,
+              completedFiles: item.completedFiles + result.files,
+              totalFiles: item.totalFiles + result.files,
+            ),
+          );
+        } catch (_) {
+          // Một track phụ không được làm hỏng bản video chính.
+        }
+      }
+
+      final localSubtitles = <Map<String, dynamic>>[];
+      for (var index = 0; index < initial.subtitles.length; index++) {
+        final subtitle = initial.subtitles[index];
+        final url = subtitle['url']?.toString().trim() ?? '';
+        if (url.isEmpty) continue;
+        try {
+          final uri = Uri.parse(url);
+          final format =
+              (subtitle['format']?.toString().trim().isNotEmpty == true)
+              ? subtitle['format'].toString().toLowerCase()
+              : (uri.path.toLowerCase().endsWith('.srt') ? 'srt' : 'vtt');
+          final file = File('${directory.path}/subtitle_$index.$format');
+          await _dio.download(uri.toString(), file.path, cancelToken: token);
+          final length = await file.length();
+          received += length;
+          localSubtitles.add({...subtitle, 'url': file.path, 'format': format});
+          _update(
+            initial.id,
+            (item) => item.copyWith(
+              receivedBytes: received,
+              totalBytes: received,
+              completedFiles: item.completedFiles + 1,
+              totalFiles: item.totalFiles + 1,
+            ),
+          );
+        } catch (_) {
+          // Giữ tải video thành công; UI chỉ hiện track thực sự đã tải.
+        }
+      }
+
       _update(
         initial.id,
         (item) => item.copyWith(
           state: OfflineDownloadState.completed,
           localManifestPath: localManifest.path,
+          audioSources: localAudio,
+          subtitles: localSubtitles,
           receivedBytes: received,
           totalBytes: received,
-          completedFiles: resources.length,
-          totalFiles: resources.length,
+          completedFiles: item.totalFiles,
           error: '',
         ),
       );
@@ -400,6 +467,53 @@ class OfflineDownloadManager extends ChangeNotifier {
       await _persist();
       notifyListeners();
     }
+  }
+
+  Future<_DownloadedHlsTrack> _downloadHlsTrack(
+    Uri source,
+    Directory directory,
+    CancelToken token, {
+    required String prefix,
+  }) async {
+    await directory.create(recursive: true);
+    var manifestUri = source;
+    var manifest = await _getText(manifestUri, token);
+    if (!manifest.startsWith('#EXTM3U')) {
+      throw const FormatException('Audio không phải HLS');
+    }
+    if (_isMasterPlaylist(manifest)) {
+      final variant = _bestVariant(manifest, manifestUri);
+      if (variant == null) {
+        throw const FormatException('Audio HLS không hợp lệ');
+      }
+      manifestUri = variant;
+      manifest = await _getText(manifestUri, token);
+    }
+    if (manifest.contains('METHOD=SAMPLE-AES') ||
+        manifest.contains('KEYFORMAT=')) {
+      throw const FormatException('Audio DRM không được hỗ trợ');
+    }
+    final resources = _manifestResources(manifest, manifestUri);
+    if (resources.isEmpty) throw const FormatException('Audio HLS rỗng');
+    var rewritten = manifest;
+    var bytes = 0;
+    for (var index = 0; index < resources.length; index++) {
+      final resource = resources[index];
+      final extension = _extensionFor(resource.uri, resource.kind);
+      final name =
+          '${prefix}_${resource.kind}_${index.toString().padLeft(5, '0')}.$extension';
+      final file = File('${directory.path}/$name');
+      await _dio.download(
+        resource.uri.toString(),
+        file.path,
+        cancelToken: token,
+      );
+      bytes += await file.length();
+      rewritten = rewritten.replaceAll(resource.rawReference, name);
+    }
+    final manifestFile = File('${directory.path}/index.m3u8');
+    await manifestFile.writeAsString(rewritten, flush: true);
+    return _DownloadedHlsTrack(manifestFile.path, bytes, resources.length);
   }
 
   int _lastProgressNotify = 0;
@@ -536,6 +650,13 @@ class OfflineDownloadManager extends ChangeNotifier {
 }
 
 int mathMax(int a, int b) => a > b ? a : b;
+
+class _DownloadedHlsTrack {
+  const _DownloadedHlsTrack(this.manifestPath, this.bytes, this.files);
+  final String manifestPath;
+  final int bytes;
+  final int files;
+}
 
 class _ManifestResource {
   const _ManifestResource(this.rawReference, this.uri, this.kind);
