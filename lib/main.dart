@@ -611,6 +611,11 @@ class Api {
     return _refreshToken.isEmpty ? null : _refreshToken;
   }
 
+  Future<bool> hasStoredSession() async {
+    await _ensureTokensLoaded();
+    return _accessToken.isNotEmpty || _refreshToken.isNotEmpty;
+  }
+
   Future<void> _ensureTokensLoaded() async {
     if (_tokensLoaded) return;
     final prefs = await SharedPreferences.getInstance();
@@ -6428,7 +6433,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: 'Tải xuống',
                   subtitle: 'Xem phim khi không có mạng',
                   onTap: () async {
-                    if (!await requireLogin(context, 'Tải xuống')) return;
+                    if (!await requireOfflineLogin(context)) return;
                     if (!context.mounted) return;
                     Navigator.of(context).push(
                       MaterialPageRoute(
@@ -10231,9 +10236,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                         icon: Icons.download_rounded,
                                         label: 'Tải xuống',
                                         onPressed: () async {
-                                          if (!await requireLogin(
+                                          if (!await requireOfflineLogin(
                                             context,
-                                            'Tải xuống',
                                           )) {
                                             return;
                                           }
@@ -18576,6 +18580,15 @@ Map<String, dynamic>? userMapFromAuthResponse(dynamic data) {
   final user = Map<String, dynamic>.from(raw);
   final id = cleanText(user['id'] ?? user['_id'] ?? user['email']);
   return id.isEmpty ? null : user;
+}
+
+Future<bool> requireOfflineLogin(BuildContext context) async {
+  // Không gọi /auth/me ở đây: thư viện tải xuống phải mở được khi mất mạng.
+  // Phiên lưu cục bộ chỉ tồn tại sau khi đăng nhập thành công và bị xóa khi
+  // đăng xuất, nên đủ để khóa tính năng này mà không phụ thuộc kết nối mạng.
+  if (await Api.instance.hasStoredSession()) return true;
+  if (!context.mounted) return false;
+  return requireLogin(context, 'Tải xuống');
 }
 
 Future<bool> requireLogin(BuildContext context, String feature) async {
