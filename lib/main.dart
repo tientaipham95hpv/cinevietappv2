@@ -13365,15 +13365,11 @@ class _PlayerScreenState extends State<PlayerScreen>
           throw Exception('Tệp tải xuống không còn tồn tại');
         }
         final VideoPlayerController next;
-        if (Platform.isIOS) {
+        if (Platform.isIOS || Platform.isWindows) {
           final localUrl = await _serveOfflineMedia(localFile);
           next = VideoPlayerController.networkUrl(
             localUrl,
-            closedCaptionFile: _closedCaptionFileForSelectedTracks(),
-          );
-        } else if (Platform.isWindows) {
-          next = VideoPlayerController.networkUrl(
-            localFile.uri,
+            formatHint: VideoFormat.hls,
             closedCaptionFile: _closedCaptionFileForSelectedTracks(),
           );
         } else {
