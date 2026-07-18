@@ -11749,10 +11749,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       unawaited(_syncDeviceLevels());
     });
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.landscapeLeft,
-      DeviceOrientation.landscapeRight,
-    ]);
     WidgetsBinding.instance.addPostFrameCallback(
       (_) => focusNode.requestFocus(),
     );
@@ -14735,18 +14731,11 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Widget _buildMobileWebView(WebViewController controller) {
-    Widget child = Focus(
+    return Focus(
       canRequestFocus: false,
       descendantsAreFocusable: false,
       child: WebViewWidget(controller: controller),
     );
-    if (!kIsWeb &&
-        !isTvBuild &&
-        (Platform.isAndroid || Platform.isIOS) &&
-        MediaQuery.orientationOf(context) == Orientation.portrait) {
-      child = RotatedBox(quarterTurns: 1, child: child);
-    }
-    return child;
   }
 
   @override
@@ -14778,7 +14767,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       brightnessChannel.invokeMethod<double>('reset').catchError((_) => null);
     }
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
-    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
     super.dispose();
   }
 
