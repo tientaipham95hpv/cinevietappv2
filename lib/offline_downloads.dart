@@ -380,7 +380,11 @@ class OfflineDownloadManager extends ChangeNotifier {
         );
         final length = await destination.length();
         received += length;
-        rewritten = rewritten.replaceAll(resource.rawReference, localName);
+        rewritten = rewriteHlsResourceReference(
+          rewritten,
+          resource.rawReference,
+          localName,
+        );
         _update(
           initial.id,
           (item) => item.copyWith(
@@ -404,12 +408,17 @@ class OfflineDownloadManager extends ChangeNotifier {
         }
         try {
           final audioDirectory = Directory('${directory.path}/audio_$index');
-          final result = await _downloadHlsTrack(
-            Uri.parse(url),
-            audioDirectory,
-            token,
-            prefix: 'audio',
-          );
+          final result =
+              await _downloadHlsTrack(
+                Uri.parse(url),
+                audioDirectory,
+                token,
+                prefix: 'audio',
+              ).timeout(
+                const Duration(minutes: 3),
+                onTimeout: () =>
+                    throw TimeoutException('Quá thời gian tải audio phụ'),
+              );
           received += result.bytes;
           localAudio.add({...source, 'url': result.manifestPath});
           _update(
@@ -535,7 +544,11 @@ class OfflineDownloadManager extends ChangeNotifier {
         cancelToken: token,
       );
       bytes += await file.length();
-      rewritten = rewritten.replaceAll(resource.rawReference, name);
+      rewritten = rewriteHlsResourceReference(
+        rewritten,
+        resource.rawReference,
+        name,
+      );
     }
     final manifestFile = File('${directory.path}/index.m3u8');
     await manifestFile.writeAsString(rewritten, flush: true);
@@ -676,6 +689,29 @@ class OfflineDownloadManager extends ChangeNotifier {
 }
 
 int mathMax(int a, int b) => a > b ? a : b;
+
+String rewriteHlsResourceReference(
+  String manifest,
+  String remoteReference,
+  String localReference,
+) {
+  final lines = const LineSplitter().convert(manifest);
+  return lines
+      .map((line) {
+        final trimmed = line.trim();
+        if (trimmed == remoteReference) return localReference;
+        if ((trimmed.startsWith('#EXT-X-KEY:') ||
+                trimmed.startsWith('#EXT-X-MAP:')) &&
+            trimmed.contains('URI="$remoteReference"')) {
+          return line.replaceFirst(
+            'URI="$remoteReference"',
+            'URI="$localReference"',
+          );
+        }
+        return line;
+      })
+      .join('\n');
+}
 
 class _DownloadedHlsTrack {
   const _DownloadedHlsTrack(this.manifestPath, this.bytes, this.files);

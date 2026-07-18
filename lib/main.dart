@@ -13355,21 +13355,13 @@ class _PlayerScreenState extends State<PlayerScreen>
         if (!await localFile.exists()) {
           throw Exception('Tệp tải xuống không còn tồn tại');
         }
-        final VideoPlayerController next;
-        if (Platform.isIOS) {
-          final localUrl = await _serveOfflineMedia(localFile);
-          next = VideoPlayerController.networkUrl(
-            localUrl,
-            closedCaptionFile: _closedCaptionFileForSelectedTracks(),
-          );
-        } else {
-          next = VideoPlayerController.file(
-            localFile,
-            closedCaptionFile: _closedCaptionFileForSelectedTracks(),
-          );
-        }
+        final localUrl = await _serveOfflineMedia(localFile);
+        final next = VideoPlayerController.networkUrl(
+          localUrl,
+          closedCaptionFile: _closedCaptionFileForSelectedTracks(),
+        );
         controller = next;
-        await next.initialize().timeout(const Duration(seconds: 18));
+        await next.initialize().timeout(const Duration(seconds: 45));
         await next.setPlaybackSpeed(playbackSpeed);
         await next.setVolume(usesPlayerVolume ? appVolume : 1.0);
         final resume = _initialResumeForCurrentEpisode();
@@ -15124,8 +15116,39 @@ class _PlayerScreenState extends State<PlayerScreen>
             'vtt' => ContentType('text', 'vtt'),
             _ => ContentType.binary,
           };
-          request.response.contentLength = await candidate.length();
-          await request.response.addStream(candidate.openRead());
+          final fileLength = await candidate.length();
+          request.response.headers.set('Accept-Ranges', 'bytes');
+          final range = request.headers.value('range');
+          final match = range == null
+              ? null
+              : RegExp(r'^bytes=(\d+)-(\d*)$').firstMatch(range);
+          var start = 0;
+          var end = fileLength - 1;
+          if (match != null) {
+            start = int.tryParse(match.group(1)!) ?? 0;
+            final requestedEnd = match.group(2) ?? '';
+            if (requestedEnd.isNotEmpty) {
+              end = int.tryParse(requestedEnd) ?? end;
+            }
+            if (start >= fileLength || start > end) {
+              request.response.statusCode =
+                  HttpStatus.requestedRangeNotSatisfiable;
+              request.response.headers.set(
+                'Content-Range',
+                'bytes */$fileLength',
+              );
+              await request.response.close();
+              return;
+            }
+            end = math.min(end, fileLength - 1);
+            request.response.statusCode = HttpStatus.partialContent;
+            request.response.headers.set(
+              'Content-Range',
+              'bytes $start-$end/$fileLength',
+            );
+          }
+          request.response.contentLength = end - start + 1;
+          await request.response.addStream(candidate.openRead(start, end + 1));
           await request.response.close();
         }),
       );
