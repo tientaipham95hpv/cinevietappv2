@@ -11935,6 +11935,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool watchChatVisible = !isTvBuild;
   bool applyingWatchSync = false;
   bool leavingPlayer = false;
+  bool playerDisposed = false;
   String? lastWatchRoomFrom;
   int lastWatchSyncSentAt = 0;
   List<PlaybackUrlCandidate> activePlayableUrls = const [];
@@ -13312,6 +13313,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _init({int startUrlIndex = 0, Duration? startAt}) async {
+    if (playerDisposed || leavingPlayer) return;
     Object? lastError;
     if (mounted) {
       setState(() {
@@ -13382,6 +13384,11 @@ class _PlayerScreenState extends State<PlayerScreen>
         }
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 45));
+        if (playerDisposed || leavingPlayer || !mounted) {
+          await next.dispose();
+          if (identical(controller, next)) controller = null;
+          return;
+        }
         await next.setPlaybackSpeed(playbackSpeed);
         await next.setVolume(usesPlayerVolume ? appVolume : 1.0);
         final resume = _initialResumeForCurrentEpisode();
@@ -13471,6 +13478,11 @@ class _PlayerScreenState extends State<PlayerScreen>
         );
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));
+        if (playerDisposed || leavingPlayer || !mounted) {
+          await next.dispose();
+          if (identical(controller, next)) controller = null;
+          return;
+        }
         await next.setPlaybackSpeed(playbackSpeed);
         await next.setVolume(usesPlayerVolume ? appVolume : 1.0);
         if (isWatchTogether && !isWatchHost && watchRoomState != null) {
@@ -14346,12 +14358,17 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _exitPlayer() async {
     if (leavingPlayer) return;
-    setState(() => leavingPlayer = true);
+    leavingPlayer = true;
+    if (mounted) setState(() {});
+    // Silence playback synchronously before waiting for history/network work.
+    // Otherwise Back can leave audio audible for up to the save timeout.
+    _stopPlaybackNow();
+    final disposePlayback = _disposePlaybackNow();
+    final stopWebView = _stopWebViewNow();
     try {
       await _save().timeout(const Duration(seconds: 2));
     } catch (_) {}
-    await _disposePlaybackNow();
-    await _stopWebViewNow();
+    await Future.wait([disposePlayback, stopWebView]);
     await _setLandscapeFullscreen(false);
     if (mounted) setState(() {});
     if (isWatchTogether) {
@@ -15186,6 +15203,8 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   @override
   void dispose() {
+    playerDisposed = true;
+    leavingPlayer = true;
     _stopPlaybackNow();
     unawaited(offlineMediaServer?.close(force: true));
     unawaited(_stopWebViewNow());
