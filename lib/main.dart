@@ -13364,13 +13364,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     final offlinePath = widget.offlineManifestPath?.trim() ?? '';
     if (offlinePath.isNotEmpty) {
       try {
-        final selectedLocalAudio = _selectedAudioSource?.url.trim() ?? '';
-        final playbackPath =
-            selectedLocalAudio.startsWith('/') &&
-                await File(selectedLocalAudio).exists()
-            ? selectedLocalAudio
-            : offlinePath;
-        final localFile = File(playbackPath);
+        // Audio rời không phải là một video source. Trước đây Windows lấy
+        // manifest audio đã chọn làm `playbackPath`, khiến media_kit cố phát
+        // audio-only như video và bị giật/mất đồng bộ. Luôn khởi tạo player
+        // từ manifest video; audio rời chỉ được dùng khi backend hỗ trợ
+        // external audio track thực sự.
+        final localFile = File(offlinePath);
         if (!await localFile.exists()) {
           throw Exception('Tệp tải xuống không còn tồn tại');
         }
