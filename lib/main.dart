@@ -637,6 +637,22 @@ class Api {
     return _accessToken.isNotEmpty || _refreshToken.isNotEmpty;
   }
 
+  Future<bool> offlineDownloadVipOnly() async {
+    const cacheKey = 'cineviet_offline_download_vip_only';
+    final prefs = await SharedPreferences.getInstance();
+    try {
+      final response = await dio.get<dynamic>('/settings');
+      final data = response.data;
+      final raw = data is Map ? data['offline_download_vip_only'] : null;
+      final value = raw == false || raw == 0 || raw == '0' ? false : true;
+      await prefs.setBool(cacheKey, value);
+      return value;
+    } catch (_) {
+      // Giữ mặc định VIP-only nếu chưa từng lấy được cấu hình.
+      return prefs.getBool(cacheKey) ?? true;
+    }
+  }
+
   Future<Map<String, dynamic>?> cachedUser() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString('cineviet_v2_cached_user');
@@ -19099,6 +19115,8 @@ Map<String, dynamic>? userMapFromAuthResponse(dynamic data) {
 }
 
 Future<bool> requireOfflineVip(BuildContext context) async {
+  if (!await requireOfflineLogin(context)) return false;
+  if (!await Api.instance.offlineDownloadVipOnly()) return true;
   final user =
       await Api.instance.currentUser() ?? await Api.instance.cachedUser();
   if (user != null && (isVipUser(user) || isAdminUser(user))) return true;
@@ -19207,6 +19225,8 @@ class _OfflineEpisodePickerState extends State<OfflineEpisodePicker> {
   }
 
   Future<void> _download(EpisodeServer server, EpisodeItem episode) async {
+    // Kiểm tra lại ngay tại hành động enqueue, không chỉ ở lối mở thư viện.
+    if (!await requireOfflineVip(context) || !mounted) return;
     final source = episode.linkM3u8.trim();
     if (source.isEmpty) {
       showSnack(context, 'Nguồn embed này không hỗ trợ tải offline');
