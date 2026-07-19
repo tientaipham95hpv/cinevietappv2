@@ -3086,19 +3086,25 @@ class _AppShellState extends State<AppShell> {
       ),
       bottomNavigationBar: wide
           ? null
-          : NavigationBar(
-              selectedIndex: index,
-              backgroundColor: CvColors.ink,
-              indicatorColor: CvColors.accent.withValues(alpha: .22),
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-              destinations: [
-                for (final item in destinations)
-                  NavigationDestination(
-                    icon: Icon(item.icon),
-                    label: item.label,
-                  ),
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const AppClickaduFooterBanner(),
+                NavigationBar(
+                  selectedIndex: index,
+                  backgroundColor: CvColors.ink,
+                  indicatorColor: CvColors.accent.withValues(alpha: .22),
+                  labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+                  destinations: [
+                    for (final item in destinations)
+                      NavigationDestination(
+                        icon: Icon(item.icon),
+                        label: item.label,
+                      ),
+                  ],
+                  onDestinationSelected: (value) => setTab(value, destinations),
+                ),
               ],
-              onDestinationSelected: (value) => setTab(value, destinations),
             ),
     );
   }
@@ -11896,6 +11902,86 @@ class PlayerScreen extends StatefulWidget {
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
+}
+
+class AppClickaduFooterBanner extends StatefulWidget {
+  const AppClickaduFooterBanner({super.key});
+
+  @override
+  State<AppClickaduFooterBanner> createState() =>
+      _AppClickaduFooterBannerState();
+}
+
+class _AppClickaduFooterBannerState extends State<AppClickaduFooterBanner> {
+  WebViewController? controller;
+  bool failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final user =
+        await Api.instance.currentUser(allowRefresh: false) ??
+        await Api.instance.cachedUser();
+    var enabled = true;
+    try {
+      final response = await Api.instance.dio.get<dynamic>('/settings');
+      final data = response.data;
+      if (data is Map &&
+          (data['ad_clickadu_app_banner_enabled'] == false ||
+              data['ad_clickadu_app_banner_enabled'] == '0')) {
+        enabled = false;
+      }
+    } catch (_) {}
+    if (!mounted ||
+        !enabled ||
+        (user != null && (isVipUser(user) || isAdminUser(user)))) {
+      return;
+    }
+    final web = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setBackgroundColor(Colors.transparent)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onWebResourceError: (error) {
+            if (error.isForMainFrame == true && mounted) {
+              setState(() => failed = true);
+            }
+          },
+          onNavigationRequest: (request) {
+            final uri = Uri.tryParse(request.url);
+            if (uri == null ||
+                (uri.host != 'cineviet.live' &&
+                    uri.host != 'www.cineviet.live')) {
+              return NavigationDecision.prevent;
+            }
+            return NavigationDecision.navigate;
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse('$siteBase/clickadu-app-banner.html'));
+    if (mounted) setState(() => controller = web);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (isTvBuild || kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) {
+      return const SizedBox.shrink();
+    }
+    final web = controller;
+    if (web == null || failed) return const SizedBox.shrink();
+    return SafeArea(
+      top: false,
+      child: SizedBox(
+        height: 60,
+        width: double.infinity,
+        child: WebViewWidget(controller: web),
+      ),
+    );
+  }
 }
 
 class _PlayerScreenState extends State<PlayerScreen>
