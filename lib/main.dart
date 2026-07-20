@@ -56,6 +56,11 @@ import 'offline_downloads.dart';
 
 const apiBase = 'https://cineviet.live/api';
 const siteBase = 'https://cineviet.live';
+const cineVietPlaybackHeaders = <String, String>{
+  'Origin': siteBase,
+  'Referer': '$siteBase/',
+  'User-Agent': 'CineVietAppV2/1.0',
+};
 const tmdbImageBase = 'https://image.tmdb.org/t/p';
 const appFlavor = String.fromEnvironment('FLUTTER_APP_FLAVOR');
 const isTvBuild = bool.fromEnvironment('APP_IS_TV') || appFlavor == 'tv';
@@ -3414,7 +3419,9 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
   Future<void> initVideo() async {
     final raw = widget.episode.linkM3u8.trim();
     final direct = raw.startsWith('//') ? 'https:$raw' : raw;
-    final url = direct.startsWith('$apiBase/stream?')
+    final directUri = Uri.tryParse(direct);
+    final isCineVietCdn = directUri?.host.toLowerCase() == 'cdn.cineviet.live';
+    final url = direct.startsWith('$apiBase/stream?') || isCineVietCdn
         ? direct
         : '$apiBase/stream?url=${Uri.encodeComponent(direct)}';
     final next = VideoPlayerController.networkUrl(
@@ -3422,6 +3429,7 @@ class _ShortEpisodePageState extends State<ShortEpisodePage> {
       formatHint: direct.toLowerCase().contains('.m3u8')
           ? VideoFormat.hls
           : null,
+      httpHeaders: isCineVietCdn ? cineVietPlaybackHeaders : const {},
     );
     controller = next;
     try {
@@ -12329,9 +12337,13 @@ class _PlayerScreenState extends State<PlayerScreen>
         ? decodedNested
         : '';
 
-    // Prefer the backend stream proxy for HLS so KKPhim ad segments are
-    // stripped server-side before the native player receives the manifest.
-    if (directM3u8.isNotEmpty && !directM3u8.contains('/api/stream')) {
+    // Prefer the backend stream proxy for third-party HLS so KKPhim ad
+    // segments are stripped server-side. CineViet's own stable CDN endpoint
+    // must be loaded directly because /api/stream intentionally rejects it.
+    final directM3u8Host = Uri.tryParse(directM3u8)?.host.toLowerCase() ?? '';
+    if (directM3u8.isNotEmpty &&
+        !directM3u8.contains('/api/stream') &&
+        directM3u8Host != 'cdn.cineviet.live') {
       add('$apiBase/stream?url=${Uri.encodeComponent(directM3u8)}');
     }
     if (rawLooksPlayable && !rawIsKnownEmbedOnly) add(absoluteRaw);
@@ -13509,6 +13521,9 @@ class _PlayerScreenState extends State<PlayerScreen>
           parsed,
           formatHint: isHls ? VideoFormat.hls : null,
           closedCaptionFile: captionFile,
+          httpHeaders: parsed.host.toLowerCase() == 'cdn.cineviet.live'
+              ? cineVietPlaybackHeaders
+              : const {},
         );
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));
