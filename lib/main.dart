@@ -356,13 +356,18 @@ Map<String, dynamic> cleanMap(dynamic value) =>
     value is Map ? Map<String, dynamic>.from(value) : const <String, dynamic>{};
 
 String userAvatarUrlFrom(Map<String, dynamic> user) {
-  final nested = [
-    cleanMap(user['user']),
-    cleanMap(user['author']),
-    cleanMap(user['profile']),
-    cleanMap(user['account']),
-  ].where((map) => map.isNotEmpty);
-  final maps = [user, ...nested];
+  final maps = <Map<String, dynamic>>[];
+  void collect(Map<String, dynamic> map, [int depth = 0]) {
+    if (map.isEmpty || maps.any((item) => identical(item, map))) return;
+    maps.add(map);
+    if (depth >= 3) return;
+    for (final key in const ['user', 'author', 'profile', 'account', 'data']) {
+      final nested = cleanMap(map[key]);
+      if (nested.isNotEmpty) collect(nested, depth + 1);
+    }
+  }
+
+  collect(user);
   for (final map in maps) {
     final avatar = cleanText(
       map['avatar'] ??
@@ -7133,14 +7138,22 @@ class AccountPanel extends StatelessWidget {
   }
 }
 
-bool isAdminUser(Map<String, dynamic> user) {
+bool isAdminUser(Map<String, dynamic> user, [int depth = 0]) {
+  if (depth >= 3) return false;
+  final nested = [
+    cleanMap(user['user']),
+    cleanMap(user['author']),
+    cleanMap(user['profile']),
+    cleanMap(user['account']),
+  ];
   final role = cleanText(
     user['role'] ?? user['user_role'] ?? user['type'],
   ).toLowerCase();
   return user['is_admin'] == true ||
       user['is_admin'] == 1 ||
       role == 'admin' ||
-      role == 'administrator';
+      role == 'administrator' ||
+      nested.any((map) => isAdminUser(map, depth + 1));
 }
 
 String vipLabel(Map<String, dynamic> user) {
@@ -7154,10 +7167,19 @@ String vipLabel(Map<String, dynamic> user) {
   return 'VIP · hết hạn $day/$month/${parsed.year}';
 }
 
-bool isVipUser(Map<String, dynamic> user) =>
-    user['is_vip'] == true ||
-    user['is_vip'] == 1 ||
-    cleanText(user['status']).toLowerCase() == 'vip';
+bool isVipUser(Map<String, dynamic> user, [int depth = 0]) {
+  if (depth >= 3) return false;
+  final nested = [
+    cleanMap(user['user']),
+    cleanMap(user['author']),
+    cleanMap(user['profile']),
+    cleanMap(user['account']),
+  ];
+  return user['is_vip'] == true ||
+      user['is_vip'] == 1 ||
+      cleanText(user['status']).toLowerCase() == 'vip' ||
+      nested.any((map) => isVipUser(map, depth + 1));
+}
 
 String apiErrorMessage(Object error, String fallback) {
   if (error is DioException) {
@@ -11702,7 +11724,7 @@ class _SocialSectionState extends State<SocialSection> {
                                       crossAxisAlignment:
                                           CrossAxisAlignment.center,
                                       children: [
-                                        Expanded(
+                                        Flexible(
                                           child: Text(
                                             item.userName,
                                             maxLines: 1,
@@ -11713,6 +11735,15 @@ class _SocialSectionState extends State<SocialSection> {
                                             ),
                                           ),
                                         ),
+                                        if (item.isAdmin || item.isVip) ...[
+                                          const SizedBox(width: 6),
+                                          _MembershipTag(
+                                            label: item.isAdmin
+                                                ? 'Administrator'
+                                                : 'VIP',
+                                            isAdmin: item.isAdmin,
+                                          ),
+                                        ],
                                         if (item.likes > 0) ...[
                                           const SizedBox(width: 6),
                                           Text(
@@ -11725,15 +11756,6 @@ class _SocialSectionState extends State<SocialSection> {
                                         ],
                                       ],
                                     ),
-                                    if (item.isAdmin || item.isVip) ...[
-                                      const SizedBox(height: 4),
-                                      _MembershipTag(
-                                        label: item.isAdmin
-                                            ? 'Administrator'
-                                            : 'Chủ Tịch Donate',
-                                        isAdmin: item.isAdmin,
-                                      ),
-                                    ],
                                     const SizedBox(height: 5),
                                     Text(
                                       item.isSpoiler
