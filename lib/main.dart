@@ -56,6 +56,7 @@ import 'offline_downloads.dart';
 
 const apiBase = 'https://cineviet.live/api';
 const siteBase = 'https://cineviet.live';
+const _externalPlayerChannel = MethodChannel('live.cineviet/external_player');
 const cineVietPlaybackHeaders = <String, String>{
   'Origin': siteBase,
   'Referer': '$siteBase/',
@@ -13941,6 +13942,77 @@ class _PlayerScreenState extends State<PlayerScreen>
     return value;
   }
 
+  Future<void> _openExternalPlayer([String? packageName]) async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final url = activePlayableUrls.isNotEmpty
+        ? activePlayableUrls[activePlayableUrlIndex.clamp(
+                0,
+                activePlayableUrls.length - 1,
+              )]
+              .url
+        : currentEpisode.linkM3u8.trim();
+    if (url.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Nguồn hiện tại không thể mở bên ngoài'),
+          ),
+        );
+      }
+      return;
+    }
+    try {
+      await _externalPlayerChannel.invokeMethod<void>('open', {
+        'url': url,
+        'title': '${widget.movie.title} - ${currentEpisode.displayName}',
+        'packageName': ?packageName,
+      });
+    } on PlatformException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.message ?? 'Không mở được trình phát')),
+      );
+    }
+  }
+
+  Future<void> _showExternalPlayerSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const ListTile(title: Text('Mở bằng trình phát khác')),
+            ListTile(
+              leading: const Icon(Icons.apps_rounded),
+              title: const Text('Chọn ứng dụng'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                unawaited(_openExternalPlayer());
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.play_circle_outline_rounded),
+              title: const Text('VLC'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                unawaited(_openExternalPlayer('org.videolan.vlc'));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.ondemand_video_rounded),
+              title: const Text('MX Player'),
+              onTap: () {
+                Navigator.pop(sheetContext);
+                unawaited(_openExternalPlayer('com.mxtech.videoplayer.ad'));
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _seekBy(Duration offset, {bool showControls = true}) async {
     if (activeWebViewUrl != null) {
       await _controlWebViewPlayback('seek', seconds: offset.inSeconds);
@@ -15803,6 +15875,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                           onEpisodes: _showEpisodeSheet,
                           onSettings: _showSettingsSheet,
                           onFit: _cycleFitMode,
+                          onExternalPlayer: isTvBuild && Platform.isAndroid
+                              ? _showExternalPlayerSheet
+                              : null,
                           landscapeFullscreen: landscapeFullscreen,
                           onToggleFullscreen: isTvBuild
                               ? null
@@ -16327,6 +16402,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.onEpisodes,
     required this.onSettings,
     required this.onFit,
+    this.onExternalPlayer,
     required this.landscapeFullscreen,
     this.onToggleFullscreen,
     this.playFocusNode,
@@ -16353,6 +16429,7 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onEpisodes;
   final VoidCallback onSettings;
   final VoidCallback onFit;
+  final VoidCallback? onExternalPlayer;
   final bool landscapeFullscreen;
   final VoidCallback? onToggleFullscreen;
   final FocusNode? playFocusNode;
@@ -16409,6 +16486,12 @@ class PlayerOverlay extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (onExternalPlayer != null)
+                    IconButton.filledTonal(
+                      tooltip: 'Mở bằng VLC / MX Player',
+                      onPressed: onExternalPlayer,
+                      icon: const Icon(Icons.open_in_new_rounded),
+                    ),
                   if (onToggleFullscreen != null)
                     IconButton.filledTonal(
                       tooltip: landscapeFullscreen
@@ -16572,6 +16655,31 @@ class PlayerSeekBar extends StatefulWidget {
 class _PlayerSeekBarState extends State<PlayerSeekBar> {
   bool focused = false;
   double? dragValueMs;
+  Timer? repeatSeekTimer;
+  LogicalKeyboardKey? repeatingKey;
+
+  void _startRepeatSeek(LogicalKeyboardKey key, VoidCallback seek) {
+    if (!isTvBuild || repeatingKey == key) return;
+    repeatSeekTimer?.cancel();
+    repeatingKey = key;
+    repeatSeekTimer = Timer.periodic(
+      const Duration(milliseconds: 220),
+      (_) => seek(),
+    );
+  }
+
+  void _stopRepeatSeek(LogicalKeyboardKey key) {
+    if (repeatingKey != key) return;
+    repeatSeekTimer?.cancel();
+    repeatSeekTimer = null;
+    repeatingKey = null;
+  }
+
+  @override
+  void dispose() {
+    repeatSeekTimer?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -16579,18 +16687,29 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
       focusNode: widget.focusNode,
       onFocusChange: (value) => setState(() => focused = value),
       onKeyEvent: (_, event) {
+        final key = event.logicalKey;
+        final isLeft =
+            key == LogicalKeyboardKey.arrowLeft ||
+            key == LogicalKeyboardKey.mediaRewind;
+        final isRight =
+            key == LogicalKeyboardKey.arrowRight ||
+            key == LogicalKeyboardKey.mediaFastForward;
+        if (event is KeyUpEvent && (isLeft || isRight)) {
+          _stopRepeatSeek(key);
+          return KeyEventResult.handled;
+        }
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
-        if (event.logicalKey == LogicalKeyboardKey.arrowLeft ||
-            event.logicalKey == LogicalKeyboardKey.mediaRewind) {
+        if (isLeft) {
           widget.onSeekBackward();
+          _startRepeatSeek(key, widget.onSeekBackward);
           return KeyEventResult.handled;
         }
-        if (event.logicalKey == LogicalKeyboardKey.arrowRight ||
-            event.logicalKey == LogicalKeyboardKey.mediaFastForward) {
+        if (isRight) {
           widget.onSeekForward();
+          _startRepeatSeek(key, widget.onSeekForward);
           return KeyEventResult.handled;
         }
-        if (event.logicalKey == LogicalKeyboardKey.arrowUp) {
+        if (key == LogicalKeyboardKey.arrowUp) {
           widget.onFocusBack();
           return KeyEventResult.handled;
         }
@@ -16664,7 +16783,30 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
                 overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
               ),
-              child: isTvBuild ? ExcludeFocus(child: slider) : slider,
+              child: isTvBuild
+                  ? ExcludeFocus(child: slider)
+                  : GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTapDown: durationMs <= 0
+                          ? null
+                          : (details) async {
+                              final box =
+                                  context.findRenderObject() as RenderBox?;
+                              final width = box?.size.width ?? 0;
+                              if (width <= 0) return;
+                              final fraction =
+                                  (details.localPosition.dx / width).clamp(
+                                    0.0,
+                                    1.0,
+                                  );
+                              await widget.controller.seekTo(
+                                Duration(
+                                  milliseconds: (durationMs * fraction).round(),
+                                ),
+                              );
+                            },
+                      child: slider,
+                    ),
             );
           },
         ),

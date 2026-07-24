@@ -22,6 +22,7 @@ class MainActivity : FlutterActivity() {
     private val brightnessChannel = "live.cineviet/brightness"
     private val oauthChannel = "live.cineviet/oauth"
     private val installerChannel = "live.cineviet/installer"
+    private val externalPlayerChannel = "live.cineviet/external_player"
     private var latestOAuthCallback: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -43,6 +44,26 @@ class MainActivity : FlutterActivity() {
                 "getLatestCallback" -> {
                     result.success(latestOAuthCallback)
                     latestOAuthCallback = null
+                }
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, externalPlayerChannel).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "open" -> {
+                    val url = call.argument<String>("url")
+                    val title = call.argument<String>("title") ?: "CineViet"
+                    val packageName = call.argument<String>("packageName")
+                    if (url.isNullOrBlank()) {
+                        result.error("missing_url", "Playback URL is required", null)
+                    } else {
+                        try {
+                            openExternalPlayer(url, title, packageName)
+                            result.success(null)
+                        } catch (error: Exception) {
+                            result.error("player_unavailable", error.localizedMessage ?: "Cannot open external player", null)
+                        }
+                    }
                 }
                 else -> result.notImplemented()
             }
@@ -113,6 +134,24 @@ class MainActivity : FlutterActivity() {
                 }
                 else -> result.notImplemented()
             }
+        }
+    }
+
+    private fun openExternalPlayer(url: String, title: String, preferredPackage: String?) {
+        val playbackIntent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(Uri.parse(url), "video/*")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(Intent.EXTRA_TITLE, title)
+            putExtra("title", title)
+            if (!preferredPackage.isNullOrBlank()) setPackage(preferredPackage)
+        }
+        if (playbackIntent.resolveActivity(packageManager) == null) {
+            throw IllegalStateException("Không tìm thấy trình phát đã chọn")
+        }
+        if (preferredPackage.isNullOrBlank()) {
+            startActivity(Intent.createChooser(playbackIntent, "Mở bằng trình phát"))
+        } else {
+            startActivity(playbackIntent)
         }
     }
 
