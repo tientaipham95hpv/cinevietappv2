@@ -4795,166 +4795,188 @@ class HeroBanner extends StatelessWidget {
       if (movie.language.isNotEmpty) movie.language,
       if (movie.episodeCurrent.isNotEmpty) movie.episodeCurrent,
     ];
-    return SizedBox(
-      height: height,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          NetworkBackdrop(
-            url: artwork,
-            fallbackUrl: artworkFallback,
-            fit: BoxFit.cover,
+    return Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: compact ? 12 : (isTvBuild ? 20 : 24),
+        vertical: compact ? 8 : 14,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(compact ? 22 : 28),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.white.withValues(alpha: .08)),
+            borderRadius: BorderRadius.circular(compact ? 22 : 28),
           ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.centerRight,
-                end: Alignment.centerLeft,
-                colors: [
-                  Colors.transparent,
-                  Colors.black.withValues(alpha: .82),
-                ],
-              ),
-            ),
-          ),
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Colors.black.withValues(alpha: .08), CvColors.black],
-                stops: const [.55, 1],
-              ),
-            ),
-          ),
-          Padding(
-            padding: pagePadding(context).copyWith(
-              top: compact ? 64 : 86,
-              // Android TV dành riêng vùng đáy cho dải thumbnail; không để
-              // thumbnail phủ lên mô tả của hero.
-              bottom: isTvBuild ? 124 : (compact ? 34 : 56),
-            ),
-            child: Align(
-              alignment: Alignment.bottomLeft,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.bottomLeft,
-                child: Column(
-                  children: [
-                    SizedBox(
-                      width: compact
-                          ? size.width - 48
-                          : (isTvBuild ? 760 : 620),
+          child: SizedBox(
+            height: height - (compact ? 16 : 28),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                NetworkBackdrop(
+                  url: artwork,
+                  fallbackUrl: artworkFallback,
+                  fit: BoxFit.cover,
+                ),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.centerRight,
+                      end: Alignment.centerLeft,
+                      colors: [
+                        Colors.transparent,
+                        Colors.black.withValues(alpha: .82),
+                      ],
+                    ),
+                  ),
+                ),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        Colors.black.withValues(alpha: .08),
+                        CvColors.black,
+                      ],
+                      stops: const [.55, 1],
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: pagePadding(context).copyWith(
+                    top: compact ? 64 : 86,
+                    // Android TV dành riêng vùng đáy cho dải thumbnail; không để
+                    // thumbnail phủ lên mô tả của hero.
+                    bottom: isTvBuild ? 124 : (compact ? 34 : 56),
+                  ),
+                  child: Align(
+                    alignment: Alignment.bottomLeft,
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.bottomLeft,
                       child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const FeaturedBadge(),
-                          SizedBox(height: compact || tablet ? 14 : 24),
-                          Text(
-                            movie.title,
-                            maxLines: tablet ? 2 : 3,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontFamily: 'Be Vietnam Pro',
-                              fontFamilyFallback: const [
-                                'Plus Jakarta Sans',
-                                'Roboto',
-                                'sans-serif',
+                          SizedBox(
+                            width: compact
+                                ? size.width - 48
+                                : (isTvBuild ? 760 : 620),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const FeaturedBadge(),
+                                SizedBox(height: compact || tablet ? 14 : 24),
+                                Text(
+                                  movie.title,
+                                  maxLines: tablet ? 2 : 3,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontFamily: 'Be Vietnam Pro',
+                                    fontFamilyFallback: const [
+                                      'Plus Jakarta Sans',
+                                      'Roboto',
+                                      'sans-serif',
+                                    ],
+                                    fontSize: compact
+                                        ? 34
+                                        : (isTvBuild ? 54 : (tablet ? 32 : 38)),
+                                    height: 1.08,
+                                    // Asset cao nhất là 800; dùng 900 khiến một số TV
+                                    // fallback sang font hệ thống khi gặp dấu tiếng Việt.
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 0,
+                                  ),
+                                ),
+                                if (heroMeta.isNotEmpty) ...[
+                                  const SizedBox(height: 12),
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: heroMeta
+                                        .map(
+                                          (label) => InfoPill(
+                                            label,
+                                            prominent: label == movie.quality,
+                                          ),
+                                        )
+                                        .toList(),
+                                  ),
+                                ],
+                                if (movie.description.isNotEmpty) ...[
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    movie.description,
+                                    maxLines: compact || tablet
+                                        ? 2
+                                        : (isTvBuild ? 3 : 3),
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 15.5,
+                                      height: 1.42,
+                                    ),
+                                  ),
+                                ],
+                                if (!isTvBuild) ...[
+                                  SizedBox(height: tablet ? 16 : 22),
+                                  Wrap(
+                                    spacing: 12,
+                                    runSpacing: 12,
+                                    children: [
+                                      FilledButton.icon(
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: Colors.white,
+                                          foregroundColor: Colors.black,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 20,
+                                            vertical: 14,
+                                          ),
+                                        ),
+                                        onPressed: () => openDetail(
+                                          context,
+                                          repo,
+                                          movie,
+                                          autoplay: true,
+                                        ),
+                                        icon: const Icon(
+                                          Icons.play_arrow_rounded,
+                                        ),
+                                        label: const Text('Xem ngay'),
+                                      ),
+                                      OutlinedButton.icon(
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: Colors.white,
+                                          side: BorderSide(
+                                            color: Colors.white.withValues(
+                                              alpha: .42,
+                                            ),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 18,
+                                            vertical: 14,
+                                          ),
+                                        ),
+                                        onPressed: () =>
+                                            openDetail(context, repo, movie),
+                                        icon: const Icon(
+                                          Icons.info_outline_rounded,
+                                        ),
+                                        label: const Text('Chi tiết'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ],
-                              fontSize: compact
-                                  ? 34
-                                  : (isTvBuild ? 54 : (tablet ? 32 : 38)),
-                              height: 1.08,
-                              // Asset cao nhất là 800; dùng 900 khiến một số TV
-                              // fallback sang font hệ thống khi gặp dấu tiếng Việt.
-                              fontWeight: FontWeight.w800,
-                              letterSpacing: 0,
                             ),
                           ),
-                          if (heroMeta.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: heroMeta
-                                  .map(
-                                    (label) => InfoPill(
-                                      label,
-                                      prominent: label == movie.quality,
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                          ],
-                          if (movie.description.isNotEmpty) ...[
-                            const SizedBox(height: 16),
-                            Text(
-                              movie.description,
-                              maxLines: compact || tablet
-                                  ? 2
-                                  : (isTvBuild ? 3 : 3),
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 15.5,
-                                height: 1.42,
-                              ),
-                            ),
-                          ],
-                          if (!isTvBuild) ...[
-                            SizedBox(height: tablet ? 16 : 22),
-                            Wrap(
-                              spacing: 12,
-                              runSpacing: 12,
-                              children: [
-                                FilledButton.icon(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: Colors.white,
-                                    foregroundColor: Colors.black,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 20,
-                                      vertical: 14,
-                                    ),
-                                  ),
-                                  onPressed: () => openDetail(
-                                    context,
-                                    repo,
-                                    movie,
-                                    autoplay: true,
-                                  ),
-                                  icon: const Icon(Icons.play_arrow_rounded),
-                                  label: const Text('Xem ngay'),
-                                ),
-                                OutlinedButton.icon(
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: Colors.white,
-                                    side: BorderSide(
-                                      color: Colors.white.withValues(
-                                        alpha: .42,
-                                      ),
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 18,
-                                      vertical: 14,
-                                    ),
-                                  ),
-                                  onPressed: () =>
-                                      openDetail(context, repo, movie),
-                                  icon: const Icon(Icons.info_outline_rounded),
-                                  label: const Text('Chi tiết'),
-                                ),
-                              ],
-                            ),
-                          ],
                         ],
                       ),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
-        ],
+        ),
       ),
     );
   }
