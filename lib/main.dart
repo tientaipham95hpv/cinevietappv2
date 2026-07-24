@@ -12697,6 +12697,18 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  bool _preferNguonCForCurrentMovie() {
+    final title = widget.movie.title.toLowerCase();
+    return title.contains('vũ động càn khôn') ||
+        title.contains('vu dong can khon') ||
+        title.contains('martial universe');
+  }
+
+  bool _isNguonCSource(PlaybackSourceCandidate source) {
+    final label = '${source.server.name} ${source.sourceLabel}'.toLowerCase();
+    return label.contains('nguồnc') || label.contains('nguonc');
+  }
+
   List<PlaybackSourceCandidate> _currentPlaybackSources() {
     final sources = <PlaybackSourceCandidate>[];
     _addPlaybackSource(
@@ -12716,6 +12728,13 @@ class _PlayerScreenState extends State<PlayerScreen>
         episode: episode,
         serverIndex: i,
       );
+    }
+    if (_preferNguonCForCurrentMovie()) {
+      sources.sort((a, b) {
+        final aPreferred = _isNguonCSource(a) ? 0 : 1;
+        final bPreferred = _isNguonCSource(b) ? 0 : 1;
+        return aPreferred.compareTo(bPreferred);
+      });
     }
     return sources;
   }
