@@ -4230,8 +4230,10 @@ class PhoneHome extends StatelessWidget {
                 tabAlignment: TabAlignment.start,
                 indicatorColor: CvColors.accent,
                 indicatorSize: TabBarIndicatorSize.label,
-                labelColor: Colors.white,
-                unselectedLabelColor: CvColors.muted,
+                labelColor: Theme.of(context).colorScheme.onSurface,
+                unselectedLabelColor: Theme.of(
+                  context,
+                ).colorScheme.onSurfaceVariant,
                 labelStyle: const TextStyle(
                   fontWeight: FontWeight.w800,
                   fontSize: 15,
@@ -4527,7 +4529,7 @@ class _HomeTabBarDelegate extends SliverPersistentHeaderDelegate {
     bool overlapsContent,
   ) {
     return Container(
-      color: CvColors.black,
+      color: Theme.of(context).colorScheme.surface,
       alignment: Alignment.centerLeft,
       child: tabBar,
     );
@@ -5045,6 +5047,13 @@ class HeroBanner extends StatelessWidget {
                                     // fallback sang font hệ thống khi gặp dấu tiếng Việt.
                                     fontWeight: FontWeight.w800,
                                     letterSpacing: 0,
+                                    color: Colors.white,
+                                    shadows: const [
+                                      Shadow(
+                                        color: Colors.black,
+                                        blurRadius: 14,
+                                      ),
+                                    ],
                                   ),
                                 ),
                                 if (heroMeta.isNotEmpty) ...[
@@ -5070,9 +5079,18 @@ class HeroBanner extends StatelessWidget {
                                         ? 2
                                         : (isTvBuild ? 3 : 3),
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: .86,
+                                      ),
                                       fontSize: 15.5,
                                       height: 1.42,
+                                      shadows: const [
+                                        Shadow(
+                                          color: Colors.black,
+                                          blurRadius: 8,
+                                        ),
+                                      ],
                                     ),
                                   ),
                                 ],
@@ -5815,8 +5833,8 @@ class SearchSuggestionChips extends StatelessWidget {
           children: [
             Text(
               recent.isEmpty ? 'Gợi ý nhanh' : 'Tìm gần đây',
-              style: const TextStyle(
-                color: CvColors.muted,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
                 fontSize: 12,
                 fontWeight: FontWeight.w800,
               ),
@@ -5828,7 +5846,9 @@ class SearchSuggestionChips extends StatelessWidget {
                 icon: const Icon(Icons.close_rounded, size: 14),
                 label: const Text('Xoá'),
                 style: TextButton.styleFrom(
-                  foregroundColor: CvColors.muted,
+                  foregroundColor: Theme.of(
+                    context,
+                  ).colorScheme.onSurfaceVariant,
                   visualDensity: VisualDensity.compact,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
@@ -6138,7 +6158,7 @@ class _FilterMenu extends StatelessWidget {
       initialValue: value,
       isExpanded: true,
       style: TextStyle(
-        color: CvColors.text,
+        color: Theme.of(context).colorScheme.onSurface,
         fontSize: largeControls ? 17 : 14,
         fontWeight: largeControls ? FontWeight.w800 : FontWeight.w500,
       ),
@@ -6147,7 +6167,7 @@ class _FilterMenu extends StatelessWidget {
         filled: true,
         fillColor: largeControls
             ? Colors.white.withValues(alpha: .09)
-            : CvColors.panel,
+            : Theme.of(context).colorScheme.surfaceContainer,
         contentPadding: EdgeInsets.symmetric(
           horizontal: 12,
           vertical: largeControls ? 18 : 12,
@@ -6157,11 +6177,11 @@ class _FilterMenu extends StatelessWidget {
           borderSide: BorderSide(
             color: largeControls
                 ? Colors.white.withValues(alpha: .14)
-                : Colors.transparent,
+                : Theme.of(context).colorScheme.outlineVariant,
           ),
         ),
       ),
-      dropdownColor: CvColors.panel,
+      dropdownColor: Theme.of(context).colorScheme.surfaceContainer,
       items: [
         for (final item in items)
           DropdownMenuItem(value: item.$1, child: Text(item.$2)),
@@ -18389,7 +18409,10 @@ class MoviePosterCard extends StatelessWidget {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     textScaler: TextScaler.noScaling,
-                    style: const TextStyle(color: CvColors.muted, fontSize: 12),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ],
@@ -19085,7 +19108,11 @@ class MetaPill extends StatelessWidget {
     ),
     child: Text(
       label,
-      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800),
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+      ),
     ),
   );
 }
@@ -19140,7 +19167,7 @@ class InfoPill extends StatelessWidget {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
-        color: prominent ? CvColors.black : CvColors.text,
+        color: prominent ? CvColors.black : Colors.white,
         fontSize: 12,
         fontWeight: FontWeight.w900,
       ),
