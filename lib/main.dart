@@ -3892,11 +3892,19 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<HomeData> _load() async {
     final sectionLimit = isTvBuild ? 8 : 18;
     final historyFuture = _safeHistory();
+
+    // Latest là dữ liệu lõi của Home. Không nuốt lỗi request này: nếu mạng/API
+    // thực sự hỏng, FutureBuilder phải hiện trạng thái lỗi thay vì một Home rỗng.
+    // Lấy dư một chút để vẫn dựng được các section khi request phụ timeout/429.
+    final latest = await widget.repo.list(limit: isTvBuild ? 24 : 48);
+    if (latest.isEmpty) {
+      throw StateError('API không trả dữ liệu phim cho Home');
+    }
+
     final results = await Future.wait<List<Movie>>([
       _safeMovies(
         () => widget.repo.list(limit: isTvBuild ? 8 : 10, featured: '1'),
       ),
-      _safeMovies(() => widget.repo.list(limit: isTvBuild ? 12 : 22)),
       _safeMovies(() => widget.repo.list(limit: sectionLimit, cinema: '1')),
       _safeMovies(() => widget.repo.list(limit: sectionLimit, type: 'series')),
       _safeMovies(() => widget.repo.list(limit: sectionLimit, type: 'movie')),
@@ -3904,15 +3912,24 @@ class _HomeScreenState extends State<HomeScreen> {
       _safeMovies(() => widget.repo.list(limit: sectionLimit, type: 'tvshows')),
       _safeMovies(() => widget.repo.list(limit: sectionLimit, bilingual: '1')),
     ]);
+
+    List<Movie> sectionOrFallback(List<Movie> section, String type) {
+      if (section.isNotEmpty) return section;
+      final matching = latest.where((movie) => movie.type == type).toList();
+      return matching.take(sectionLimit).toList();
+    }
+
     final home = HomeData(
-      featured: results[0],
-      latest: results[1],
-      cinema: results[2],
-      series: results[3],
-      single: results[4],
-      anime: results[5],
-      tvShows: results[6],
-      bilingual: results[7],
+      featured: results[0].isNotEmpty
+          ? results[0]
+          : latest.take(isTvBuild ? 8 : 10).toList(),
+      latest: latest.take(isTvBuild ? 12 : 22).toList(),
+      cinema: results[1],
+      series: sectionOrFallback(results[2], 'series'),
+      single: sectionOrFallback(results[3], 'movie'),
+      anime: sectionOrFallback(results[4], 'anime'),
+      tvShows: sectionOrFallback(results[5], 'tvshows'),
+      bilingual: results[6],
       history: await historyFuture,
     );
     // Ghi cache nền (không cache history vì thay đổi liên tục).
@@ -3978,7 +3995,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
-      onRefresh: () async => setState(() => data = _loadWithCache()),
+      onRefresh: () async {
+        setState(() => data = _load());
+        await data;
+      },
       color: CvColors.accent,
       child: FutureBuilder<HomeData>(
         future: data,
@@ -3992,7 +4012,7 @@ class _HomeScreenState extends State<HomeScreen> {
               debugPrint('CineViet home load error: ${snapshot.error}');
               return HomeErrorState(
                 onRetry: () {
-                  setState(() => data = _loadWithCache());
+                  setState(() => data = _load());
                 },
               );
             }
