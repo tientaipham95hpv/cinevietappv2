@@ -12079,6 +12079,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   Timer? levelApplyTimer;
   Timer? deviceLevelSyncTimer;
   Timer? gestureHintTimer;
+  Timer? tvSeekHoldDelayTimer;
+  Timer? tvSeekRepeatTimer;
+  LogicalKeyboardKey? tvSeekHeldKey;
   final focusNode = FocusNode();
   final overlayFocusScopeNode = FocusScopeNode(
     debugLabel: 'player-overlay-controls',
@@ -14152,6 +14155,36 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  void _stopTvSeekHold([LogicalKeyboardKey? key]) {
+    if (key != null && tvSeekHeldKey != key) return;
+    tvSeekHoldDelayTimer?.cancel();
+    tvSeekRepeatTimer?.cancel();
+    tvSeekHoldDelayTimer = null;
+    tvSeekRepeatTimer = null;
+    tvSeekHeldKey = null;
+  }
+
+  void _startTvSeekHold(LogicalKeyboardKey key, Duration offset) {
+    if (!isTvBuild || tvSeekHeldKey == key) return;
+    _stopTvSeekHold();
+    tvSeekHeldKey = key;
+    unawaited(_seekBy(offset));
+    // Không phụ thuộc key-repeat của hãng remote: sau một nhịp giữ có chủ ý,
+    // tự tua đều cho tới khi nhận KeyUp.
+    tvSeekHoldDelayTimer = Timer(const Duration(milliseconds: 480), () {
+      if (tvSeekHeldKey != key || playerDisposed || leavingPlayer) return;
+      tvSeekRepeatTimer = Timer.periodic(const Duration(milliseconds: 240), (
+        _,
+      ) {
+        if (tvSeekHeldKey != key || playerDisposed || leavingPlayer) {
+          _stopTvSeekHold();
+          return;
+        }
+        unawaited(_seekBy(offset, showControls: false));
+      });
+    });
+  }
+
   Future<void> _seekBy(Duration offset, {bool showControls = true}) async {
     if (activeWebViewUrl != null) {
       await _controlWebViewPlayback('seek', seconds: offset.inSeconds);
@@ -14815,6 +14848,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
+      _stopTvSeekHold();
       unawaited(_save());
       return;
     }
@@ -15694,6 +15728,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     levelApplyTimer?.cancel();
     gestureHintTimer?.cancel();
     deviceLevelSyncTimer?.cancel();
+    _stopTvSeekHold();
     saveTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     if (isWatchTogether && !leavingPlayer) {
@@ -15740,8 +15775,22 @@ class _PlayerScreenState extends State<PlayerScreen>
         body: KeyboardListener(
           focusNode: focusNode,
           onKeyEvent: (event) {
-            if (event is! KeyDownEvent) return;
             final key = event.logicalKey;
+            final isTvSeekKey =
+                key == LogicalKeyboardKey.arrowLeft ||
+                key == LogicalKeyboardKey.arrowRight ||
+                key == LogicalKeyboardKey.mediaRewind ||
+                key == LogicalKeyboardKey.mediaFastForward;
+            if (event is KeyUpEvent && isTvSeekKey) {
+              _stopTvSeekHold(key);
+              return;
+            }
+            // KeyRepeatEvent khác nhau giữa các hãng TV và có thể tới rất dày.
+            // Timer riêng bên dưới là nguồn lặp duy nhất để tốc độ tua ổn định.
+            if (event is KeyRepeatEvent && isTvBuild && tvSeekHeldKey == key) {
+              return;
+            }
+            if (event is! KeyDownEvent) return;
             final playerRouteIsCurrent =
                 ModalRoute.of(context)?.isCurrent ?? true;
             if (!playerRouteIsCurrent) return;
@@ -15771,15 +15820,21 @@ class _PlayerScreenState extends State<PlayerScreen>
                 return;
               }
               if (key == LogicalKeyboardKey.arrowRight ||
-                  key == LogicalKeyboardKey.mediaFastForward ||
-                  key == LogicalKeyboardKey.keyL) {
-                _seekBy(const Duration(seconds: 10));
+                  key == LogicalKeyboardKey.mediaFastForward) {
+                _startTvSeekHold(key, const Duration(seconds: 10));
                 return;
               }
               if (key == LogicalKeyboardKey.arrowLeft ||
-                  key == LogicalKeyboardKey.mediaRewind ||
-                  key == LogicalKeyboardKey.keyJ) {
-                _seekBy(const Duration(seconds: -10));
+                  key == LogicalKeyboardKey.mediaRewind) {
+                _startTvSeekHold(key, const Duration(seconds: -10));
+                return;
+              }
+              if (key == LogicalKeyboardKey.keyL) {
+                unawaited(_seekBy(const Duration(seconds: 10)));
+                return;
+              }
+              if (key == LogicalKeyboardKey.keyJ) {
+                unawaited(_seekBy(const Duration(seconds: -10)));
                 return;
               }
               final webViewAction = key == LogicalKeyboardKey.arrowUp
@@ -15844,14 +15899,26 @@ class _PlayerScreenState extends State<PlayerScreen>
               }
             }
             if (key == LogicalKeyboardKey.arrowRight ||
-                key == LogicalKeyboardKey.mediaFastForward ||
-                key == LogicalKeyboardKey.keyL) {
-              _seekBy(const Duration(seconds: 10));
+                key == LogicalKeyboardKey.mediaFastForward) {
+              if (isTvBuild) {
+                _startTvSeekHold(key, const Duration(seconds: 10));
+              } else {
+                unawaited(_seekBy(const Duration(seconds: 10)));
+              }
             }
             if (key == LogicalKeyboardKey.arrowLeft ||
-                key == LogicalKeyboardKey.mediaRewind ||
-                key == LogicalKeyboardKey.keyJ) {
-              _seekBy(const Duration(seconds: -10));
+                key == LogicalKeyboardKey.mediaRewind) {
+              if (isTvBuild) {
+                _startTvSeekHold(key, const Duration(seconds: -10));
+              } else {
+                unawaited(_seekBy(const Duration(seconds: -10)));
+              }
+            }
+            if (key == LogicalKeyboardKey.keyL) {
+              unawaited(_seekBy(const Duration(seconds: 10)));
+            }
+            if (key == LogicalKeyboardKey.keyJ) {
+              unawaited(_seekBy(const Duration(seconds: -10)));
             }
             if (key == LogicalKeyboardKey.arrowUp) {
               if (isTvBuild && playerHasPrimaryFocus) {
