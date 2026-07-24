@@ -218,44 +218,94 @@ class DeepLinkService {
   }
 }
 
-class CineVietV2App extends StatelessWidget {
+class CineVietV2App extends StatefulWidget {
   const CineVietV2App({super.key});
 
+  static ThemeMode themeModeOf(BuildContext context) =>
+      context.findAncestorStateOfType<_CineVietV2AppState>()!.mode;
+
+  static Future<void> setThemeMode(BuildContext context, ThemeMode value) =>
+      context.findAncestorStateOfType<_CineVietV2AppState>()!.setThemeMode(
+        value,
+      );
+
   @override
-  Widget build(BuildContext context) {
-    final theme = ThemeData(
+  State<CineVietV2App> createState() => _CineVietV2AppState();
+}
+
+class _CineVietV2AppState extends State<CineVietV2App> {
+  static const _preferenceKey = 'appearance_theme_mode';
+  ThemeMode mode = ThemeMode.system;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((prefs) {
+      final saved = prefs.getString(_preferenceKey);
+      if (!mounted || saved == null) return;
+      setState(
+        () => mode = ThemeMode.values.firstWhere(
+          (item) => item.name == saved,
+          orElse: () => ThemeMode.system,
+        ),
+      );
+    });
+  }
+
+  Future<void> setThemeMode(ThemeMode value) async {
+    if (mode == value) return;
+    setState(() => mode = value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_preferenceKey, value.name);
+  }
+
+  ThemeData _theme(Brightness brightness) {
+    final dark = brightness == Brightness.dark;
+    final scheme =
+        ColorScheme.fromSeed(
+          seedColor: CvColors.accent,
+          brightness: brightness,
+          surface: dark ? CvColors.panel : const Color(0xfff7f8fa),
+        ).copyWith(
+          primary: dark ? CvColors.accent : const Color(0xff087b58),
+          secondary: dark ? CvColors.accent : const Color(0xff087b58),
+          error: CvColors.danger,
+          onPrimary: dark ? CvColors.black : Colors.white,
+          surfaceContainer: dark ? CvColors.panel : Colors.white,
+          surfaceContainerHigh: dark
+              ? CvColors.panel2
+              : const Color(0xffeef1f4),
+          outline: dark ? CvColors.border : const Color(0xffd8dde3),
+          outlineVariant: dark ? CvColors.borderLight : const Color(0xffe5e8ec),
+        );
+    return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: CvColors.black,
+      brightness: brightness,
+      scaffoldBackgroundColor: dark ? CvColors.black : const Color(0xfff4f6f8),
       fontFamily: 'Plus Jakarta Sans',
-      colorScheme: const ColorScheme.dark(
-        primary: CvColors.accent,
-        secondary: CvColors.accent,
-        surface: CvColors.panel,
-        error: CvColors.danger,
-        onPrimary: CvColors.black,
-        onSurface: CvColors.text,
-      ),
-      textTheme: Typography.whiteMountainView.apply(
-        bodyColor: CvColors.text,
-        displayColor: CvColors.text,
-      ),
+      colorScheme: scheme,
+      textTheme:
+          (dark ? Typography.whiteMountainView : Typography.blackMountainView)
+              .apply(
+                bodyColor: scheme.onSurface,
+                displayColor: scheme.onSurface,
+              ),
       cardTheme: CardThemeData(
-        color: CvColors.panel,
+        color: scheme.surfaceContainer,
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(16),
-          side: const BorderSide(color: CvColors.border),
+          side: BorderSide(color: scheme.outlineVariant),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(
-        backgroundColor: CvColors.ink,
-        indicatorColor: CvColors.accent.withValues(alpha: .18),
+        backgroundColor: scheme.surfaceContainer,
+        indicatorColor: scheme.primary.withValues(alpha: .16),
         labelTextStyle: WidgetStateProperty.resolveWith(
           (states) => TextStyle(
             color: states.contains(WidgetState.selected)
-                ? CvColors.accent
-                : CvColors.muted,
+                ? scheme.primary
+                : scheme.onSurfaceVariant,
             fontWeight: FontWeight.w700,
             fontSize: 12,
           ),
@@ -263,19 +313,30 @@ class CineVietV2App extends StatelessWidget {
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        backgroundColor: CvColors.panel2,
+        backgroundColor: dark ? CvColors.panel2 : const Color(0xff20242c),
         contentTextStyle: const TextStyle(
-          color: CvColors.text,
+          color: Colors.white,
           fontWeight: FontWeight.w800,
         ),
         elevation: 12,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: scheme.surfaceContainer,
+        surfaceTintColor: Colors.transparent,
+      ),
+      dividerColor: scheme.outlineVariant,
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return MaterialApp(
       title: isTvBuild ? 'CineViet TV' : 'CineViet',
       debugShowCheckedModeBanner: false,
-      theme: theme,
+      theme: _theme(Brightness.light),
+      darkTheme: _theme(Brightness.dark),
+      themeMode: mode,
       navigatorKey: appNavigatorKey,
       home: const AppShell(),
     );
@@ -3099,8 +3160,10 @@ class _AppShellState extends State<AppShell> {
           ? null
           : NavigationBar(
               selectedIndex: index,
-              backgroundColor: CvColors.ink,
-              indicatorColor: CvColors.accent.withValues(alpha: .22),
+              backgroundColor: Theme.of(context).colorScheme.surfaceContainer,
+              indicatorColor: Theme.of(
+                context,
+              ).colorScheme.primary.withValues(alpha: .18),
               labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
               destinations: [
                 for (final item in destinations)
@@ -6535,6 +6598,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               BenefitsSummaryCard(load: _benefits),
             ],
             const SizedBox(height: 22),
+            const AppearanceSelector(),
+            const SizedBox(height: 14),
             if (useLeanbackControls)
               TvProfileHub(
                 repo: widget.repo,
@@ -6646,6 +6711,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
         );
       },
+    );
+  }
+}
+
+class AppearanceSelector extends StatelessWidget {
+  const AppearanceSelector({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = CineVietV2App.themeModeOf(context);
+    const choices = [
+      (ThemeMode.system, Icons.brightness_auto_rounded, 'Hệ thống'),
+      (ThemeMode.light, Icons.light_mode_rounded, 'Sáng'),
+      (ThemeMode.dark, Icons.dark_mode_rounded, 'Tối'),
+    ];
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainer,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colors.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Giao diện',
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Chọn cách CineViet hiển thị trên thiết bị này',
+            style: TextStyle(color: colors.onSurfaceVariant),
+          ),
+          const SizedBox(height: 14),
+          SegmentedButton<ThemeMode>(
+            segments: [
+              for (final item in choices)
+                ButtonSegment(
+                  value: item.$1,
+                  icon: Icon(item.$2),
+                  label: Text(item.$3),
+                ),
+            ],
+            selected: {mode},
+            showSelectedIcon: false,
+            onSelectionChanged: (selection) =>
+                CineVietV2App.setThemeMode(context, selection.first),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -8908,7 +9025,7 @@ class _UpdateProgressCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: CvColors.ink,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: CvColors.border),
+        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -10196,13 +10313,9 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               ? null
               : servers[serverIndex.clamp(0, servers.length - 1)];
           final detailWidth = MediaQuery.sizeOf(context).width;
-          final usePortraitHero = detailWidth < 600 && !isTvBuild;
-          final detailHeroUrl = usePortraitHero
-              ? movie.posterUrl
-              : movie.backdropUrl;
-          final detailHeroFallbackUrl = usePortraitHero
-              ? movie.posterFallbackUrl
-              : movie.backdropFallbackUrl;
+          final compactDetail = detailWidth < 600 && !isTvBuild;
+          final detailHeroUrl = movie.backdropUrl;
+          final detailHeroFallbackUrl = movie.backdropFallbackUrl;
           final titleSize = isTvBuild
               ? 46.0
               : detailWidth < 390
@@ -10278,8 +10391,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               ? 0
               : detailSectionIndex.clamp(0, detailTabs.length - 1);
           final heroHeight = math.min(
-            MediaQuery.sizeOf(context).height * (usePortraitHero ? .58 : .52),
-            usePortraitHero ? 520.0 : 500.0,
+            MediaQuery.sizeOf(context).height * (compactDetail ? .40 : .52),
+            compactDetail ? 340.0 : 500.0,
           );
           final posterWidth = isTvBuild
               ? 190.0
@@ -10349,10 +10462,10 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                       isTvBuild ? 34 : 28,
                     ),
                     decoration: BoxDecoration(
-                      color: CvColors.ink.withValues(alpha: .98),
+                      color: Theme.of(context).colorScheme.surfaceContainer,
                       borderRadius: BorderRadius.circular(panelRadius),
                       border: Border.all(
-                        color: CvColors.border.withValues(alpha: .8),
+                        color: Theme.of(context).colorScheme.outlineVariant,
                       ),
                       boxShadow: const [
                         BoxShadow(
@@ -10396,7 +10509,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                         height: 1.04,
                                         fontWeight: FontWeight.w900,
                                       ),
-                                      maxLines: usePortraitHero ? 4 : 3,
+                                      maxLines: compactDetail ? 3 : 3,
                                       overflow: TextOverflow.ellipsis,
                                     ),
                                     if (movie.titleEn.isNotEmpty &&
@@ -10407,7 +10520,9 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
-                                          color: CvColors.muted,
+                                          color: Theme.of(
+                                            context,
+                                          ).colorScheme.onSurfaceVariant,
                                           fontSize: isTvBuild ? 20 : 15,
                                           fontWeight: FontWeight.w700,
                                         ),
@@ -10423,7 +10538,10 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                         Container(
                           padding: EdgeInsets.all(isTvBuild ? 18 : 14),
                           decoration: BoxDecoration(
-                            color: CvColors.panel.withValues(alpha: .62),
+                            color: Theme.of(context)
+                                .colorScheme
+                                .surfaceContainerHigh
+                                .withValues(alpha: .72),
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(color: CvColors.border),
                           ),
@@ -10620,7 +10738,9 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                   if (!context.mounted) return;
                                   await showModalBottomSheet<void>(
                                     context: context,
-                                    backgroundColor: CvColors.ink,
+                                    backgroundColor: Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainer,
                                     showDragHandle: true,
                                     isScrollControlled: true,
                                     builder: (_) => OfflineEpisodePicker(
@@ -10641,7 +10761,9 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                 if (!context.mounted) return;
                                 showModalBottomSheet(
                                   context: context,
-                                  backgroundColor: CvColors.ink,
+                                  backgroundColor: Theme.of(
+                                    context,
+                                  ).colorScheme.surfaceContainer,
                                   showDragHandle: !isTvBuild,
                                   builder: (_) => AddToPlaylistSheet(
                                     repo: widget.repo,
@@ -18746,9 +18868,9 @@ class Panel extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     decoration: BoxDecoration(
-      color: CvColors.panel,
+      color: Theme.of(context).colorScheme.surfaceContainer,
       borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: CvColors.border),
+      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
     ),
     clipBehavior: Clip.antiAlias,
     child: Material(
@@ -18777,9 +18899,9 @@ class ProfileTile extends StatelessWidget {
     child: FocusButton(
       onPressed: onTap,
       child: ListTile(
-        tileColor: CvColors.panel,
+        tileColor: Theme.of(context).colorScheme.surfaceContainer,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        leading: Icon(icon, color: CvColors.accent),
+        leading: Icon(icon, color: Theme.of(context).colorScheme.primary),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
         subtitle: subtitle.isEmpty ? null : Text(subtitle),
         trailing: const Icon(Icons.chevron_right_rounded),
