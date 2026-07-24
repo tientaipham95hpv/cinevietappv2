@@ -2198,10 +2198,87 @@ class MovieRepository {
 
   Future<Movie> detail(String idOrSlug) async {
     final res = await api.dio.get('/movies/$idOrSlug');
-    final movie = Movie.fromJson(Map<String, dynamic>.from(res.data as Map));
+    final json = Map<String, dynamic>.from(res.data as Map);
+    await _mergeDuplicateSeasonSources(json);
+    final movie = Movie.fromJson(json);
     _cache[movie.routeKey] = movie;
     _cache['${movie.id}'] = movie;
     return movie;
+  }
+
+  int? _seasonNumberFromMovieJson(Map<String, dynamic> json) {
+    final explicit = asInt(json['part_number']);
+    if (explicit != null && explicit > 0) return explicit;
+    final title = cleanText(json['title']);
+    final match = RegExp(
+      r'(?:phần|phan|season|mùa|mua)\s*[\(\[]?\s*(\d+)',
+      caseSensitive: false,
+    ).firstMatch(title);
+    if (match != null) return int.tryParse(match.group(1)!);
+    final trailing = RegExp(r'\s(\d+)\s*$').firstMatch(title);
+    return trailing == null ? null : int.tryParse(trailing.group(1)!);
+  }
+
+  String _seasonBaseTitle(String raw) => raw
+      .toLowerCase()
+      .replaceAll(RegExp(r'\([^)]*(?:phần|phan|season|mùa|mua)[^)]*\)'), ' ')
+      .replaceAll(
+        RegExp(r'(?:phần|phan|season|mùa|mua)\s*\d+', caseSensitive: false),
+        ' ',
+      )
+      .replaceAll(RegExp(r'\s\d+\s*$'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  List<dynamic> _rawEpisodeServers(dynamic value) {
+    dynamic decoded = value;
+    if (value is String && value.trim().isNotEmpty) {
+      try {
+        decoded = jsonDecode(value);
+      } catch (_) {
+        return const [];
+      }
+    }
+    return decoded is List ? decoded : const [];
+  }
+
+  Future<void> _mergeDuplicateSeasonSources(Map<String, dynamic> movie) async {
+    final season = _seasonNumberFromMovieJson(movie);
+    final title = cleanText(movie['title']);
+    final baseTitle = _seasonBaseTitle(title);
+    if (season == null || season < 2 || baseTitle.length < 4) return;
+
+    try {
+      final res = await api.dio.get(
+        '/movies',
+        queryParameters: {'search': baseTitle, 'limit': 40},
+      );
+      final rows = ((res.data['movies'] as List?) ?? const []).whereType<Map>();
+      final currentId = asInt(movie['id']);
+      final merged = <dynamic>[..._rawEpisodeServers(movie['episodes'])];
+      final signatures = merged
+          .whereType<Map>()
+          .map((server) => jsonEncode(server))
+          .toSet();
+      for (final raw in rows) {
+        final candidate = Map<String, dynamic>.from(raw);
+        if (asInt(candidate['id']) == currentId ||
+            _seasonNumberFromMovieJson(candidate) != season ||
+            _seasonBaseTitle(cleanText(candidate['title'])) != baseTitle) {
+          continue;
+        }
+        for (final server in _rawEpisodeServers(candidate['episodes'])) {
+          if (server is! Map) continue;
+          final signature = jsonEncode(server);
+          if (signatures.add(signature)) merged.add(server);
+        }
+      }
+      if (merged.length > _rawEpisodeServers(movie['episodes']).length) {
+        movie['episodes'] = merged;
+      }
+    } catch (error) {
+      debugPrint('CineViet duplicate season source lookup failed: $error');
+    }
   }
 
   Future<IntroSkipData?> introSkipSegments({
@@ -12572,7 +12649,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool _isSameEpisode(EpisodeItem a, EpisodeItem b) {
     final an = episodeNumber(a.displayName);
     final bn = episodeNumber(b.displayName);
-    if (an == bn && an > 1) return true;
+    // Nguồn tổng hợp có thể đặt "1-3" trong khi nguồn dự phòng đặt "1".
+    // Cùng số mở đầu vẫn là tập tương ứng để player tự chuyển nguồn khi HLS chết.
+    if (an == bn && an > 0) return true;
     if (a.name.trim().toLowerCase() == b.name.trim().toLowerCase()) return true;
     return an == bn &&
         (a.displayName.toLowerCase().contains('full') ||
