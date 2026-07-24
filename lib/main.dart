@@ -10060,7 +10060,11 @@ class CollapsibleMovieDescription extends StatelessWidget {
   Widget build(BuildContext context) {
     final textScaler = MediaQuery.textScalerOf(context);
     final textStyle = DefaultTextStyle.of(context).style.merge(
-      const TextStyle(fontSize: 16, height: 1.48, color: CvColors.text),
+      TextStyle(
+        fontSize: 16,
+        height: 1.48,
+        color: Theme.of(context).colorScheme.onSurface,
+      ),
     );
     final direction = Directionality.of(context);
     final width =
@@ -10566,9 +10570,16 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                 Text(
                                   movie.title,
                                   style: TextStyle(
+                                    color: Colors.white,
                                     fontSize: titleSize,
                                     height: 1.04,
                                     fontWeight: FontWeight.w900,
+                                    shadows: const [
+                                      Shadow(
+                                        color: Colors.black,
+                                        blurRadius: 12,
+                                      ),
+                                    ],
                                   ),
                                   maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
@@ -10580,8 +10591,10 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                     movie.titleEn,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: CvColors.muted,
+                                    style: TextStyle(
+                                      color: Colors.white.withValues(
+                                        alpha: .82,
+                                      ),
                                       fontSize: 15,
                                       fontWeight: FontWeight.w700,
                                     ),
@@ -10823,6 +10836,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     required VoidCallback? onPressed,
     bool primary = false,
     Color? color,
+    bool onHero = true,
   }) {
     if (useLeanbackControls) {
       return TvActionButton(
@@ -10840,13 +10854,21 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         label: Text(label),
       );
     }
+    final foreground = color ?? (onHero ? Colors.white : null);
     return OutlinedButton.icon(
       onPressed: onPressed,
-      style: color == null
+      style: foreground == null
           ? null
           : OutlinedButton.styleFrom(
-              foregroundColor: color,
-              side: BorderSide(color: color.withValues(alpha: .7)),
+              foregroundColor: foreground,
+              disabledForegroundColor: onHero
+                  ? Colors.white.withValues(alpha: .45)
+                  : null,
+              side: BorderSide(
+                color: foreground.withValues(
+                  alpha: onPressed == null ? .35 : .78,
+                ),
+              ),
             ),
       icon: Icon(icon),
       label: Text(label),
@@ -10926,13 +10948,14 @@ class _DetailSectionTabButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final foreground = selected ? CvColors.accent : CvColors.text;
+    final colors = Theme.of(context).colorScheme;
+    final foreground = selected ? CvColors.accent : colors.onSurface;
     final background = selected
         ? CvColors.accent.withValues(alpha: .15)
-        : CvColors.panel2.withValues(alpha: .72);
+        : colors.surfaceContainerHigh;
     final border = selected
         ? CvColors.accent.withValues(alpha: .72)
-        : CvColors.borderLight.withValues(alpha: .72);
+        : colors.outlineVariant;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(8),
@@ -19180,11 +19203,14 @@ class GenreChip extends StatelessWidget {
   final String label;
 
   @override
-  Widget build(BuildContext context) => Chip(
-    label: Text(label),
-    backgroundColor: CvColors.panel,
-    side: BorderSide(color: Colors.white.withValues(alpha: .08)),
-  );
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Chip(
+      label: Text(label, style: TextStyle(color: colors.onSurface)),
+      backgroundColor: colors.surfaceContainerHigh,
+      side: BorderSide(color: colors.outlineVariant),
+    );
+  }
 }
 
 class SectionTitle extends StatelessWidget {
