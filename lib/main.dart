@@ -10277,15 +10277,28 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           final activeDetailSectionIndex = detailTabs.isEmpty
               ? 0
               : detailSectionIndex.clamp(0, detailTabs.length - 1);
+          final heroHeight = math.min(
+            MediaQuery.sizeOf(context).height * (usePortraitHero ? .58 : .52),
+            usePortraitHero ? 520.0 : 500.0,
+          );
+          final posterWidth = isTvBuild
+              ? 190.0
+              : detailWidth >= 900
+              ? 170.0
+              : detailWidth < 390
+              ? 104.0
+              : 122.0;
+          final contentInset = isTvBuild
+              ? 44.0
+              : detailWidth >= 700
+              ? 32.0
+              : 12.0;
+          final panelRadius = isTvBuild ? 32.0 : 26.0;
           return CustomScrollView(
             key: PageStorageKey('detail-scroll-${movie.id}'),
             slivers: [
               SliverAppBar(
-                expandedHeight: math.min(
-                  MediaQuery.sizeOf(context).height *
-                      (usePortraitHero ? .72 : .58),
-                  usePortraitHero ? 660 : 540,
-                ),
+                expandedHeight: heroHeight,
                 pinned: true,
                 backgroundColor: Colors.black,
                 flexibleSpace: FlexibleSpaceBar(
@@ -10306,88 +10319,176 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                               fallbackUrl: detailHeroFallbackUrl,
                               fit: BoxFit.cover,
                             ),
-                      DecoratedBox(
+                      const DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
                             colors: [
-                              Colors.black.withValues(alpha: .1),
-                              CvColors.black,
+                              Color(0x52000000),
+                              Color(0x00000000),
+                              Color(0xE6000000),
                             ],
-                            stops: const [.45, 1],
+                            stops: [0, .42, 1],
                           ),
                         ),
                       ),
-                      Padding(
-                        padding: pagePadding(context).copyWith(bottom: 32),
-                        child: Align(
-                          alignment: Alignment.bottomLeft,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 760),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  movie.title,
-                                  style: TextStyle(
-                                    fontSize: titleSize,
-                                    height: 1.04,
-                                    fontWeight: FontWeight.w900,
-                                  ),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
+                    ],
+                  ),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Transform.translate(
+                  offset: const Offset(0, -28),
+                  child: Container(
+                    margin: EdgeInsets.symmetric(horizontal: contentInset),
+                    padding: EdgeInsets.fromLTRB(
+                      isTvBuild ? 30 : 18,
+                      isTvBuild ? 30 : 20,
+                      isTvBuild ? 30 : 18,
+                      isTvBuild ? 34 : 28,
+                    ),
+                    decoration: BoxDecoration(
+                      color: CvColors.ink.withValues(alpha: .98),
+                      borderRadius: BorderRadius.circular(panelRadius),
+                      border: Border.all(
+                        color: CvColors.border.withValues(alpha: .8),
+                      ),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x8A000000),
+                          blurRadius: 30,
+                          offset: Offset(0, 12),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(
+                                isTvBuild ? 20 : 16,
+                              ),
+                              child: SizedBox(
+                                width: posterWidth,
+                                height: posterWidth * 1.46,
+                                child: NetworkBackdrop(
+                                  url: movie.posterUrl,
+                                  fallbackUrl: movie.posterFallbackUrl,
+                                  fit: BoxFit.cover,
                                 ),
-                                if (movie.titleEn.isNotEmpty &&
-                                    movie.titleEn != movie.title) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    movie.titleEn,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: CvColors.muted,
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                                if (metaChips.isNotEmpty) ...[
-                                  const SizedBox(height: 12),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: metaChips
-                                        .map(
-                                          (label) => InfoPill(
-                                            label,
-                                            prominent: label == movie.quality,
-                                          ),
-                                        )
-                                        .toList(),
-                                  ),
-                                ],
-                                const SizedBox(height: 16),
-                                Wrap(
-                                  spacing: useLeanbackControls ? 12 : 10,
-                                  runSpacing: useLeanbackControls ? 12 : 10,
+                              ),
+                            ),
+                            SizedBox(width: isTvBuild ? 28 : 16),
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.only(bottom: 4),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    if (resumeItem != null)
-                                      detailAction(
-                                        icon: Icons.play_circle_fill_rounded,
-                                        label:
-                                            'Xem tiếp ${resumeItem!.progressPercent}%',
-                                        primary: true,
-                                        onPressed: () =>
-                                            openResume(resumeItem!),
+                                    Text(
+                                      movie.title,
+                                      style: TextStyle(
+                                        fontSize: titleSize,
+                                        height: 1.04,
+                                        fontWeight: FontWeight.w900,
                                       ),
+                                      maxLines: usePortraitHero ? 4 : 3,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    if (movie.titleEn.isNotEmpty &&
+                                        movie.titleEn != movie.title) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        movie.titleEn,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: CvColors.muted,
+                                          fontSize: isTvBuild ? 20 : 15,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: isTvBuild ? 26 : 20),
+                        Container(
+                          padding: EdgeInsets.all(isTvBuild ? 18 : 14),
+                          decoration: BoxDecoration(
+                            color: CvColors.panel.withValues(alpha: .62),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(color: CvColors.border),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (resumeItem != null) ...[
+                                Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.history_rounded,
+                                      color: CvColors.accent,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'Tiếp tục ${resumeItem!.episodeName}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
+                                    Text(
+                                      '${resumeItem!.progressPercent}%',
+                                      style: const TextStyle(
+                                        color: CvColors.accent,
+                                        fontWeight: FontWeight.w900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                              ],
+                              SizedBox(
+                                width: double.infinity,
+                                child: detailAction(
+                                  icon: Icons.play_arrow_rounded,
+                                  label: resumeItem == null
+                                      ? 'Xem phim ngay'
+                                      : 'Tiếp tục xem',
+                                  primary: true,
+                                  onPressed: resumeItem != null
+                                      ? () => openResume(resumeItem!)
+                                      : selectedServer == null ||
+                                            selectedServer.items.isEmpty
+                                      ? null
+                                      : () => openEpisode(
+                                          movie,
+                                          selectedServer,
+                                          selectedServer.items.first,
+                                          serverIndex,
+                                        ),
+                                ),
+                              ),
+                              SizedBox(height: isTvBuild ? 14 : 10),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                children: [
+                                  if (resumeItem != null)
                                     detailAction(
-                                      icon: Icons.play_arrow_rounded,
-                                      label: resumeItem == null
-                                          ? 'Phát'
-                                          : 'Xem từ đầu',
-                                      primary: resumeItem == null,
+                                      icon: Icons.replay_rounded,
+                                      label: 'Xem từ đầu',
                                       onPressed:
                                           selectedServer == null ||
                                               selectedServer.items.isEmpty
@@ -10399,183 +10500,198 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                               serverIndex,
                                             ),
                                     ),
-                                    if (supportsOfflineDownloads &&
-                                        selectedServer != null &&
-                                        selectedServer.supportsOfflineDownload)
-                                      detailAction(
-                                        icon: Icons.download_rounded,
-                                        label: 'Tải xuống',
-                                        onPressed: () async {
-                                          if (!await requireOfflineVip(
-                                            context,
-                                          )) {
-                                            return;
-                                          }
-                                          if (!context.mounted) return;
-                                          await showModalBottomSheet<void>(
-                                            context: context,
-                                            backgroundColor: CvColors.ink,
-                                            showDragHandle: true,
-                                            isScrollControlled: true,
-                                            builder: (_) =>
-                                                OfflineEpisodePicker(
-                                                  movie: movie,
-                                                  servers: servers,
-                                                  initialServerIndex:
-                                                      serverIndex,
-                                                ),
-                                          );
-                                        },
-                                      ),
-                                    detailAction(
-                                      icon: isFavorite
-                                          ? Icons.favorite_rounded
-                                          : Icons.favorite_border_rounded,
-                                      label: isFavorite
-                                          ? 'Đã thích'
-                                          : 'Yêu thích',
-                                      color: isFavorite
-                                          ? Colors.redAccent
-                                          : null,
-                                      onPressed: favoriteBusy
-                                          ? null
-                                          : () => toggleFavorite(movie),
-                                    ),
-                                    detailAction(
-                                      icon: Icons.share_rounded,
-                                      label: 'Chia sẻ',
-                                      onPressed: () => launchUrl(
-                                        Uri.parse(
-                                          '$siteBase/movie/${movie.slug}',
-                                        ),
-                                        mode: LaunchMode.externalApplication,
-                                      ),
-                                    ),
-                                    detailAction(
-                                      icon: Icons.playlist_add_rounded,
-                                      label: 'Playlist',
-                                      onPressed: () async {
-                                        if (!await requireLogin(
-                                          context,
-                                          'Playlist',
-                                        )) {
-                                          return;
-                                        }
-                                        if (!context.mounted) return;
-                                        showModalBottomSheet(
-                                          context: context,
-                                          backgroundColor: CvColors.ink,
-                                          showDragHandle: !isTvBuild,
-                                          builder: (_) => AddToPlaylistSheet(
-                                            repo: widget.repo,
-                                            movie: movie,
+                                  detailAction(
+                                    icon: Icons.playlist_play_rounded,
+                                    label: 'Tập phim',
+                                    onPressed: detailTabs.isEmpty
+                                        ? null
+                                        : () => setState(
+                                            () => detailSectionIndex = 0,
                                           ),
-                                        );
-                                      },
+                                  ),
+                                  if (!isTvBuild)
+                                    detailAction(
+                                      icon: Icons.groups_rounded,
+                                      label: 'Xem chung',
+                                      onPressed:
+                                          selectedServer == null ||
+                                              selectedServer.items.isEmpty
+                                          ? null
+                                          : () async {
+                                              if (!await requireLogin(
+                                                context,
+                                                'Xem chung',
+                                              )) {
+                                                return;
+                                              }
+                                              if (context.mounted) {
+                                                Navigator.of(context).push(
+                                                  MaterialPageRoute(
+                                                    builder: (_) =>
+                                                        WatchTogetherScreen(
+                                                          repo: widget.repo,
+                                                          prefillMovie: movie,
+                                                          prefillServer:
+                                                              selectedServer,
+                                                          prefillEpisode:
+                                                              selectedServer
+                                                                  .items
+                                                                  .first,
+                                                          prefillServerIndex:
+                                                              serverIndex,
+                                                        ),
+                                                  ),
+                                                );
+                                              }
+                                            },
                                     ),
-                                    if (!isTvBuild)
-                                      detailAction(
-                                        icon: Icons.groups_rounded,
-                                        label: 'Xem chung',
-                                        onPressed:
-                                            selectedServer == null ||
-                                                selectedServer.items.isEmpty
-                                            ? null
-                                            : () async {
-                                                if (!await requireLogin(
-                                                  context,
-                                                  'Xem chung',
-                                                )) {
-                                                  return;
-                                                }
-                                                if (context.mounted) {
-                                                  Navigator.of(context).push(
-                                                    MaterialPageRoute(
-                                                      builder: (_) =>
-                                                          WatchTogetherScreen(
-                                                            repo: widget.repo,
-                                                            prefillMovie: movie,
-                                                            prefillServer:
-                                                                selectedServer,
-                                                            prefillEpisode:
-                                                                selectedServer
-                                                                    .items
-                                                                    .first,
-                                                            prefillServerIndex:
-                                                                serverIndex,
-                                                          ),
-                                                    ),
-                                                  );
-                                                }
-                                              },
-                                      ),
-                                  ],
-                                ),
-                              ],
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (metaChips.isNotEmpty) ...[
+                          SizedBox(height: isTvBuild ? 24 : 18),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: metaChips
+                                .map(
+                                  (label) => InfoPill(
+                                    label,
+                                    prominent: label == movie.quality,
+                                  ),
+                                )
+                                .toList(),
+                          ),
+                        ],
+                        if (movie.genres.isNotEmpty) ...[
+                          const SizedBox(height: 16),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: movie.genres
+                                .map((e) => GenreChip(label: e))
+                                .toList(),
+                          ),
+                        ],
+                        if (movie.description.isNotEmpty) ...[
+                          SizedBox(height: isTvBuild ? 24 : 18),
+                          const Text(
+                            'Nội dung phim',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w900,
                             ),
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: pagePadding(context).copyWith(top: 20, bottom: 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (movie.description.isNotEmpty)
-                        CollapsibleMovieDescription(
-                          description: movie.description,
-                          expanded: descriptionExpanded,
-                          collapsedLines: 2,
-                          onToggle: () => setState(
-                            () => descriptionExpanded = !descriptionExpanded,
+                          const SizedBox(height: 8),
+                          CollapsibleMovieDescription(
+                            description: movie.description,
+                            expanded: descriptionExpanded,
+                            collapsedLines: 4,
+                            onToggle: () => setState(
+                              () => descriptionExpanded = !descriptionExpanded,
+                            ),
                           ),
-                        ),
-                      if ((movie.collection?.items.length ?? 0) >= 2) ...[
-                        const SizedBox(height: 22),
-                        MovieCollectionSelector(
-                          collection: movie.collection!,
-                          currentMovieId: movie.id,
-                          onSelected: selectCollectionPart,
-                        ),
-                      ],
-                      if (movie.genres.isNotEmpty) ...[
-                        const SizedBox(height: 18),
+                        ],
+                        SizedBox(height: isTvBuild ? 24 : 18),
                         Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: movie.genres
-                              .map((e) => GenreChip(label: e))
-                              .toList(),
+                          spacing: 10,
+                          runSpacing: 10,
+                          children: [
+                            detailAction(
+                              icon: isFavorite
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              label: isFavorite ? 'Đã thích' : 'Yêu thích',
+                              color: isFavorite ? Colors.redAccent : null,
+                              onPressed: favoriteBusy
+                                  ? null
+                                  : () => toggleFavorite(movie),
+                            ),
+                            if (supportsOfflineDownloads &&
+                                selectedServer != null &&
+                                selectedServer.supportsOfflineDownload)
+                              detailAction(
+                                icon: Icons.download_rounded,
+                                label: 'Tải xuống',
+                                onPressed: () async {
+                                  if (!await requireOfflineVip(context)) return;
+                                  if (!context.mounted) return;
+                                  await showModalBottomSheet<void>(
+                                    context: context,
+                                    backgroundColor: CvColors.ink,
+                                    showDragHandle: true,
+                                    isScrollControlled: true,
+                                    builder: (_) => OfflineEpisodePicker(
+                                      movie: movie,
+                                      servers: servers,
+                                      initialServerIndex: serverIndex,
+                                    ),
+                                  );
+                                },
+                              ),
+                            detailAction(
+                              icon: Icons.playlist_add_rounded,
+                              label: 'Playlist',
+                              onPressed: () async {
+                                if (!await requireLogin(context, 'Playlist')) {
+                                  return;
+                                }
+                                if (!context.mounted) return;
+                                showModalBottomSheet(
+                                  context: context,
+                                  backgroundColor: CvColors.ink,
+                                  showDragHandle: !isTvBuild,
+                                  builder: (_) => AddToPlaylistSheet(
+                                    repo: widget.repo,
+                                    movie: movie,
+                                  ),
+                                );
+                              },
+                            ),
+                            detailAction(
+                              icon: Icons.share_rounded,
+                              label: 'Chia sẻ',
+                              onPressed: () => launchUrl(
+                                Uri.parse('$siteBase/movie/${movie.slug}'),
+                                mode: LaunchMode.externalApplication,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                      if (!snapshot.hasData)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 24),
-                          child: LinearProgressIndicator(
-                            color: CvColors.accent,
+                        if ((movie.collection?.items.length ?? 0) >= 2) ...[
+                          SizedBox(height: isTvBuild ? 28 : 22),
+                          MovieCollectionSelector(
+                            collection: movie.collection!,
+                            currentMovieId: movie.id,
+                            onSelected: selectCollectionPart,
                           ),
-                        ),
-                      if (detailTabs.isNotEmpty) ...[
-                        SizedBox(height: isTvBuild ? 30 : 24),
-                        DetailSectionTabs(
-                          tabs: detailTabs,
-                          selectedIndex: activeDetailSectionIndex,
-                          onSelected: (value) =>
-                              setState(() => detailSectionIndex = value),
-                        ),
-                        SizedBox(height: isTvBuild ? 20 : 16),
-                        detailTabs[activeDetailSectionIndex].builder(context),
+                        ],
+                        if (!snapshot.hasData)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 24),
+                            child: LinearProgressIndicator(
+                              color: CvColors.accent,
+                            ),
+                          ),
+                        if (detailTabs.isNotEmpty) ...[
+                          SizedBox(height: isTvBuild ? 32 : 26),
+                          DetailSectionTabs(
+                            tabs: detailTabs,
+                            selectedIndex: activeDetailSectionIndex,
+                            onSelected: (value) =>
+                                setState(() => detailSectionIndex = value),
+                          ),
+                          SizedBox(height: isTvBuild ? 20 : 16),
+                          detailTabs[activeDetailSectionIndex].builder(context),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
-              const SliverToBoxAdapter(child: SizedBox(height: 36)),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
             ],
           );
         },
