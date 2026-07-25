@@ -178,11 +178,20 @@ class OfflineDownloadManager extends ChangeNotifier {
   static final instance = OfflineDownloadManager._();
 
   static const _taskGroup = 'cineviet-offline-hls';
+  static const _downloadHeaders = <String, String>{
+    'Referer': 'https://cineviet.live/',
+    'Origin': 'https://cineviet.live',
+    'User-Agent':
+        'Mozilla/5.0 (Linux; Android 13; CineViet) AppleWebKit/537.36 '
+        '(KHTML, like Gecko) Chrome/120 Mobile Safari/537.36',
+  };
+
   final Dio _dio = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 20),
       receiveTimeout: const Duration(minutes: 2),
       followRedirects: true,
+      headers: _downloadHeaders,
     ),
   );
   final Map<String, _DownloadPlan> _plans = {};
@@ -275,7 +284,15 @@ class OfflineDownloadManager extends ChangeNotifier {
     );
     await _persist();
     notifyListeners();
-    unawaited(_prepareAndEnqueue(id));
+    await _prepareAndEnqueue(id);
+    final prepared = find(id);
+    if (prepared?.state == OfflineDownloadState.failed) {
+      throw FormatException(
+        prepared!.error.isEmpty
+            ? 'Không thể bắt đầu tải xuống'
+            : prepared.error,
+      );
+    }
   }
 
   Future<void> retry(String id) async {
@@ -421,6 +438,7 @@ class OfflineDownloadManager extends ChangeNotifier {
           taskId: resource.taskId,
           group: _taskGroup,
           url: resource.url,
+          headers: _downloadHeaders,
           filename: resource.localName,
           directory: 'offline_hls/${plan.itemId}',
           baseDirectory: BaseDirectory.applicationSupport,
@@ -436,7 +454,12 @@ class OfflineDownloadManager extends ChangeNotifier {
       if (!(Platform.isAndroid || Platform.isIOS)) {
         throw UnsupportedError('Tải nền native chỉ khả dụng trên Android/iOS');
       }
-      await FileDownloader().enqueueAll(tasks);
+      final accepted = await FileDownloader().enqueueAll(tasks);
+      if (accepted.length != tasks.length || accepted.any((value) => !value)) {
+        throw const FormatException(
+          'Thiết bị từ chối tác vụ tải nền. Vui lòng thử lại.',
+        );
+      }
     }
     if (tasks.isEmpty) await _reconcile(plan.itemId);
   }

@@ -9824,7 +9824,7 @@ class _WatchTogetherScreenState extends State<WatchTogetherScreen> {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: CvColors.black,
+      color: Theme.of(context).scaffoldBackgroundColor,
       child: FutureBuilder<bool>(
         future: loggedIn,
         builder: (context, authSnapshot) {
@@ -9877,8 +9877,10 @@ class _WatchTogetherScreenState extends State<WatchTogetherScreen> {
                         const SizedBox(height: 8),
                         Text(
                           widget.prefillMovie!.title,
-                          style: const TextStyle(
-                            color: CvColors.muted,
+                          style: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -10692,7 +10694,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                           if (!context.mounted) return;
                                           await showModalBottomSheet<void>(
                                             context: context,
-                                            backgroundColor: CvColors.ink,
                                             showDragHandle: true,
                                             isScrollControlled: true,
                                             builder: (_) =>
@@ -10742,7 +10743,6 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                         if (!context.mounted) return;
                                         showModalBottomSheet(
                                           context: context,
-                                          backgroundColor: CvColors.ink,
                                           showDragHandle: !isTvBuild,
                                           builder: (_) => AddToPlaylistSheet(
                                             repo: widget.repo,
