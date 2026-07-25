@@ -4939,14 +4939,19 @@ class HeroBanner extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final compact = size.width < 600 && !isTvBuild;
     final tablet = size.width >= 600 && size.width < 1100 && !isTvBuild;
-    // Backdrop tạo bố cục điện ảnh và ít bị crop mặt nhân vật hơn poster dọc
-    // trên mobile/tablet. Chỉ dùng poster khi phim không có backdrop.
-    final artwork = movie.backdropUrl.isNotEmpty
-        ? movie.backdropUrl
-        : movie.posterUrl;
-    final artworkFallback = movie.backdropFallbackUrl.isNotEmpty
-        ? movie.backdropFallbackUrl
-        : movie.posterFallbackUrl;
+    // Mobile dùng poster dọc để tránh crop mạnh hai bên; tablet/TV ưu tiên
+    // backdrop ngang để giữ bố cục điện ảnh. Luôn fallback nếu thiếu ảnh.
+    final usePosterArt = compact;
+    final artwork = usePosterArt
+        ? (movie.posterUrl.isNotEmpty ? movie.posterUrl : movie.backdropUrl)
+        : (movie.backdropUrl.isNotEmpty ? movie.backdropUrl : movie.posterUrl);
+    final artworkFallback = usePosterArt
+        ? (movie.posterFallbackUrl.isNotEmpty
+              ? movie.posterFallbackUrl
+              : movie.backdropFallbackUrl)
+        : (movie.backdropFallbackUrl.isNotEmpty
+              ? movie.backdropFallbackUrl
+              : movie.posterFallbackUrl);
     final height = heroBannerHeight(context);
     final heroMeta = [
       if (movie.releaseYear != null) '${movie.releaseYear}',
