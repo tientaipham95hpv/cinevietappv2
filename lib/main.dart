@@ -4922,7 +4922,7 @@ double heroBannerHeight(BuildContext context) {
   final size = MediaQuery.sizeOf(context);
   final compact = size.width < 600 && !isTvBuild;
   return compact
-      ? (size.height * .72).clamp(520.0, 680.0)
+      ? (size.height * .62).clamp(470.0, 590.0)
       : (size.height * (isTvBuild || isWindowsDesktop ? .72 : .62)).clamp(
           480.0,
           760.0,
@@ -4939,17 +4939,14 @@ class HeroBanner extends StatelessWidget {
     final size = MediaQuery.sizeOf(context);
     final compact = size.width < 600 && !isTvBuild;
     final tablet = size.width >= 600 && size.width < 1100 && !isTvBuild;
-    final usePosterArt = compact;
-    final artwork = usePosterArt
-        ? (movie.posterUrl.isNotEmpty ? movie.posterUrl : movie.backdropUrl)
-        : (movie.backdropUrl.isNotEmpty ? movie.backdropUrl : movie.posterUrl);
-    final artworkFallback = usePosterArt
-        ? (movie.posterFallbackUrl.isNotEmpty
-              ? movie.posterFallbackUrl
-              : movie.backdropFallbackUrl)
-        : (movie.backdropFallbackUrl.isNotEmpty
-              ? movie.backdropFallbackUrl
-              : movie.posterFallbackUrl);
+    // Backdrop tạo bố cục điện ảnh và ít bị crop mặt nhân vật hơn poster dọc
+    // trên mobile/tablet. Chỉ dùng poster khi phim không có backdrop.
+    final artwork = movie.backdropUrl.isNotEmpty
+        ? movie.backdropUrl
+        : movie.posterUrl;
+    final artworkFallback = movie.backdropFallbackUrl.isNotEmpty
+        ? movie.backdropFallbackUrl
+        : movie.posterFallbackUrl;
     final height = heroBannerHeight(context);
     final heroMeta = [
       if (movie.releaseYear != null) '${movie.releaseYear}',
@@ -4986,7 +4983,9 @@ class HeroBanner extends StatelessWidget {
                       end: Alignment.centerLeft,
                       colors: [
                         Colors.transparent,
-                        Colors.black.withValues(alpha: .82),
+                        Colors.black.withValues(
+                          alpha: isTvBuild ? .82 : (compact ? .46 : .58),
+                        ),
                       ],
                     ),
                   ),
@@ -4997,19 +4996,21 @@ class HeroBanner extends StatelessWidget {
                       begin: Alignment.topCenter,
                       end: Alignment.bottomCenter,
                       colors: [
-                        Colors.black.withValues(alpha: .08),
-                        CvColors.black,
+                        Colors.transparent,
+                        Colors.black.withValues(
+                          alpha: isTvBuild ? 1 : (compact ? .78 : .84),
+                        ),
                       ],
-                      stops: const [.55, 1],
+                      stops: const [.46, 1],
                     ),
                   ),
                 ),
                 Padding(
                   padding: pagePadding(context).copyWith(
-                    top: compact ? 64 : 86,
+                    top: compact ? 42 : 68,
                     // Android TV dành riêng vùng đáy cho dải thumbnail; không để
                     // thumbnail phủ lên mô tả của hero.
-                    bottom: isTvBuild ? 124 : (compact ? 34 : 56),
+                    bottom: isTvBuild ? 124 : (compact ? 40 : 52),
                   ),
                   child: Align(
                     alignment: Alignment.bottomLeft,
@@ -5040,7 +5041,7 @@ class HeroBanner extends StatelessWidget {
                                       'sans-serif',
                                     ],
                                     fontSize: compact
-                                        ? 34
+                                        ? 30
                                         : (isTvBuild ? 54 : (tablet ? 32 : 38)),
                                     height: 1.08,
                                     // Asset cao nhất là 800; dùng 900 khiến một số TV
@@ -5569,14 +5570,39 @@ class _BrowseScreenState extends State<BrowseScreen> {
                           filled: true,
                           fillColor: largeControls
                               ? Colors.white.withValues(alpha: .1)
-                              : CvColors.panel,
+                              : Theme.of(
+                                  context,
+                                ).colorScheme.surfaceContainerHighest,
+                          prefixIconColor: Theme.of(
+                            context,
+                          ).colorScheme.onSurfaceVariant,
+                          hintStyle: TextStyle(
+                            color: Theme.of(
+                              context,
+                            ).colorScheme.onSurfaceVariant,
+                          ),
                           contentPadding: EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: largeControls ? 20 : 16,
                           ),
                           border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(8),
+                            borderRadius: BorderRadius.circular(12),
                             borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outlineVariant,
+                            ),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: CvColors.accent,
+                              width: 1.5,
+                            ),
                           ),
                         ),
                       ),
