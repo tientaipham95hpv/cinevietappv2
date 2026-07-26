@@ -3956,11 +3956,19 @@ class RailNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return SafeArea(
       right: false,
       child: Container(
         width: isTvBuild ? 118 : 104,
-        color: Colors.black,
+        decoration: BoxDecoration(
+          color: colors.surfaceContainer,
+          border: Border(
+            right: BorderSide(
+              color: colors.outlineVariant.withValues(alpha: .55),
+            ),
+          ),
+        ),
         padding: const EdgeInsets.symmetric(vertical: 18),
         child: Column(
           children: [
@@ -3985,7 +3993,9 @@ class RailNav extends StatelessWidget {
                           Icon(
                             items[i].icon,
                             size: isTvBuild ? 30 : 26,
-                            color: i == index ? CvColors.accent : CvColors.text,
+                            color: i == index
+                                ? colors.primary
+                                : colors.onSurfaceVariant,
                           ),
                           const SizedBox(height: 5),
                           Text(
@@ -3996,8 +4006,8 @@ class RailNav extends StatelessWidget {
                             textScaler: TextScaler.noScaling,
                             style: TextStyle(
                               color: i == index
-                                  ? CvColors.accent
-                                  : CvColors.muted,
+                                  ? colors.primary
+                                  : colors.onSurfaceVariant,
                               fontSize: isTvBuild ? 12 : 11,
                               fontWeight: FontWeight.w800,
                             ),
