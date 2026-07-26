@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:background_downloader/background_downloader.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -138,6 +137,11 @@ class OfflineDownloadItem {
       (value) => value.name == stateName,
       orElse: () => OfflineDownloadState.failed,
     );
+    // A process death stops the in-memory task. Keep the item recoverable.
+    if (state == OfflineDownloadState.downloading ||
+        state == OfflineDownloadState.queued) {
+      state = OfflineDownloadState.cancelled;
+    }
     return OfflineDownloadItem(
       id: json['id']?.toString() ?? '',
       movieId: (json['movieId'] as num?)?.toInt() ?? 0,
@@ -177,25 +181,22 @@ class OfflineDownloadManager extends ChangeNotifier {
   OfflineDownloadManager._();
   static final instance = OfflineDownloadManager._();
 
-  static const _taskGroup = 'cineviet-offline-hls';
-  static const _downloadHeaders = <String, String>{
-    'Referer': 'https://cineviet.live/',
-    'Origin': 'https://cineviet.live',
-    'User-Agent':
-        'Mozilla/5.0 (Linux; Android 13; CineViet) AppleWebKit/537.36 '
-        '(KHTML, like Gecko) Chrome/120 Mobile Safari/537.36',
-  };
-
   final Dio _dio = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 20),
       receiveTimeout: const Duration(minutes: 2),
       followRedirects: true,
-      headers: _downloadHeaders,
+      headers: const {
+        'Referer': 'https://cineviet.live/',
+        'Origin': 'https://cineviet.live',
+        'User-Agent':
+            'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) '
+            'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 '
+            'Mobile/15E148 Safari/604.1',
+      },
     ),
   );
-  final Map<String, _DownloadPlan> _plans = {};
-  StreamSubscription<TaskUpdate>? _updatesSubscription;
+  final Map<String, CancelToken> _cancelTokens = {};
   List<OfflineDownloadItem> _items = const [];
   bool _loaded = false;
 
@@ -204,38 +205,26 @@ class OfflineDownloadManager extends ChangeNotifier {
   Future<void> load() async {
     if (_loaded || !supportsOfflineDownloads) return;
     _loaded = true;
-    if (Platform.isAndroid || Platform.isIOS) {
-      _updatesSubscription = FileDownloader().updates.listen(_handleTaskUpdate);
-      await FileDownloader().configure(
-        globalConfig: (Config.holdingQueue, (6, 3, 6)),
-      );
-      await FileDownloader().start();
-    }
     final file = await _indexFile();
-    if (await file.exists()) {
-      try {
-        final data = jsonDecode(await file.readAsString());
-        if (data is List) {
-          _items = data
-              .whereType<Map>()
-              .map(
-                (value) => OfflineDownloadItem.fromJson(
-                  Map<String, dynamic>.from(value),
-                ),
-              )
-              .where((item) => item.id.isNotEmpty)
-              .toList();
-        }
-      } catch (_) {
-        _items = const [];
+    if (!await file.exists()) return;
+    try {
+      final data = jsonDecode(await file.readAsString());
+      if (data is List) {
+        _items = data
+            .whereType<Map>()
+            .map(
+              (value) => OfflineDownloadItem.fromJson(
+                Map<String, dynamic>.from(value),
+              ),
+            )
+            .where((item) => item.id.isNotEmpty)
+            .toList();
+        await _persist();
+        notifyListeners();
       }
+    } catch (_) {
+      _items = const [];
     }
-    for (final item in _items.where((value) => value.isActive)) {
-      final plan = await _readPlan(item.id);
-      if (plan != null) _plans[item.id] = plan;
-    }
-    await _reconcileAll();
-    notifyListeners();
   }
 
   OfflineDownloadItem? find(String id) {
@@ -262,72 +251,57 @@ class OfflineDownloadManager extends ChangeNotifier {
     if (uri == null || !uri.hasScheme || sourceUrl.contains('/embed')) {
       throw const FormatException('Nguồn này không hỗ trợ tải offline');
     }
+    if (_cancelTokens.containsKey(id)) return;
     final old = find(id);
     if (old?.state == OfflineDownloadState.completed &&
         await File(old!.localManifestPath).exists()) {
       return;
     }
-    if (old?.isActive == true) return;
-
-    _replace(
-      OfflineDownloadItem(
-        id: id,
-        movieId: movieId,
-        movieSlug: movieSlug,
-        movieTitle: movieTitle,
-        episodeName: episodeName,
-        serverName: serverName,
-        sourceUrl: sourceUrl,
-        posterUrl: posterUrl,
-        audioSources: audioSources,
-        subtitles: subtitles,
-        state: OfflineDownloadState.queued,
-        createdAt: old?.createdAt ?? DateTime.now(),
-      ),
+    final item = OfflineDownloadItem(
+      id: id,
+      movieId: movieId,
+      movieSlug: movieSlug,
+      movieTitle: movieTitle,
+      episodeName: episodeName,
+      serverName: serverName,
+      sourceUrl: sourceUrl,
+      posterUrl: posterUrl,
+      audioSources: audioSources,
+      subtitles: subtitles,
+      state: OfflineDownloadState.queued,
+      createdAt: old?.createdAt ?? DateTime.now(),
     );
+    _replace(item);
     await _persist();
     notifyListeners();
-    await _prepareAndEnqueue(id);
-    final prepared = find(id);
-    if (prepared?.state == OfflineDownloadState.failed) {
-      throw FormatException(
-        prepared!.error.isEmpty
-            ? 'Không thể bắt đầu tải xuống'
-            : prepared.error,
-      );
-    }
+    unawaited(_download(item));
   }
 
   Future<void> retry(String id) async {
     final item = find(id);
     if (item == null) return;
-    _update(
-      id,
-      (value) => value.copyWith(state: OfflineDownloadState.queued, error: ''),
+    await enqueue(
+      id: item.id,
+      movieId: item.movieId,
+      movieSlug: item.movieSlug,
+      movieTitle: item.movieTitle,
+      episodeName: item.episodeName,
+      serverName: item.serverName,
+      sourceUrl: item.sourceUrl,
+      posterUrl: item.posterUrl,
+      audioSources: item.audioSources,
+      subtitles: item.subtitles,
     );
-    await _persist();
-    unawaited(_prepareAndEnqueue(id, preserveExisting: true));
   }
 
   Future<void> cancel(String id) async {
-    final plan = _plans[id] ?? await _readPlan(id);
-    if (plan != null && (Platform.isAndroid || Platform.isIOS)) {
-      await FileDownloader().cancelTasksWithIds(
-        plan.resources.map((e) => e.taskId),
-      );
-    }
-    _update(
-      id,
-      (item) =>
-          item.copyWith(state: OfflineDownloadState.cancelled, error: 'Đã hủy'),
-    );
-    await _persist();
+    _cancelTokens[id]?.cancel('Người dùng đã hủy');
   }
 
   Future<void> deleteMovie(Iterable<String> ids) async {
     for (final id in ids.toList()) {
-      await _cancelNativeTasks(id);
-      _plans.remove(id);
+      _cancelTokens[id]?.cancel('Đã xóa');
+      _cancelTokens.remove(id);
       final directory = await _downloadDirectory(id);
       if (await directory.exists()) await directory.delete(recursive: true);
     }
@@ -337,29 +311,37 @@ class OfflineDownloadManager extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> delete(String id) => deleteMovie([id]);
+  Future<void> delete(String id) async {
+    _cancelTokens[id]?.cancel('Đã xóa');
+    _cancelTokens.remove(id);
+    _items = _items.where((item) => item.id != id).toList();
+    final directory = await _downloadDirectory(id);
+    if (await directory.exists()) await directory.delete(recursive: true);
+    await _persist();
+    notifyListeners();
+  }
 
-  Future<void> _prepareAndEnqueue(
-    String id, {
-    bool preserveExisting = false,
-  }) async {
-    final initial = find(id);
-    if (initial == null) return;
+  Future<void> _download(OfflineDownloadItem initial) async {
+    final token = CancelToken();
+    _cancelTokens[initial.id] = token;
+    _update(
+      initial.id,
+      (item) => item.copyWith(
+        state: OfflineDownloadState.downloading,
+        error: '',
+        receivedBytes: 0,
+        totalBytes: 0,
+        completedFiles: 0,
+        totalFiles: 0,
+      ),
+    );
     try {
-      final directory = await _downloadDirectory(id);
-      if (!preserveExisting && await directory.exists()) {
-        await _cancelNativeTasks(id);
-        await directory.delete(recursive: true);
-      }
+      final directory = await _downloadDirectory(initial.id);
+      if (await directory.exists()) await directory.delete(recursive: true);
       await directory.create(recursive: true);
-      _update(
-        id,
-        (item) =>
-            item.copyWith(state: OfflineDownloadState.downloading, error: ''),
-      );
 
       var manifestUri = Uri.parse(initial.sourceUrl);
-      var manifest = await _getText(manifestUri);
+      var manifest = await _getText(manifestUri, token);
       if (!manifest.startsWith('#EXTM3U')) {
         throw const FormatException('Nguồn trả về không phải HLS');
       }
@@ -369,201 +351,268 @@ class OfflineDownloadManager extends ChangeNotifier {
           throw const FormatException('Không tìm thấy luồng HLS phù hợp');
         }
         manifestUri = variant;
-        manifest = await _getText(manifestUri);
+        manifest = await _getText(manifestUri, token);
       }
       if (manifest.contains('METHOD=SAMPLE-AES') ||
           manifest.contains('KEYFORMAT=')) {
         throw const FormatException('Nguồn DRM không hỗ trợ tải offline');
       }
-      final found = _manifestResources(manifest, manifestUri);
-      if (found.isEmpty) {
+
+      final resources = _manifestResources(manifest, manifestUri);
+      if (resources.isEmpty) {
         throw const FormatException('Danh sách HLS không có phân đoạn video');
       }
-
+      _update(
+        initial.id,
+        (item) => item.copyWith(totalFiles: resources.length),
+      );
       var rewritten = manifest;
-      final resources = <_PlannedResource>[];
-      for (var index = 0; index < found.length; index++) {
-        final resource = found[index];
+      var received = 0;
+      for (var index = 0; index < resources.length; index++) {
+        final resource = resources[index];
         final extension = _extensionFor(resource.uri, resource.kind);
         final localName =
             '${resource.kind}_${index.toString().padLeft(5, '0')}.$extension';
-        final taskId = _stableTaskId(id, 'video', index);
-        resources.add(
-          _PlannedResource(taskId, resource.uri.toString(), localName),
+        final destination = File('${directory.path}/$localName');
+        await _dio.download(
+          resource.uri.toString(),
+          destination.path,
+          cancelToken: token,
+          onReceiveProgress: (current, total) {
+            final base = received;
+            _updateThrottled(
+              initial.id,
+              (item) => item.copyWith(
+                receivedBytes: base + current,
+                totalBytes: total > 0
+                    ? mathMax(item.totalBytes, base + total)
+                    : item.totalBytes,
+              ),
+            );
+          },
         );
+        final length = await destination.length();
+        received += length;
         rewritten = rewriteHlsResourceReference(
           rewritten,
           resource.rawReference,
           localName,
         );
+        _update(
+          initial.id,
+          (item) => item.copyWith(
+            receivedBytes: received,
+            totalBytes: mathMax(item.totalBytes, received),
+            completedFiles: index + 1,
+          ),
+        );
       }
-      final manifestFile = File('${directory.path}/index.m3u8');
-      await manifestFile.writeAsString(rewritten, flush: true);
-      final plan = _DownloadPlan(id, manifestFile.path, resources);
-      _plans[id] = plan;
-      await _writePlan(plan);
+      final localManifest = File('${directory.path}/index.m3u8');
+      await localManifest.writeAsString(rewritten, flush: true);
+
+      final localAudio = <Map<String, dynamic>>[];
+      for (var index = 0; index < initial.audioSources.length; index++) {
+        final source = initial.audioSources[index];
+        final url = source['url']?.toString().trim() ?? '';
+        if (url.isEmpty) continue;
+        if (url == initial.sourceUrl) {
+          localAudio.add({...source, 'url': localManifest.path});
+          continue;
+        }
+        try {
+          final audioDirectory = Directory('${directory.path}/audio_$index');
+          final result = await _downloadHlsTrack(
+            Uri.parse(url),
+            audioDirectory,
+            token,
+            prefix: 'audio',
+            onResources: (count) {
+              _update(
+                initial.id,
+                (item) => item.copyWith(totalFiles: item.totalFiles + count),
+              );
+            },
+            onResourceDownloaded: (bytes) {
+              received += bytes;
+              _update(
+                initial.id,
+                (item) => item.copyWith(
+                  receivedBytes: received,
+                  totalBytes: mathMax(item.totalBytes, received),
+                  completedFiles: item.completedFiles + 1,
+                ),
+              );
+            },
+          );
+          localAudio.add({...source, 'url': result.manifestPath});
+        } catch (_) {
+          // Một track phụ không được làm hỏng bản video chính.
+        }
+      }
+
+      final localSubtitles = <Map<String, dynamic>>[];
+      for (var index = 0; index < initial.subtitles.length; index++) {
+        final subtitle = initial.subtitles[index];
+        final url = subtitle['url']?.toString().trim() ?? '';
+        if (url.isEmpty) continue;
+        try {
+          final uri = Uri.parse(url);
+          final format =
+              (subtitle['format']?.toString().trim().isNotEmpty == true)
+              ? subtitle['format'].toString().toLowerCase()
+              : (uri.path.toLowerCase().endsWith('.srt') ? 'srt' : 'vtt');
+          final file = File('${directory.path}/subtitle_$index.$format');
+          await _dio.download(uri.toString(), file.path, cancelToken: token);
+          final length = await file.length();
+          received += length;
+          localSubtitles.add({...subtitle, 'url': file.path, 'format': format});
+          _update(
+            initial.id,
+            (item) => item.copyWith(
+              receivedBytes: received,
+              totalBytes: received,
+              completedFiles: item.completedFiles + 1,
+              totalFiles: item.totalFiles + 1,
+            ),
+          );
+        } catch (_) {
+          // Giữ tải video thành công; UI chỉ hiện track thực sự đã tải.
+        }
+      }
+
       _update(
-        id,
+        initial.id,
         (item) => item.copyWith(
-          state: OfflineDownloadState.downloading,
-          localManifestPath: manifestFile.path,
-          totalFiles: resources.length,
-          completedFiles: 0,
-          receivedBytes: 0,
-          totalBytes: 0,
+          state: OfflineDownloadState.completed,
+          localManifestPath: localManifest.path,
+          audioSources: localAudio,
+          subtitles: localSubtitles,
+          receivedBytes: received,
+          totalBytes: received,
+          completedFiles: item.totalFiles,
           error: '',
         ),
       );
-      await _persist();
-      notifyListeners();
-      await _enqueueMissing(plan);
+    } on DioException catch (error) {
+      final cancelled = CancelToken.isCancel(error);
+      _update(
+        initial.id,
+        (item) => item.copyWith(
+          state: cancelled
+              ? OfflineDownloadState.cancelled
+              : OfflineDownloadState.failed,
+          error: cancelled ? 'Đã hủy' : 'Lỗi mạng khi tải video',
+        ),
+      );
     } catch (error) {
       _update(
-        id,
+        initial.id,
         (item) => item.copyWith(
           state: OfflineDownloadState.failed,
           error: error.toString().replaceFirst('FormatException: ', ''),
         ),
       );
+    } finally {
+      _cancelTokens.remove(initial.id);
       await _persist();
       notifyListeners();
     }
   }
 
-  Future<void> _enqueueMissing(_DownloadPlan plan) async {
-    final directory = await _downloadDirectory(plan.itemId);
-    final tasks = <DownloadTask>[];
-    for (final resource in plan.resources) {
-      final file = File('${directory.path}/${resource.localName}');
-      if (await file.exists() && await file.length() > 0) continue;
-      tasks.add(
-        DownloadTask(
-          taskId: resource.taskId,
-          group: _taskGroup,
-          url: resource.url,
-          headers: _downloadHeaders,
-          filename: resource.localName,
-          directory: 'offline_hls/${plan.itemId}',
-          baseDirectory: BaseDirectory.applicationSupport,
-          updates: Updates.statusAndProgress,
-          retries: 4,
-          allowPause: false,
-          displayName: find(plan.itemId)?.movieTitle ?? 'CineViet',
-          metaData: jsonEncode({'itemId': plan.itemId}),
-        ),
-      );
+  Future<_DownloadedHlsTrack> _downloadHlsTrack(
+    Uri source,
+    Directory directory,
+    CancelToken token, {
+    required String prefix,
+    void Function(int count)? onResources,
+    void Function(int bytes)? onResourceDownloaded,
+  }) async {
+    await directory.create(recursive: true);
+    var manifestUri = source;
+    var manifest = await _getText(manifestUri, token);
+    if (!manifest.startsWith('#EXTM3U')) {
+      throw const FormatException('Audio không phải HLS');
     }
-    if (tasks.isNotEmpty) {
-      if (!(Platform.isAndroid || Platform.isIOS)) {
-        throw UnsupportedError('Tải nền native chỉ khả dụng trên Android/iOS');
+    if (_isMasterPlaylist(manifest)) {
+      final variant = _bestVariant(manifest, manifestUri);
+      if (variant == null) {
+        throw const FormatException('Audio HLS không hợp lệ');
       }
-      final accepted = await FileDownloader().enqueueAll(tasks);
-      if (accepted.length != tasks.length || accepted.any((value) => !value)) {
-        throw const FormatException(
-          'Thiết bị từ chối tác vụ tải nền. Vui lòng thử lại.',
-        );
-      }
+      manifestUri = variant;
+      manifest = await _getText(manifestUri, token);
     }
-    if (tasks.isEmpty) await _reconcile(plan.itemId);
-  }
-
-  void _handleTaskUpdate(TaskUpdate update) {
-    if (update.task.group != _taskGroup) return;
-    try {
-      final metadata = jsonDecode(update.task.metaData);
-      final id = metadata is Map ? metadata['itemId']?.toString() : null;
-      if (id == null || id.isEmpty) return;
-      if (update case TaskStatusUpdate(:final status)) {
-        if (status == TaskStatus.failed || status == TaskStatus.notFound) {
-          final detail = update.exception?.description.trim() ?? '';
-          _update(
-            id,
-            (item) => item.copyWith(
-              state: OfflineDownloadState.failed,
-              error: detail.isEmpty
-                  ? 'Không thể tiếp tục tải tài nguyên nền'
-                  : 'Tải thất bại: $detail',
-            ),
-          );
-          unawaited(_persist());
-          notifyListeners();
-          return;
-        }
-      }
-      unawaited(_reconcile(id));
-    } catch (_) {}
-  }
-
-  Future<void> _reconcileAll() async {
-    for (final item in _items.where((value) => value.isActive).toList()) {
-      await _reconcile(item.id);
-      final plan = _plans[item.id];
-      if (plan != null &&
-          find(item.id)?.state == OfflineDownloadState.downloading) {
-        await _enqueueMissing(plan);
-      }
+    if (manifest.contains('METHOD=SAMPLE-AES') ||
+        manifest.contains('KEYFORMAT=')) {
+      throw const FormatException('Audio DRM không được hỗ trợ');
     }
-  }
-
-  Future<void> _reconcile(String id) async {
-    final plan = _plans[id] ?? await _readPlan(id);
-    final item = find(id);
-    if (plan == null || item == null || !item.isActive) {
-      if (item?.state == OfflineDownloadState.queued) {
-        unawaited(_prepareAndEnqueue(id, preserveExisting: true));
-      }
-      return;
-    }
-    _plans[id] = plan;
-    final directory = await _downloadDirectory(id);
-    var complete = 0;
+    final resources = _manifestResources(manifest, manifestUri);
+    if (resources.isEmpty) throw const FormatException('Audio HLS rỗng');
+    onResources?.call(resources.length);
+    var rewritten = manifest;
     var bytes = 0;
-    for (final resource in plan.resources) {
-      final file = File('${directory.path}/${resource.localName}');
-      if (await file.exists()) {
-        final length = await file.length();
-        if (length > 0) {
-          complete++;
-          bytes += length;
-        }
-      }
-    }
-    final done = complete == plan.resources.length && plan.resources.isNotEmpty;
-    _update(
-      id,
-      (value) => value.copyWith(
-        state: done
-            ? OfflineDownloadState.completed
-            : OfflineDownloadState.downloading,
-        localManifestPath: plan.manifestPath,
-        completedFiles: complete,
-        totalFiles: plan.resources.length,
-        receivedBytes: bytes,
-        totalBytes: done ? bytes : value.totalBytes,
-        error: '',
-      ),
-    );
-    await _persist();
-    notifyListeners();
-  }
-
-  Future<void> _cancelNativeTasks(String id) async {
-    final plan = _plans[id] ?? await _readPlan(id);
-    if (plan != null && (Platform.isAndroid || Platform.isIOS)) {
-      await FileDownloader().cancelTasksWithIds(
-        plan.resources.map((e) => e.taskId),
+    for (var index = 0; index < resources.length; index++) {
+      final resource = resources[index];
+      final extension = _extensionFor(resource.uri, resource.kind);
+      final name =
+          '${prefix}_${resource.kind}_${index.toString().padLeft(5, '0')}.$extension';
+      final file = File('${directory.path}/$name');
+      await _dio.download(
+        resource.uri.toString(),
+        file.path,
+        cancelToken: token,
+      );
+      final fileBytes = await file.length();
+      bytes += fileBytes;
+      onResourceDownloaded?.call(fileBytes);
+      rewritten = rewriteHlsResourceReference(
+        rewritten,
+        resource.rawReference,
+        name,
       );
     }
+    final manifestFile = File('${directory.path}/index.m3u8');
+    await manifestFile.writeAsString(rewritten, flush: true);
+    return _DownloadedHlsTrack(manifestFile.path, bytes, resources.length);
   }
 
-  String _stableTaskId(String itemId, String kind, int index) {
-    final safe = itemId.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
-    return 'cv_${safe}_${kind}_$index';
+  int _lastProgressNotify = 0;
+  void _updateThrottled(
+    String id,
+    OfflineDownloadItem Function(OfflineDownloadItem) transform,
+  ) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    _update(id, transform, notify: now - _lastProgressNotify >= 250);
+    if (now - _lastProgressNotify >= 250) _lastProgressNotify = now;
   }
 
-  Future<String> _getText(Uri uri) async {
+  void _update(
+    String id,
+    OfflineDownloadItem Function(OfflineDownloadItem) transform, {
+    bool notify = true,
+  }) {
+    final index = _items.indexWhere((item) => item.id == id);
+    if (index < 0) return;
+    final values = [..._items];
+    values[index] = transform(values[index]);
+    _items = values;
+    if (notify) notifyListeners();
+  }
+
+  void _replace(OfflineDownloadItem item) {
+    final index = _items.indexWhere((value) => value.id == item.id);
+    final values = [..._items];
+    if (index < 0) {
+      values.insert(0, item);
+    } else {
+      values[index] = item;
+    }
+    _items = values;
+  }
+
+  Future<String> _getText(Uri uri, CancelToken token) async {
     final response = await _dio.get<String>(
       uri.toString(),
+      cancelToken: token,
       options: Options(responseType: ResponseType.plain),
     );
     return response.data ?? '';
@@ -608,7 +657,8 @@ class OfflineDownloadManager extends ChangeNotifier {
         continue;
       }
       if (line.startsWith('#EXT-X-KEY:') || line.startsWith('#EXT-X-MAP:')) {
-        final reference = RegExp(r'URI="([^"]+)"').firstMatch(line)?.group(1);
+        final match = RegExp(r'URI="([^"]+)"').firstMatch(line);
+        final reference = match?.group(1);
         if (reference != null && seen.add(reference)) {
           result.add(
             _ManifestResource(
@@ -634,28 +684,6 @@ class OfflineDownloadManager extends ChangeNotifier {
     return kind == 'map' ? 'mp4' : 'ts';
   }
 
-  void _update(
-    String id,
-    OfflineDownloadItem Function(OfflineDownloadItem) transform,
-  ) {
-    final index = _items.indexWhere((item) => item.id == id);
-    if (index < 0) return;
-    final values = [..._items];
-    values[index] = transform(values[index]);
-    _items = values;
-  }
-
-  void _replace(OfflineDownloadItem item) {
-    final index = _items.indexWhere((value) => value.id == item.id);
-    final values = [..._items];
-    if (index < 0) {
-      values.insert(0, item);
-    } else {
-      values[index] = item;
-    }
-    _items = values;
-  }
-
   Future<Directory> _rootDirectory() async {
     final base = await getApplicationSupportDirectory();
     return Directory('${base.path}/offline_hls');
@@ -663,31 +691,9 @@ class OfflineDownloadManager extends ChangeNotifier {
 
   Future<Directory> _downloadDirectory(String id) async =>
       Directory('${(await _rootDirectory()).path}/$id');
+
   Future<File> _indexFile() async =>
       File('${(await _rootDirectory()).path}/$_indexFileName');
-  Future<File> _planFile(String id) async =>
-      File('${(await _downloadDirectory(id)).path}/download-plan.json');
-
-  Future<_DownloadPlan?> _readPlan(String id) async {
-    try {
-      final file = await _planFile(id);
-      if (!await file.exists()) return null;
-      return _DownloadPlan.fromJson(
-        Map<String, dynamic>.from(jsonDecode(await file.readAsString())),
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> _writePlan(_DownloadPlan plan) async {
-    final file = await _planFile(plan.itemId);
-    await file.parent.create(recursive: true);
-    final temporary = File('${file.path}.tmp');
-    await temporary.writeAsString(jsonEncode(plan.toJson()), flush: true);
-    if (await file.exists()) await file.delete();
-    await temporary.rename(file.path);
-  }
 
   Future<void> _persist() async {
     if (!supportsOfflineDownloads) return;
@@ -698,53 +704,8 @@ class OfflineDownloadManager extends ChangeNotifier {
       jsonEncode(_items.map((item) => item.toJson()).toList()),
       flush: true,
     );
-    if (await file.exists()) await file.delete();
     await temporary.rename(file.path);
   }
-
-  @override
-  void dispose() {
-    unawaited(_updatesSubscription?.cancel());
-    super.dispose();
-  }
-}
-
-class _DownloadPlan {
-  const _DownloadPlan(this.itemId, this.manifestPath, this.resources);
-  final String itemId;
-  final String manifestPath;
-  final List<_PlannedResource> resources;
-  Map<String, dynamic> toJson() => {
-    'itemId': itemId,
-    'manifestPath': manifestPath,
-    'resources': resources.map((e) => e.toJson()).toList(),
-  };
-  factory _DownloadPlan.fromJson(Map<String, dynamic> json) => _DownloadPlan(
-    json['itemId']?.toString() ?? '',
-    json['manifestPath']?.toString() ?? '',
-    (json['resources'] as List? ?? const [])
-        .whereType<Map>()
-        .map((e) => _PlannedResource.fromJson(Map<String, dynamic>.from(e)))
-        .toList(),
-  );
-}
-
-class _PlannedResource {
-  const _PlannedResource(this.taskId, this.url, this.localName);
-  final String taskId;
-  final String url;
-  final String localName;
-  Map<String, dynamic> toJson() => {
-    'taskId': taskId,
-    'url': url,
-    'localName': localName,
-  };
-  factory _PlannedResource.fromJson(Map<String, dynamic> json) =>
-      _PlannedResource(
-        json['taskId']?.toString() ?? '',
-        json['url']?.toString() ?? '',
-        json['localName']?.toString() ?? '',
-      );
 }
 
 int mathMax(int a, int b) => a > b ? a : b;
@@ -770,6 +731,13 @@ String rewriteHlsResourceReference(
         return line;
       })
       .join('\n');
+}
+
+class _DownloadedHlsTrack {
+  const _DownloadedHlsTrack(this.manifestPath, this.bytes, this.files);
+  final String manifestPath;
+  final int bytes;
+  final int files;
 }
 
 class _ManifestResource {
