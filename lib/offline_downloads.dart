@@ -206,6 +206,9 @@ class OfflineDownloadManager extends ChangeNotifier {
     _loaded = true;
     if (Platform.isAndroid || Platform.isIOS) {
       _updatesSubscription = FileDownloader().updates.listen(_handleTaskUpdate);
+      await FileDownloader().configure(
+        globalConfig: (Config.holdingQueue, (6, 3, 6)),
+      );
       await FileDownloader().start();
     }
     final file = await _indexFile();
@@ -444,7 +447,7 @@ class OfflineDownloadManager extends ChangeNotifier {
           baseDirectory: BaseDirectory.applicationSupport,
           updates: Updates.statusAndProgress,
           retries: 4,
-          allowPause: true,
+          allowPause: false,
           displayName: find(plan.itemId)?.movieTitle ?? 'CineViet',
           metaData: jsonEncode({'itemId': plan.itemId}),
         ),
@@ -472,11 +475,14 @@ class OfflineDownloadManager extends ChangeNotifier {
       if (id == null || id.isEmpty) return;
       if (update case TaskStatusUpdate(:final status)) {
         if (status == TaskStatus.failed || status == TaskStatus.notFound) {
+          final detail = update.exception?.description.trim() ?? '';
           _update(
             id,
             (item) => item.copyWith(
               state: OfflineDownloadState.failed,
-              error: 'Không thể tiếp tục tải tài nguyên nền',
+              error: detail.isEmpty
+                  ? 'Không thể tiếp tục tải tài nguyên nền'
+                  : 'Tải thất bại: $detail',
             ),
           );
           unawaited(_persist());
