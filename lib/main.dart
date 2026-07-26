@@ -1733,6 +1733,18 @@ class WatchItem {
 
   bool get shouldShow => positionMs >= 3000 && !isCompleted;
 
+  String get resumeLabel {
+    final episode = episodeName.trim();
+    final episodeLabel = episode.isEmpty || episode.toLowerCase() == 'tập'
+        ? ''
+        : episode.toLowerCase().startsWith('tập ')
+        ? episode
+        : 'Tập $episode';
+    return episodeLabel.isEmpty
+        ? 'Xem tiếp $progressPercent%'
+        : 'Xem tiếp $episodeLabel · $progressPercent%';
+  }
+
   Map<String, dynamic> toJson() => {
     'movieId': movieId,
     'slug': slug,
@@ -2322,6 +2334,7 @@ class MovieRepository {
     } catch (error) {
       debugPrint('CineViet duplicate season source lookup failed: $error');
     }
+  }
 
   Future<List<Movie>> related(int movieId) async {
     final res = await api.dio.get(
@@ -10800,8 +10813,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                     if (resumeItem != null)
                                       detailAction(
                                         icon: Icons.play_circle_fill_rounded,
-                                        label:
-                                            'Xem tiếp ${resumeItem!.progressPercent}%',
+                                        label: resumeItem!.resumeLabel,
                                         primary: true,
                                         onPressed: () =>
                                             openResume(resumeItem!),
@@ -11448,9 +11460,7 @@ class _EpisodeSectionState extends State<EpisodeSection> {
                     );
                   },
                   icon: const Icon(Icons.play_circle_fill_rounded),
-                  label: Text(
-                    'Xem tiếp ${widget.resumeItem!.progressPercent}%',
-                  ),
+                  label: Text(widget.resumeItem!.resumeLabel),
                 ),
             ],
           ),
