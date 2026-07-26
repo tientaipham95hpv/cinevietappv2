@@ -99,10 +99,13 @@ void main() {
     expect(vipLabel(_user()), 'Thành viên');
     expect(
       vipLabel(_user(vip: true, vipExpiresAt: '2099-12-31T08:00:00Z')),
-      'VIP · hết hạn 31/12/2099',
+      'Chủ Tịch Donate · hết hạn 31/12/2099',
     );
-    expect(vipLabel(_user(vip: true)), 'VIP');
-    expect(vipLabel(_user(vip: true, vipExpiresAt: 'not-a-date')), 'VIP');
+    expect(vipLabel(_user(vip: true)), 'Chủ Tịch Donate');
+    expect(
+      vipLabel(_user(vip: true, vipExpiresAt: 'not-a-date')),
+      'Chủ Tịch Donate',
+    );
     expect(isVipUser({'status': 'vip'}), isTrue);
     expect(isVipUser({'is_vip': true}), isTrue);
     expect(isVipUser({'is_vip': 0, 'status': 'active'}), isFalse);
