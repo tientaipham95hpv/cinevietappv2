@@ -3052,21 +3052,31 @@ class LocalHistory {
   static const deletedKey = 'cineviet_watch_history_deleted_v1';
   static final ValueNotifier<int> version = ValueNotifier<int>(0);
 
+  // Cache in-memory để tránh decode/encode lại toàn bộ JSON lịch sử (tới 120
+  // phim) trên main isolate mỗi 30 giây khi đang phát phim.
+  static List<WatchItem>? _cache;
+
   static void _notifyChanged() {
     version.value += 1;
   }
 
   static Future<List<WatchItem>> items() async {
+    final cached = _cache;
+    if (cached != null) return List<WatchItem>.of(cached);
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(key);
-    if (raw == null || raw.isEmpty) return const [];
+    if (raw == null || raw.isEmpty) {
+      _cache = <WatchItem>[];
+      return const [];
+    }
     try {
       final list = (jsonDecode(raw) as List)
           .whereType<Map>()
           .map((e) => WatchItem.fromJson(Map<String, dynamic>.from(e)))
           .toList();
       list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
-      return list;
+      _cache = list;
+      return List<WatchItem>.of(list);
     } catch (_) {
       return const [];
     }
@@ -3084,6 +3094,7 @@ class LocalHistory {
       key,
       jsonEncode(next.map((e) => e.toJson()).toList()),
     );
+    _cache = next;
     _notifyChanged();
   }
 
@@ -3093,6 +3104,7 @@ class LocalHistory {
     final next = (await items()).where((e) => e.movieId != movieId).toList();
     if (next.isEmpty) {
       await prefs.remove(key);
+      _cache = <WatchItem>[];
       _notifyChanged();
       return;
     }
@@ -3100,6 +3112,7 @@ class LocalHistory {
       key,
       jsonEncode(next.map((e) => e.toJson()).toList()),
     );
+    _cache = next;
     _notifyChanged();
   }
 
@@ -3110,6 +3123,7 @@ class LocalHistory {
         .where((id) => id > 0);
     await _rememberDeletedMovies(prefs, ids);
     await prefs.remove(key);
+    _cache = <WatchItem>[];
     _notifyChanged();
   }
 
@@ -3166,17 +3180,27 @@ class LocalHistory {
 class LocalFavorites {
   static const key = 'cineviet_favorites_v1';
 
+  // Cache in-memory để tránh decode lại JSON danh sách yêu thích (tới 300
+  // phim) mỗi lần đọc/toggle tim.
+  static List<Movie>? _cache;
+
   static Future<List<Movie>> items() async {
+    final cached = _cache;
+    if (cached != null) return List<Movie>.of(cached);
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(key);
-    if (raw == null || raw.isEmpty) return const [];
+    if (raw == null || raw.isEmpty) {
+      _cache = <Movie>[];
+      return const [];
+    }
     try {
       final list = (jsonDecode(raw) as List)
           .whereType<Map>()
           .map((e) => Movie.fromJson(Map<String, dynamic>.from(e)))
           .where((movie) => movie.id > 0)
           .toList();
-      return list;
+      _cache = list;
+      return List<Movie>.of(list);
     } catch (_) {
       return const [];
     }
@@ -3199,11 +3223,13 @@ class LocalFavorites {
       key,
       jsonEncode(next.map((movie) => movie.toCacheJson()).toList()),
     );
+    _cache = next;
   }
 
   static Future<void> remove(int movieId) async {
     final prefs = await SharedPreferences.getInstance();
     final next = (await items()).where((movie) => movie.id != movieId).toList();
+    _cache = next;
     if (next.isEmpty) {
       await prefs.remove(key);
       return;
@@ -3217,6 +3243,7 @@ class LocalFavorites {
   static Future<void> clear() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(key);
+    _cache = <Movie>[];
   }
 }
 
