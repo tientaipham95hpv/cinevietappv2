@@ -2103,6 +2103,7 @@ class MovieRepository {
   final Api api;
   final Map<String, Movie> _cache = {};
   final Map<String, _MovieListCacheEntry> _listCache = {};
+  final Map<String, Future<List<Movie>>> _listInFlight = {};
   Set<int>? _favoriteIdsCache;
   static io.Socket? _activeWatchRoomSocket;
   static String? _activeWatchRoomCode;
@@ -2146,7 +2147,26 @@ class MovieRepository {
     if (!forceRefresh && cached != null && cached.isFresh) {
       return List<Movie>.of(cached.movies);
     }
+    if (!forceRefresh) {
+      final running = _listInFlight[cacheKey];
+      if (running != null) return List<Movie>.of(await running);
+    }
 
+    final request = _fetchList(query, cacheKey);
+    if (!forceRefresh) _listInFlight[cacheKey] = request;
+    try {
+      return List<Movie>.of(await request);
+    } finally {
+      if (identical(_listInFlight[cacheKey], request)) {
+        _listInFlight.remove(cacheKey);
+      }
+    }
+  }
+
+  Future<List<Movie>> _fetchList(
+    Map<String, Object> query,
+    String cacheKey,
+  ) async {
     final res = await api.dio.get('/movies', queryParameters: query);
     final movies = ((res.data['movies'] as List?) ?? const [])
         .whereType<Map>()
@@ -3994,15 +4014,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final sectionLimit = isTvBuild ? 8 : 18;
     final historyFuture = _safeHistory();
 
-    // Latest là dữ liệu lõi của Home. Không nuốt lỗi request này: nếu mạng/API
-    // thực sự hỏng, FutureBuilder phải hiện trạng thái lỗi thay vì một Home rỗng.
-    // Lấy dư một chút để vẫn dựng được các section khi request phụ timeout/429.
-    final latest = await widget.repo.list(limit: isTvBuild ? 24 : 48);
-    if (latest.isEmpty) {
-      throw StateError('API không trả dữ liệu phim cho Home');
-    }
-
-    final results = await Future.wait<List<Movie>>([
+    // Gọi tất cả section cùng lúc. Trước đây Latest chạy xong rồi mới bắt đầu
+    // 7 request còn lại, khiến Home bị cộng dồn latency mạng.
+    final homeRequests = await Future.wait<List<Movie>>([
+      widget.repo.list(limit: isTvBuild ? 24 : 48),
       _safeMovies(
         () => widget.repo.list(limit: isTvBuild ? 8 : 10, featured: '1'),
       ),
@@ -4013,6 +4028,12 @@ class _HomeScreenState extends State<HomeScreen> {
       _safeMovies(() => widget.repo.list(limit: sectionLimit, type: 'tvshows')),
       _safeMovies(() => widget.repo.list(limit: sectionLimit, bilingual: '1')),
     ]);
+    // Latest là dữ liệu lõi của Home; nếu request này hỏng thì vẫn báo lỗi rõ.
+    final latest = homeRequests[0];
+    if (latest.isEmpty) {
+      throw StateError('API không trả dữ liệu phim cho Home');
+    }
+    final results = homeRequests.sublist(1);
 
     List<Movie> sectionOrFallback(List<Movie> section, String type) {
       if (section.isNotEmpty) return section;
