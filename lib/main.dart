@@ -2111,12 +2111,17 @@ class _MovieListCacheEntry {
 
 class MovieRepository {
   MovieRepository(this.api);
+  static const _secondaryCacheTtl = Duration(seconds: 45);
   static const Duration _listCacheTtl = Duration(minutes: 10);
   final Api api;
   final Map<String, Movie> _cache = {};
   final Map<String, _MovieListCacheEntry> _listCache = {};
   final Map<String, Future<List<Movie>>> _listInFlight = {};
   Set<int>? _favoriteIdsCache;
+  final Map<int, (List<MovieComment>, DateTime)> _commentsCache = {};
+  final Map<int, (RatingStats, DateTime)> _ratingCache = {};
+  final Map<int, (PlaylistDetail, DateTime)> _playlistCache = {};
+  (List<WatchRoom>, DateTime)? _roomsCache;
   static io.Socket? _activeWatchRoomSocket;
   static String? _activeWatchRoomCode;
   static bool _activeWatchRoomIsHost = false;
@@ -2651,9 +2656,12 @@ class MovieRepository {
 
   Future<void> deletePlaylist(int playlistId) async {
     await api.dio.delete('/playlists/$playlistId');
+    _playlistCache.remove(playlistId);
   }
 
   Future<PlaylistDetail> playlistMovies(CinePlaylist playlist) async {
+    final cached = _playlistCache[playlist.id];
+    if (cached != null && DateTime.now().isBefore(cached.$2)) return cached.$1;
     final res = await api.dio.get('/playlists/${playlist.id}/movies');
     final data = res.data is Map
         ? Map<String, dynamic>.from(res.data as Map)
@@ -2669,7 +2677,12 @@ class MovieRepository {
             Map<String, dynamic>.from(data['playlist'] as Map),
           )
         : playlist;
-    return PlaylistDetail(playlist: nextPlaylist, movies: movies);
+    final value = PlaylistDetail(playlist: nextPlaylist, movies: movies);
+    _playlistCache[playlist.id] = (
+      value,
+      DateTime.now().add(_secondaryCacheTtl),
+    );
+    return value;
   }
 
   Future<void> addToPlaylist(int playlistId, int movieId) async {
@@ -2677,18 +2690,26 @@ class MovieRepository {
       '/playlists/$playlistId/movies',
       data: {'movie_id': movieId},
     );
+    _playlistCache.remove(playlistId);
   }
 
   Future<void> removeFromPlaylist(int playlistId, int movieId) async {
     await api.dio.delete('/playlists/$playlistId/movies/$movieId');
+    _playlistCache.remove(playlistId);
   }
 
   Future<List<MovieComment>> comments(int movieId) async {
+    final cached = _commentsCache[movieId];
+    if (cached != null && DateTime.now().isBefore(cached.$2)) {
+      return List.of(cached.$1);
+    }
     final res = await api.dio.get('/movies/$movieId/comments');
-    return (res.data is List ? res.data as List : const [])
+    final value = (res.data is List ? res.data as List : const [])
         .whereType<Map>()
         .map((e) => MovieComment.fromJson(Map<String, dynamic>.from(e)))
         .toList();
+    _commentsCache[movieId] = (value, DateTime.now().add(_secondaryCacheTtl));
+    return value;
   }
 
   Future<MovieComment> addComment(
@@ -2701,12 +2722,19 @@ class MovieRepository {
       '/movies/$movieId/comments',
       data: {'content': content.trim(), 'is_spoiler': isSpoiler},
     );
+    _commentsCache.remove(movieId);
     return MovieComment.fromJson(Map<String, dynamic>.from(res.data as Map));
   }
 
   Future<RatingStats> ratingStats(int movieId) async {
+    final cached = _ratingCache[movieId];
+    if (cached != null && DateTime.now().isBefore(cached.$2)) return cached.$1;
     final res = await api.dio.get('/movies/$movieId/rating-stats');
-    return RatingStats.fromJson(Map<String, dynamic>.from(res.data as Map));
+    final value = RatingStats.fromJson(
+      Map<String, dynamic>.from(res.data as Map),
+    );
+    _ratingCache[movieId] = (value, DateTime.now().add(_secondaryCacheTtl));
+    return value;
   }
 
   Future<RatingStats> rateMovie(int movieId, int rating) async {
@@ -2754,13 +2782,19 @@ class MovieRepository {
   }
 
   Future<List<WatchRoom>> publicRooms() async {
+    final cached = _roomsCache;
+    if (cached != null && DateTime.now().isBefore(cached.$2)) {
+      return List.of(cached.$1);
+    }
     final res = await api.dio.get('/watch-party/rooms');
     final rows = res.data is Map ? res.data['rooms'] as List? : null;
-    return (rows ?? const [])
+    final value = (rows ?? const [])
         .whereType<Map>()
         .map((e) => WatchRoom.fromJson(Map<String, dynamic>.from(e)))
         .where((e) => e.code.isNotEmpty)
         .toList();
+    _roomsCache = (value, DateTime.now().add(const Duration(seconds: 15)));
+    return value;
   }
 
   io.Socket _watchSocket() => io.io(
