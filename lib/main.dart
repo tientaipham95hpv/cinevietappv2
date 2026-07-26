@@ -11721,6 +11721,7 @@ class CrewSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (directors.isEmpty && cast.isEmpty) return const SizedBox.shrink();
+    final colors = Theme.of(context).colorScheme;
     final compact = MediaQuery.sizeOf(context).width < 520;
     final itemWidth = isTvBuild
         ? 176.0
@@ -11756,13 +11757,17 @@ class CrewSection extends StatelessWidget {
         ],
         if (cast.isNotEmpty) ...[
           Row(
-            children: const [
-              Icon(Icons.groups_rounded, size: 18, color: CvColors.muted),
-              SizedBox(width: 7),
+            children: [
+              Icon(
+                Icons.groups_rounded,
+                size: 18,
+                color: colors.onSurfaceVariant,
+              ),
+              const SizedBox(width: 7),
               Text(
                 'Diễn viên',
                 style: TextStyle(
-                  color: CvColors.muted,
+                  color: colors.onSurfaceVariant,
                   fontWeight: FontWeight.w800,
                 ),
               ),
@@ -11803,61 +11808,64 @@ class PersonRolePill extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => FocusButton(
-    onPressed: onTap,
-    child: Container(
-      constraints: const BoxConstraints(maxWidth: 360),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: CvColors.panel,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: CvColors.border),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          PersonAvatar(person: person, radius: 20),
-          const SizedBox(width: 10),
-          Flexible(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 14, color: CvColors.accent),
-                    const SizedBox(width: 5),
-                    Text(
-                      role,
-                      style: const TextStyle(
-                        color: CvColors.accent,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w900,
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return FocusButton(
+      onPressed: onTap,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 360),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: colors.surfaceContainer,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: colors.outlineVariant),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            PersonAvatar(person: person, radius: 20),
+            const SizedBox(width: 10),
+            Flexible(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 14, color: CvColors.accent),
+                      const SizedBox(width: 5),
+                      Text(
+                        role,
+                        style: const TextStyle(
+                          color: CvColors.accent,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w900,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  person.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w900),
-                ),
-              ],
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    person.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                ],
+              ),
             ),
-          ),
-          const SizedBox(width: 6),
-          const Icon(
-            Icons.chevron_right_rounded,
-            color: CvColors.soft,
-            size: 20,
-          ),
-        ],
+            const SizedBox(width: 6),
+            Icon(
+              Icons.chevron_right_rounded,
+              color: colors.onSurfaceVariant,
+              size: 20,
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class PersonCard extends StatelessWidget {
@@ -11873,42 +11881,45 @@ class PersonCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: width,
-    child: FocusButton(
-      onPressed: onTap,
-      child: Container(
-        height: double.infinity,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: CvColors.panel,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: CvColors.border),
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            PersonAvatar(person: person, radius: isTvBuild ? 38 : 30),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 36,
-              child: Text(
-                person.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                textScaler: TextScaler.noScaling,
-                style: const TextStyle(
-                  fontWeight: FontWeight.w800,
-                  height: 1.15,
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return SizedBox(
+      width: width,
+      child: FocusButton(
+        onPressed: onTap,
+        child: Container(
+          height: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: colors.surfaceContainer,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: colors.outlineVariant),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              PersonAvatar(person: person, radius: isTvBuild ? 38 : 30),
+              const SizedBox(height: 10),
+              SizedBox(
+                height: 36,
+                child: Text(
+                  person.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  textScaler: TextScaler.noScaling,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    height: 1.15,
+                  ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class PersonAvatar extends StatelessWidget {
@@ -11924,7 +11935,7 @@ class PersonAvatar extends StatelessWidget {
         : person.name.characters.first.toUpperCase();
     return CircleAvatar(
       radius: radius,
-      backgroundColor: CvColors.panel2,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHigh,
       backgroundImage: person.avatarUrl.isNotEmpty
           ? CachedNetworkImageProvider(person.avatarUrl)
           : null,
@@ -12005,6 +12016,7 @@ class _SocialSectionState extends State<SocialSection> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     return FutureBuilder<bool>(
       future: loggedIn,
       builder: (context, authSnapshot) {
@@ -12037,7 +12049,7 @@ class _SocialSectionState extends State<SocialSection> {
                       const SizedBox(width: 8),
                       Text(
                         '(${stats?.total ?? 0} lượt)',
-                        style: const TextStyle(color: CvColors.muted),
+                        style: TextStyle(color: colors.onSurfaceVariant),
                       ),
                     ],
                   );
@@ -12057,21 +12069,25 @@ class _SocialSectionState extends State<SocialSection> {
                             : Icons.star_border_rounded,
                         color: canInteract
                             ? CvColors.amber
-                            : CvColors.muted.withValues(alpha: .55),
+                            : colors.onSurfaceVariant.withValues(alpha: .7),
                       ),
                     ),
                 ],
               ),
               if (!canInteract) ...[
                 const SizedBox(height: 6),
-                const Row(
+                Row(
                   children: [
-                    Icon(Icons.lock_rounded, size: 18, color: CvColors.muted),
-                    SizedBox(width: 8),
+                    Icon(
+                      Icons.lock_rounded,
+                      size: 18,
+                      color: colors.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Đăng nhập để bình luận và chấm điểm.',
-                        style: TextStyle(color: CvColors.muted),
+                        style: TextStyle(color: colors.onSurfaceVariant),
                       ),
                     ),
                   ],
@@ -12119,9 +12135,9 @@ class _SocialSectionState extends State<SocialSection> {
                     );
                   }
                   if (rows.isEmpty) {
-                    return const Text(
+                    return Text(
                       'Chưa có bình luận',
-                      style: TextStyle(color: CvColors.muted),
+                      style: TextStyle(color: colors.onSurfaceVariant),
                     );
                   }
                   return Column(
@@ -12172,8 +12188,8 @@ class _SocialSectionState extends State<SocialSection> {
                                           const SizedBox(width: 6),
                                           Text(
                                             '${item.likes} thích',
-                                            style: const TextStyle(
-                                              color: CvColors.muted,
+                                            style: TextStyle(
+                                              color: colors.onSurfaceVariant,
                                               fontSize: 12,
                                             ),
                                           ),
@@ -12185,9 +12201,9 @@ class _SocialSectionState extends State<SocialSection> {
                                       item.isSpoiler
                                           ? '[Spoiler] ${item.content}'
                                           : item.content,
-                                      style: const TextStyle(
+                                      style: TextStyle(
                                         height: 1.35,
-                                        color: CvColors.text,
+                                        color: colors.onSurface,
                                       ),
                                     ),
                                   ],
