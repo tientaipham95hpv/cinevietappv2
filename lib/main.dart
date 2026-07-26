@@ -2322,6 +2322,17 @@ class MovieRepository {
     } catch (error) {
       debugPrint('CineViet duplicate season source lookup failed: $error');
     }
+
+  Future<List<Movie>> related(int movieId) async {
+    final res = await api.dio.get(
+      '/movies/$movieId/related',
+      queryParameters: const {'limit': 12},
+    );
+    final rows = res.data is List ? res.data as List : const [];
+    return rows
+        .whereType<Map>()
+        .map((row) => Movie.fromJson(Map<String, dynamic>.from(row)))
+        .toList();
   }
 
   Future<IntroSkipData?> introSkipSegments({
@@ -10440,11 +10451,13 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   bool descriptionExpanded = false;
   int detailSectionIndex = 0;
   WatchItem? resumeItem;
+  late Future<List<Movie>> related;
 
   @override
   void initState() {
     super.initState();
     future = widget.repo.detail(widget.initial.routeKey);
+    related = widget.repo.related(widget.initial.id);
     favoriteMovieId = widget.initial.id;
     refreshFavoriteState(widget.initial);
     refreshResumeState(widget.initial);
@@ -10479,6 +10492,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     if (part.movieId == current.id || part.isCurrent) return;
     setState(() {
       future = widget.repo.detail(part.slug);
+      related = widget.repo.related(part.movieId);
       serverIndex = 0;
       detailSectionIndex = 0;
       descriptionExpanded = false;
@@ -10640,23 +10654,40 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                   cast: cast.take(30).toList(),
                 ),
               ),
-            if (snapshot.hasData && !isTvBuild)
+            if (!isTvBuild)
               DetailSectionTab(
                 label: 'Bình luận',
                 icon: Icons.forum_rounded,
-                builder: (_) => SocialSection(repo: widget.repo, movie: movie),
-              ),
-            if (movie.related.isNotEmpty)
-              DetailSectionTab(
-                label: 'Đề xuất',
-                icon: Icons.auto_awesome_rounded,
-                builder: (_) => MovieRow(
-                  title: 'Có thể bạn thích',
-                  movies: movie.related,
+                builder: (_) => SocialSection(
+                  key: ValueKey('social-${movie.id}'),
                   repo: widget.repo,
-                  padded: false,
+                  movie: movie,
                 ),
               ),
+            DetailSectionTab(
+              label: 'Đề xuất',
+              icon: Icons.auto_awesome_rounded,
+              builder: (_) => FutureBuilder<List<Movie>>(
+                future: related,
+                builder: (context, relatedSnapshot) {
+                  final movies = relatedSnapshot.data ?? movie.related;
+                  if (movies.isEmpty && !relatedSnapshot.hasData) {
+                    return const LinearProgressIndicator(
+                      color: CvColors.accent,
+                    );
+                  }
+                  if (movies.isEmpty) {
+                    return const Text('Chưa có phim đề xuất');
+                  }
+                  return MovieRow(
+                    title: 'Có thể bạn thích',
+                    movies: movies,
+                    repo: widget.repo,
+                    padded: false,
+                  );
+                },
+              ),
+            ),
           ];
           final activeDetailSectionIndex = detailTabs.isEmpty
               ? 0
