@@ -721,19 +721,31 @@ class Api {
     return _accessToken.isNotEmpty || _refreshToken.isNotEmpty;
   }
 
+  static const _offlineVipOnlyCacheKey = 'cineviet_offline_download_vip_only';
+
   Future<bool> offlineDownloadVipOnly() async {
-    const cacheKey = 'cineviet_offline_download_vip_only';
     final prefs = await SharedPreferences.getInstance();
+    final cached = prefs.getBool(_offlineVipOnlyCacheKey);
+    if (cached != null) {
+      // Trả ngay giá trị cache để không chặn UI chờ mạng; refresh nền cho
+      // lần sau.
+      unawaited(_refreshOfflineDownloadVipOnly(prefs));
+      return cached;
+    }
+    return _refreshOfflineDownloadVipOnly(prefs);
+  }
+
+  Future<bool> _refreshOfflineDownloadVipOnly(SharedPreferences prefs) async {
     try {
       final response = await dio.get<dynamic>('/settings');
       final data = response.data;
       final raw = data is Map ? data['offline_download_vip_only'] : null;
       final value = raw == false || raw == 0 || raw == '0' ? false : true;
-      await prefs.setBool(cacheKey, value);
+      await prefs.setBool(_offlineVipOnlyCacheKey, value);
       return value;
     } catch (_) {
       // Giữ mặc định VIP-only nếu chưa từng lấy được cấu hình.
-      return prefs.getBool(cacheKey) ?? true;
+      return prefs.getBool(_offlineVipOnlyCacheKey) ?? true;
     }
   }
 
@@ -19967,8 +19979,10 @@ Map<String, dynamic>? userMapFromAuthResponse(dynamic data) {
 Future<bool> requireOfflineVip(BuildContext context) async {
   if (!await requireOfflineLogin(context)) return false;
   if (!await Api.instance.offlineDownloadVipOnly()) return true;
+  // Local-first: dùng hồ sơ đã cache để mở ngay, chỉ gọi mạng khi chưa có
+  // cache (vừa đăng nhập xong cache đã được ghi từ /auth/me).
   final user =
-      await Api.instance.currentUser() ?? await Api.instance.cachedUser();
+      await Api.instance.cachedUser() ?? await Api.instance.currentUser();
   if (user != null && (isVipUser(user) || isAdminUser(user))) return true;
   if (!context.mounted) return false;
   showSnack(context, 'Tải xuống cần tài khoản VIP hoặc Administrator');
@@ -19985,6 +19999,10 @@ Future<bool> requireOfflineLogin(BuildContext context) async {
 }
 
 Future<bool> requireLogin(BuildContext context, String feature) async {
+  // Local-first: có phiên lưu cục bộ thì cho vào ngay, không chặn UI chờ
+  // /auth/me (mạng chậm gây delay vài giây). Màn hình đích tự xử lý nếu
+  // token hết hạn: interceptor sẽ refresh, sai nữa thì báo lỗi đăng nhập.
+  if (await Api.instance.hasStoredSession()) return true;
   if (await isLoggedIn()) return true;
   if (!context.mounted) return false;
   final openLogin = await showDialog<bool>(
