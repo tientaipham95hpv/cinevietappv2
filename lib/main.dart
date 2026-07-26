@@ -16951,189 +16951,216 @@ class PlayerOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = controller;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        gradient: dimBackground
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  Colors.black.withValues(alpha: .72),
-                  Colors.transparent,
-                  Colors.black.withValues(alpha: .82),
-                ],
-              )
-            : null,
+    // Player luôn nằm trên video/nền tối. Không kế thừa ColorScheme sáng của
+    // ứng dụng vì icon và chữ điều khiển sẽ thành màu đen, gần như biến mất.
+    final appTheme = Theme.of(context);
+    final playerColors = appTheme.colorScheme.copyWith(
+      brightness: Brightness.dark,
+      primary: CvColors.accent,
+      onPrimary: Colors.black,
+      surface: Colors.black,
+      onSurface: Colors.white,
+      onSurfaceVariant: const Color(0xFFD4D8DC),
+      surfaceContainer: const Color(0xFF202124),
+      surfaceContainerHigh: const Color(0xFF2A2B2E),
+    );
+    return Theme(
+      data: appTheme.copyWith(
+        brightness: Brightness.dark,
+        colorScheme: playerColors,
+        iconTheme: const IconThemeData(color: Colors.white),
+        textTheme: appTheme.textTheme.apply(
+          bodyColor: Colors.white,
+          displayColor: Colors.white,
+        ),
       ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  IconButton.filledTonal(
-                    focusNode: backFocusNode,
-                    onPressed: onBack ?? () => Navigator.of(context).maybePop(),
-                    icon: const Icon(Icons.arrow_back_rounded),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontWeight: FontWeight.w800),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: dimBackground
+              ? LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    Colors.black.withValues(alpha: .72),
+                    Colors.transparent,
+                    Colors.black.withValues(alpha: .82),
+                  ],
+                )
+              : null,
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    IconButton.filledTonal(
+                      focusNode: backFocusNode,
+                      onPressed:
+                          onBack ?? () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w800),
+                          ),
+                          Text(
+                            '$episode • $sourceLabel',
+                            style: const TextStyle(color: CvColors.muted),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (onExternalPlayer != null)
+                      IconButton.filledTonal(
+                        tooltip: 'Mở bằng VLC / MX Player',
+                        onPressed: onExternalPlayer,
+                        icon: const Icon(Icons.open_in_new_rounded),
+                      ),
+                    if (onToggleFullscreen != null)
+                      IconButton.filledTonal(
+                        tooltip: landscapeFullscreen
+                            ? 'Thoát màn hình ngang'
+                            : 'Xem toàn màn hình ngang',
+                        onPressed: onToggleFullscreen,
+                        icon: Icon(
+                          landscapeFullscreen
+                              ? Icons.fullscreen_exit_rounded
+                              : Icons.fullscreen_rounded,
                         ),
-                        Text(
-                          '$episode • $sourceLabel',
-                          style: const TextStyle(color: CvColors.muted),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                      ),
+                  ],
+                ),
+                const Spacer(),
+                if (c != null && c.value.isInitialized)
+                  ValueListenableBuilder<VideoPlayerValue>(
+                    valueListenable: c,
+                    builder: (context, value, _) => Column(
+                      children: [
+                        PlayerSeekBar(
+                          controller: c,
+                          onSeekBackward: onReplay,
+                          onSeekForward: onForward,
+                          onFocusBack: onFocusBack,
+                          focusNode: seekBarFocusNode,
+                          onFocusPrimaryControl: onFocusPrimaryControl,
+                        ),
+                        const SizedBox(height: 12),
+                        LayoutBuilder(
+                          builder: (context, constraints) {
+                            final compact = constraints.maxWidth < 640;
+                            final buttons = [
+                              PlayerControlButton(
+                                icon: Icons.video_library_rounded,
+                                label: 'Tập',
+                                onPressed: onEpisodes,
+                              ),
+                              PlayerControlButton(
+                                icon: Icons.skip_previous_rounded,
+                                label: 'Trước',
+                                onPressed: canPrevious ? onPrevious : null,
+                              ),
+                              PlayerControlButton(
+                                icon: Icons.replay_10_rounded,
+                                label: 'Lùi',
+                                onPressed: onReplay,
+                              ),
+                              FocusButton(
+                                focusNode: playFocusNode,
+                                autofocus: isTvBuild,
+                                onPressed: onPlayPause,
+                                child: SizedBox.square(
+                                  dimension: compact ? 54 : 62,
+                                  child: Center(
+                                    child: Icon(
+                                      value.isPlaying
+                                          ? Icons.pause_rounded
+                                          : Icons.play_arrow_rounded,
+                                      size: compact ? 28 : 34,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              PlayerControlButton(
+                                icon: Icons.forward_10_rounded,
+                                label: 'Tới',
+                                onPressed: onForward,
+                              ),
+                              PlayerControlButton(
+                                icon: Icons.skip_next_rounded,
+                                label: 'Sau',
+                                onPressed: canNext ? onNext : null,
+                              ),
+                              PlayerControlButton(
+                                icon: Icons.fit_screen_rounded,
+                                label: fitLabel,
+                                onPressed: onFit,
+                              ),
+                              PlayerControlButton(
+                                icon: Icons.settings_rounded,
+                                label: 'Cài đặt',
+                                onPressed: onSettings,
+                              ),
+                            ];
+                            final visibleButtons = compact
+                                ? [
+                                    buttons[0],
+                                    buttons[1],
+                                    buttons[2],
+                                    buttons[3],
+                                    buttons[4],
+                                    buttons[5],
+                                    buttons[7],
+                                  ]
+                                : buttons;
+                            return Row(
+                              children: [
+                                Expanded(
+                                  child: Focus(
+                                    onKeyEvent: (_, event) {
+                                      if (event is KeyDownEvent &&
+                                          event.logicalKey ==
+                                              LogicalKeyboardKey.arrowUp) {
+                                        onFocusSeekBar();
+                                        return KeyEventResult.handled;
+                                      }
+                                      return KeyEventResult.ignored;
+                                    },
+                                    child: SingleChildScrollView(
+                                      scrollDirection: Axis.horizontal,
+                                      child: Row(children: visibleButtons),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  '${fmtDuration(value.position)} / ${fmtDuration(value.duration)}',
+                                  style: const TextStyle(
+                                    fontFeatures: [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            );
+                          },
                         ),
                       ],
                     ),
                   ),
-                  if (onExternalPlayer != null)
-                    IconButton.filledTonal(
-                      tooltip: 'Mở bằng VLC / MX Player',
-                      onPressed: onExternalPlayer,
-                      icon: const Icon(Icons.open_in_new_rounded),
-                    ),
-                  if (onToggleFullscreen != null)
-                    IconButton.filledTonal(
-                      tooltip: landscapeFullscreen
-                          ? 'Thoát màn hình ngang'
-                          : 'Xem toàn màn hình ngang',
-                      onPressed: onToggleFullscreen,
-                      icon: Icon(
-                        landscapeFullscreen
-                            ? Icons.fullscreen_exit_rounded
-                            : Icons.fullscreen_rounded,
-                      ),
-                    ),
-                ],
-              ),
-              const Spacer(),
-              if (c != null && c.value.isInitialized)
-                ValueListenableBuilder<VideoPlayerValue>(
-                  valueListenable: c,
-                  builder: (context, value, _) => Column(
-                    children: [
-                      PlayerSeekBar(
-                        controller: c,
-                        onSeekBackward: onReplay,
-                        onSeekForward: onForward,
-                        onFocusBack: onFocusBack,
-                        focusNode: seekBarFocusNode,
-                        onFocusPrimaryControl: onFocusPrimaryControl,
-                      ),
-                      const SizedBox(height: 12),
-                      LayoutBuilder(
-                        builder: (context, constraints) {
-                          final compact = constraints.maxWidth < 640;
-                          final buttons = [
-                            PlayerControlButton(
-                              icon: Icons.video_library_rounded,
-                              label: 'Tập',
-                              onPressed: onEpisodes,
-                            ),
-                            PlayerControlButton(
-                              icon: Icons.skip_previous_rounded,
-                              label: 'Trước',
-                              onPressed: canPrevious ? onPrevious : null,
-                            ),
-                            PlayerControlButton(
-                              icon: Icons.replay_10_rounded,
-                              label: 'Lùi',
-                              onPressed: onReplay,
-                            ),
-                            FocusButton(
-                              focusNode: playFocusNode,
-                              autofocus: isTvBuild,
-                              onPressed: onPlayPause,
-                              child: SizedBox.square(
-                                dimension: compact ? 54 : 62,
-                                child: Center(
-                                  child: Icon(
-                                    value.isPlaying
-                                        ? Icons.pause_rounded
-                                        : Icons.play_arrow_rounded,
-                                    size: compact ? 28 : 34,
-                                  ),
-                                ),
-                              ),
-                            ),
-                            PlayerControlButton(
-                              icon: Icons.forward_10_rounded,
-                              label: 'Tới',
-                              onPressed: onForward,
-                            ),
-                            PlayerControlButton(
-                              icon: Icons.skip_next_rounded,
-                              label: 'Sau',
-                              onPressed: canNext ? onNext : null,
-                            ),
-                            PlayerControlButton(
-                              icon: Icons.fit_screen_rounded,
-                              label: fitLabel,
-                              onPressed: onFit,
-                            ),
-                            PlayerControlButton(
-                              icon: Icons.settings_rounded,
-                              label: 'Cài đặt',
-                              onPressed: onSettings,
-                            ),
-                          ];
-                          final visibleButtons = compact
-                              ? [
-                                  buttons[0],
-                                  buttons[1],
-                                  buttons[2],
-                                  buttons[3],
-                                  buttons[4],
-                                  buttons[5],
-                                  buttons[7],
-                                ]
-                              : buttons;
-                          return Row(
-                            children: [
-                              Expanded(
-                                child: Focus(
-                                  onKeyEvent: (_, event) {
-                                    if (event is KeyDownEvent &&
-                                        event.logicalKey ==
-                                            LogicalKeyboardKey.arrowUp) {
-                                      onFocusSeekBar();
-                                      return KeyEventResult.handled;
-                                    }
-                                    return KeyEventResult.ignored;
-                                  },
-                                  child: SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Row(children: visibleButtons),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Text(
-                                '${fmtDuration(value.position)} / ${fmtDuration(value.duration)}',
-                                style: const TextStyle(
-                                  fontFeatures: [FontFeature.tabularFigures()],
-                                  fontSize: 12,
-                                ),
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
