@@ -12230,35 +12230,60 @@ class _SocialSectionState extends State<SocialSection> {
                                   children: [
                                     Row(
                                       crossAxisAlignment:
-                                          CrossAxisAlignment.center,
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        Flexible(
-                                          child: Text(
-                                            item.userName,
-                                            maxLines: 1,
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w800,
-                                              fontSize: 15,
-                                            ),
+                                        // Wrap để tag tự xuống dòng khi hẹp,
+                                        // không cắt cụt tên người dùng.
+                                        Expanded(
+                                          child: Wrap(
+                                            spacing: 6,
+                                            runSpacing: 4,
+                                            crossAxisAlignment:
+                                                WrapCrossAlignment.center,
+                                            children: [
+                                              Text(
+                                                item.userName,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w800,
+                                                  fontSize: 15,
+                                                ),
+                                              ),
+                                              if (item.isAdmin || item.isVip)
+                                                _MembershipTag(
+                                                  label: item.isAdmin
+                                                      ? 'Administrator'
+                                                      : 'Chủ Tịch Donate',
+                                                  isAdmin: item.isAdmin,
+                                                ),
+                                            ],
                                           ),
                                         ),
-                                        if (item.isAdmin || item.isVip) ...[
-                                          const SizedBox(width: 6),
-                                          _MembershipTag(
-                                            label: item.isAdmin
-                                                ? 'Administrator'
-                                                : 'Chủ Tịch Donate',
-                                            isAdmin: item.isAdmin,
-                                          ),
-                                        ],
                                         if (item.likes > 0) ...[
-                                          const SizedBox(width: 6),
-                                          Text(
-                                            '${item.likes} thích',
-                                            style: TextStyle(
-                                              color: colors.onSurfaceVariant,
-                                              fontSize: 12,
+                                          const SizedBox(width: 8),
+                                          Padding(
+                                            padding: const EdgeInsets.only(
+                                              top: 2,
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.favorite_rounded,
+                                                  size: 13,
+                                                  color:
+                                                      colors.onSurfaceVariant,
+                                                ),
+                                                const SizedBox(width: 3),
+                                                Text(
+                                                  '${item.likes}',
+                                                  style: TextStyle(
+                                                    color:
+                                                        colors.onSurfaceVariant,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                           ),
                                         ],
@@ -12298,41 +12323,55 @@ class _MembershipTag extends StatelessWidget {
   final bool isAdmin;
 
   @override
-  Widget build(BuildContext context) => DecoratedBox(
-    decoration: BoxDecoration(
-      color: isAdmin
-          ? const Color(0xFFFFC83D).withValues(alpha: .16)
-          : const Color(0xFF9B59FF).withValues(alpha: .2),
-      borderRadius: BorderRadius.circular(999),
-      border: Border.all(
-        color: isAdmin ? const Color(0xFFFFC83D) : const Color(0xFFB983FF),
+  Widget build(BuildContext context) {
+    // Màu theo brightness: theme sáng dùng chữ đậm hơn để không bị chìm
+    // trên nền trắng; theme tối giữ tông pastel cũ.
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final Color fg;
+    final Color bg;
+    final Color border;
+    if (isAdmin) {
+      fg = isDark ? const Color(0xFFFFD76A) : const Color(0xFF9A6A00);
+      bg = const Color(0xFFFFC83D).withValues(alpha: isDark ? .16 : .14);
+      border = isDark ? const Color(0xFFFFC83D) : const Color(0xFFE0A800);
+    } else {
+      fg = isDark ? const Color(0xFFD8B4FE) : const Color(0xFF7C3AED);
+      bg = const Color(0xFF9B59FF).withValues(alpha: isDark ? .2 : .1);
+      border = isDark ? const Color(0xFFB983FF) : const Color(0xFFA855F7);
+    }
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border.withValues(alpha: .55)),
       ),
-    ),
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.workspace_premium_rounded,
-            size: 12,
-            color: isAdmin ? const Color(0xFFFFD76A) : const Color(0xFFD8B4FE),
-          ),
-          const SizedBox(width: 3),
-          Text(
-            label,
-            style: TextStyle(
-              color: isAdmin
-                  ? const Color(0xFFFFD76A)
-                  : const Color(0xFFD8B4FE),
-              fontSize: 10,
-              fontWeight: FontWeight.w900,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              isAdmin
+                  ? Icons.verified_rounded
+                  : Icons.workspace_premium_rounded,
+              size: 12,
+              color: fg,
             ),
-          ),
-        ],
+            const SizedBox(width: 3),
+            Text(
+              label,
+              style: TextStyle(
+                color: fg,
+                fontSize: 10,
+                fontWeight: FontWeight.w900,
+                letterSpacing: .2,
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class ResumeLoaderScreen extends StatefulWidget {
