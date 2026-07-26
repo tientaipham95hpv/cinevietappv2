@@ -834,25 +834,31 @@ class Api {
     if (!hasAuthToken && allowRefresh) await refreshToken();
     if (!hasAuthToken) return null;
     try {
-      final res = await dio.get('/auth/me');
+      final res = await dio.get(
+        '/auth/me',
+        options: Options(
+          receiveTimeout: const Duration(seconds: 6),
+          extra: const {'retryCount': 2},
+        ),
+      );
       final user = userMapFromAuthResponse(res.data);
       if (user != null) await _cacheUser(user);
       if (user != null || !allowRefresh) return user;
       if (!await refreshToken()) return null;
-      final retry = await dio.get('/auth/me');
+      final retry = await dio.get(
+        '/auth/me',
+        options: Options(
+          receiveTimeout: const Duration(seconds: 6),
+          extra: const {'retryCount': 2},
+        ),
+      );
       final refreshedUser = userMapFromAuthResponse(retry.data);
       if (refreshedUser != null) await _cacheUser(refreshedUser);
       return refreshedUser;
     } catch (_) {
-      if (!allowRefresh || !await refreshToken()) return null;
-      try {
-        final retry = await dio.get('/auth/me');
-        final user = userMapFromAuthResponse(retry.data);
-        if (user != null) await _cacheUser(user);
-        return user;
-      } catch (_) {
-        return null;
-      }
+      // The interceptor already refreshes and retries a 401 once. Do not turn
+      // an ordinary slow/offline request into another refresh + /auth/me wait.
+      return null;
     }
   }
 }
@@ -2310,6 +2316,10 @@ class MovieRepository {
       final res = await api.dio.get(
         '/history/continue-watching',
         queryParameters: {'limit': 20},
+        options: Options(
+          receiveTimeout: const Duration(seconds: 6),
+          extra: const {'retryCount': 2},
+        ),
       );
       final rows = res.data is List
           ? res.data as List
@@ -2393,9 +2403,11 @@ class MovieRepository {
   }
 
   Future<({int history, int favorites})> syncLocalLibraryToCloud() async {
-    final history = await syncLocalHistoryToCloud();
-    final favorites = await syncLocalFavoritesToCloud();
-    return (history: history, favorites: favorites);
+    final results = await Future.wait<int>([
+      syncLocalHistoryToCloud(),
+      syncLocalFavoritesToCloud(),
+    ]);
+    return (history: results[0], favorites: results[1]);
   }
 
   Future<void> reportPlaybackEvent({
@@ -3118,16 +3130,10 @@ class LocalFavorites {
   }
 }
 
-Future<List<WatchItem>> mergedWatchHistory(MovieRepository repo) async {
-  final local = await LocalHistory.items();
-  var cloud = const <WatchItem>[];
-  if (Api.instance.hasAuthToken) {
-    try {
-      cloud = await repo.cloudHistory();
-    } catch (error) {
-      debugPrint('CineViet cloud history merge error: $error');
-    }
-  }
+List<WatchItem> mergeWatchHistoryItems(
+  List<WatchItem> local,
+  List<WatchItem> cloud,
+) {
   final merged = <int, WatchItem>{};
   for (final item in [...local, ...cloud]) {
     if (!item.shouldShow || item.movieId <= 0) continue;
@@ -3139,6 +3145,19 @@ Future<List<WatchItem>> mergedWatchHistory(MovieRepository repo) async {
   final list = merged.values.toList();
   list.sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
   return list;
+}
+
+Future<List<WatchItem>> mergedWatchHistory(MovieRepository repo) async {
+  final local = await LocalHistory.items();
+  var cloud = const <WatchItem>[];
+  if (Api.instance.hasAuthToken) {
+    try {
+      cloud = await repo.cloudHistory();
+    } catch (error) {
+      debugPrint('CineViet cloud history merge error: $error');
+    }
+  }
+  return mergeWatchHistoryItems(local, cloud);
 }
 
 WatchItem? findWatchItemForMovie(List<WatchItem> items, Movie movie) {
@@ -3959,9 +3978,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Đọc cache trước để hiển thị tức thì, sau đó tải mới ghi đè (stale-while-revalidate).
   Future<HomeData> _loadWithCache() async {
-    final cached = await HomeCache.read();
+    final results = await Future.wait<dynamic>([
+      HomeCache.read(),
+      LocalHistory.items(),
+    ]);
+    final cached = results[0] as HomeData?;
+    final localHistory = results[1] as List<WatchItem>;
     if (cached != null && mounted) {
-      setState(() => _cachedHome = cached);
+      setState(() => _cachedHome = cached.copyWith(history: localHistory));
     }
     return _load();
   }
@@ -6363,11 +6387,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
   @override
   void initState() {
     super.initState();
-    items = _history();
+    items = LocalHistory.items();
+    unawaited(_refreshFromCloud());
   }
 
   Future<List<WatchItem>> _history() async {
     return mergedWatchHistory(widget.repo);
+  }
+
+  Future<void> _refreshFromCloud() async {
+    final next = await _history();
+    if (mounted) setState(() => items = Future.value(next));
   }
 
   Future<void> _remove(WatchItem item) async {
@@ -6501,12 +6531,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    meFuture = _me();
+    meFuture = Api.instance.cachedUser();
+    unawaited(_refreshMe());
     _startOAuthPolling();
   }
 
   Future<Map<String, dynamic>?> _me() async {
     return await Api.instance.currentUser() ?? Api.instance.cachedUser();
+  }
+
+  Future<void> _refreshMe() async {
+    final user = await _me();
+    if (mounted) setState(() => meFuture = Future.value(user));
   }
 
   Future<Map<String, dynamic>?> _benefits() async {
