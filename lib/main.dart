@@ -53,6 +53,7 @@ import 'package:webview_flutter_wkwebview/webview_flutter_wkwebview.dart';
 import 'package:webview_windows/webview_windows.dart' as windows_webview;
 
 import 'offline_downloads.dart';
+import 'app_performance.dart';
 
 const apiBase = 'https://cineviet.live/api';
 const siteBase = 'https://cineviet.live';
@@ -606,6 +607,7 @@ class Api {
     dio.interceptors.add(
       QueuedInterceptorsWrapper(
         onRequest: (options, handler) async {
+          options.extra['_cinevietStartedAt'] = DateTime.now();
           final token = await _readAccessToken();
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
@@ -636,6 +638,16 @@ class Api {
           }
           if (await _retryTransient(error, handler)) return;
           handler.next(error);
+        },
+        onResponse: (response, handler) {
+          final started = response.requestOptions.extra['_cinevietStartedAt'];
+          if (started is DateTime) {
+            AppPerformance.logSlow(
+              'API ${response.requestOptions.method} ${response.requestOptions.path}',
+              started,
+            );
+          }
+          handler.next(response);
         },
       ),
     );
@@ -12416,7 +12428,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     watchMessages.addAll(widget.watchTogetherState?.messages ?? const []);
     WakelockPlus.enable();
     _syncDeviceLevels();
-    deviceLevelSyncTimer = Timer.periodic(const Duration(seconds: 2), (_) {
+    deviceLevelSyncTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted ||
           controlsLocked ||
           dragMode != null ||
@@ -13645,7 +13657,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       playbackNotice = null;
       error = null;
       saveTimer?.cancel();
-      saveTimer = Timer.periodic(const Duration(seconds: 20), (_) => _save());
+      saveTimer = Timer.periodic(const Duration(seconds: 30), (_) => _save());
       _trackPlaybackEvent('webview_windows_start');
       if (mounted) setState(() {});
       _scheduleControlsHide();
@@ -13739,7 +13751,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     error = null;
     // WebView không có controller native nên cần timer riêng để lưu "Xem tiếp".
     saveTimer?.cancel();
-    saveTimer = Timer.periodic(const Duration(seconds: 20), (_) => _save());
+    saveTimer = Timer.periodic(const Duration(seconds: 30), (_) => _save());
     _trackPlaybackEvent('webview_start');
     if (mounted) setState(() {});
     if (isTvBuild) {
@@ -13855,7 +13867,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         if (resume != null && resume.inSeconds > 3) await next.seekTo(resume);
         await next.play();
         next.addListener(_handlePlayerTick);
-        saveTimer = Timer.periodic(const Duration(seconds: 20), (_) => _save());
+        saveTimer = Timer.periodic(const Duration(seconds: 30), (_) => _save());
         playbackNotice = null;
         if (mounted) setState(() {});
         return;
@@ -13978,7 +13990,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         _loadIntroSkipSegments();
         recoveringPlayback = false;
         next.addListener(_handlePlayerTick);
-        saveTimer = Timer.periodic(const Duration(seconds: 20), (_) => _save());
+        saveTimer = Timer.periodic(const Duration(seconds: 30), (_) => _save());
         _scheduleControlsHide();
         _trackPlaybackEvent('playback_start');
         playbackNotice = null;
