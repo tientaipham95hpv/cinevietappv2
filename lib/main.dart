@@ -7562,10 +7562,10 @@ String vipLabel(Map<String, dynamic> user) {
   if (!isVipUser(user)) return 'Thành viên';
   final raw = cleanText(user['vip_expires_at'] ?? user['vipExpiresAt']);
   final parsed = DateTime.tryParse(raw)?.toLocal();
-  if (parsed == null) return 'VIP';
+  if (parsed == null) return 'Chủ Tịch Donate';
   final day = parsed.day.toString().padLeft(2, '0');
   final month = parsed.month.toString().padLeft(2, '0');
-  return 'VIP · hết hạn $day/$month/${parsed.year}';
+  return 'Chủ Tịch Donate · hết hạn $day/$month/${parsed.year}';
 }
 
 bool isVipUser(Map<String, dynamic> user, [int depth = 0]) {
@@ -12180,7 +12180,7 @@ class _SocialSectionState extends State<SocialSection> {
                                           _MembershipTag(
                                             label: item.isAdmin
                                                 ? 'Administrator'
-                                                : 'VIP',
+                                                : 'Chủ Tịch Donate',
                                             isAdmin: item.isAdmin,
                                           ),
                                         ],
