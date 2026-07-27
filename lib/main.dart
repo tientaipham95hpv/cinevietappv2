@@ -10499,6 +10499,10 @@ class MovieDetailScreen extends StatefulWidget {
 
 class _MovieDetailScreenState extends State<MovieDetailScreen> {
   late Future<Movie> future;
+  final detailScrollController = ScrollController();
+  final detailPrimaryActionFocusNode = FocusNode(
+    debugLabel: 'detail-primary-action',
+  );
   int serverIndex = 0;
   int? favoriteMovieId;
   bool isFavorite = false;
@@ -10559,6 +10563,27 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         });
       }
     }
+  }
+
+  @override
+  void dispose() {
+    detailScrollController.dispose();
+    detailPrimaryActionFocusNode.dispose();
+    super.dispose();
+  }
+
+  void focusDetailPrimaryAction() {
+    if (!isTvBuild) return;
+    if (detailScrollController.hasClients) {
+      detailScrollController.animateTo(
+        0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) detailPrimaryActionFocusNode.requestFocus();
+    });
   }
 
   Future<void> selectCollectionPart(MovieCollectionItem part) async {
@@ -10767,6 +10792,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               ? 0
               : detailSectionIndex.clamp(0, detailTabs.length - 1);
           return CustomScrollView(
+            controller: detailScrollController,
             key: PageStorageKey('detail-scroll-${movie.id}'),
             slivers: [
               SliverAppBar(
@@ -10876,6 +10902,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                         icon: Icons.play_circle_fill_rounded,
                                         label: resumeItem!.resumeLabel,
                                         primary: true,
+                                        focusNode: detailPrimaryActionFocusNode,
                                         onPressed: () =>
                                             openResume(resumeItem!),
                                       ),
@@ -10885,6 +10912,9 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                           ? 'Phát'
                                           : 'Xem từ đầu',
                                       primary: resumeItem == null,
+                                      focusNode: resumeItem == null
+                                          ? detailPrimaryActionFocusNode
+                                          : null,
                                       onPressed:
                                           selectedServer == null ||
                                               selectedServer.items.isEmpty
@@ -11016,57 +11046,68 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                 ),
               ),
               SliverToBoxAdapter(
-                child: Padding(
-                  padding: pagePadding(context).copyWith(top: 20, bottom: 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (movie.description.isNotEmpty)
-                        CollapsibleMovieDescription(
-                          description: movie.description,
-                          expanded: descriptionExpanded,
-                          collapsedLines: 2,
-                          onToggle: () => setState(
-                            () => descriptionExpanded = !descriptionExpanded,
+                child: Focus(
+                  onKeyEvent: (_, event) {
+                    if (!isTvBuild ||
+                        event is! KeyDownEvent ||
+                        event.logicalKey != LogicalKeyboardKey.arrowUp) {
+                      return KeyEventResult.ignored;
+                    }
+                    focusDetailPrimaryAction();
+                    return KeyEventResult.handled;
+                  },
+                  child: Padding(
+                    padding: pagePadding(context).copyWith(top: 20, bottom: 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (movie.description.isNotEmpty)
+                          CollapsibleMovieDescription(
+                            description: movie.description,
+                            expanded: descriptionExpanded,
+                            collapsedLines: 2,
+                            onToggle: () => setState(
+                              () => descriptionExpanded = !descriptionExpanded,
+                            ),
                           ),
-                        ),
-                      if ((movie.collection?.items.length ?? 0) >= 2) ...[
-                        const SizedBox(height: 22),
-                        MovieCollectionSelector(
-                          collection: movie.collection!,
-                          currentMovieId: movie.id,
-                          onSelected: selectCollectionPart,
-                        ),
-                      ],
-                      if (movie.genres.isNotEmpty) ...[
-                        const SizedBox(height: 18),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: movie.genres
-                              .map((e) => GenreChip(label: e))
-                              .toList(),
-                        ),
-                      ],
-                      if (!snapshot.hasData)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 24),
-                          child: LinearProgressIndicator(
-                            color: CvColors.accent,
+                        if ((movie.collection?.items.length ?? 0) >= 2) ...[
+                          const SizedBox(height: 22),
+                          MovieCollectionSelector(
+                            collection: movie.collection!,
+                            currentMovieId: movie.id,
+                            onSelected: selectCollectionPart,
                           ),
-                        ),
-                      if (detailTabs.isNotEmpty) ...[
-                        SizedBox(height: isTvBuild ? 30 : 24),
-                        DetailSectionTabs(
-                          tabs: detailTabs,
-                          selectedIndex: activeDetailSectionIndex,
-                          onSelected: (value) =>
-                              setState(() => detailSectionIndex = value),
-                        ),
-                        SizedBox(height: isTvBuild ? 20 : 16),
-                        detailTabs[activeDetailSectionIndex].builder(context),
+                        ],
+                        if (movie.genres.isNotEmpty) ...[
+                          const SizedBox(height: 18),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: movie.genres
+                                .map((e) => GenreChip(label: e))
+                                .toList(),
+                          ),
+                        ],
+                        if (!snapshot.hasData)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 24),
+                            child: LinearProgressIndicator(
+                              color: CvColors.accent,
+                            ),
+                          ),
+                        if (detailTabs.isNotEmpty) ...[
+                          SizedBox(height: isTvBuild ? 30 : 24),
+                          DetailSectionTabs(
+                            tabs: detailTabs,
+                            selectedIndex: activeDetailSectionIndex,
+                            onSelected: (value) =>
+                                setState(() => detailSectionIndex = value),
+                          ),
+                          SizedBox(height: isTvBuild ? 20 : 16),
+                          detailTabs[activeDetailSectionIndex].builder(context),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ),
@@ -11085,6 +11126,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     bool primary = false,
     Color? color,
     bool onHero = true,
+    FocusNode? focusNode,
   }) {
     if (useLeanbackControls) {
       return TvActionButton(
@@ -11092,6 +11134,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         label: label,
         primary: primary,
         selected: color != null,
+        focusNode: focusNode,
         onPressed: onPressed,
       );
     }
@@ -19172,6 +19215,7 @@ class TvActionButton extends StatelessWidget {
     this.danger = false,
     this.width,
     this.onFocus,
+    this.focusNode,
   });
 
   final IconData? icon;
@@ -19182,6 +19226,7 @@ class TvActionButton extends StatelessWidget {
   final bool danger;
   final double? width;
   final VoidCallback? onFocus;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -19237,6 +19282,7 @@ class TvActionButton extends StatelessWidget {
       selected: selected,
       onPressed: onPressed!,
       onFocus: onFocus,
+      focusNode: focusNode,
       child: content,
     );
   }
