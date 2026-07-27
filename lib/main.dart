@@ -69,6 +69,13 @@ const isTvBuild = bool.fromEnvironment('APP_IS_TV') || appFlavor == 'tv';
 const googleServerClientId =
     '186784861581-5l7skrrke87pmf669l6ach0brbra4v76.apps.googleusercontent.com';
 
+bool _isTvSeekKey(LogicalKeyboardKey key) {
+  return key == LogicalKeyboardKey.arrowLeft ||
+      key == LogicalKeyboardKey.arrowRight ||
+      key == LogicalKeyboardKey.mediaRewind ||
+      key == LogicalKeyboardKey.mediaFastForward;
+}
+
 final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 bool get supportsTvQrScan =>
@@ -12622,6 +12629,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     watchRoomState = widget.watchTogetherState;
     watchMessages.addAll(widget.watchTogetherState?.messages ?? const []);
     WakelockPlus.enable();
+    focusNode.addListener(() {
+      if (!focusNode.hasFocus) _stopTvSeekHold();
+    });
     _syncDeviceLevels();
     deviceLevelSyncTimer = Timer.periodic(const Duration(seconds: 5), (_) {
       if (!mounted ||
@@ -14636,11 +14646,20 @@ class _PlayerScreenState extends State<PlayerScreen>
     // Không phụ thuộc key-repeat của hãng remote: sau một nhịp giữ có chủ ý,
     // tự tua đều cho tới khi nhận KeyUp.
     tvSeekHoldDelayTimer = Timer(const Duration(milliseconds: 480), () {
-      if (tvSeekHeldKey != key || playerDisposed || leavingPlayer) return;
+      if (tvSeekHeldKey != key ||
+          playerDisposed ||
+          leavingPlayer ||
+          !HardwareKeyboard.instance.isLogicalKeyPressed(key)) {
+        _stopTvSeekHold();
+        return;
+      }
       tvSeekRepeatTimer = Timer.periodic(const Duration(milliseconds: 240), (
         _,
       ) {
-        if (tvSeekHeldKey != key || playerDisposed || leavingPlayer) {
+        if (tvSeekHeldKey != key ||
+            playerDisposed ||
+            leavingPlayer ||
+            !HardwareKeyboard.instance.isLogicalKeyPressed(key)) {
           _stopTvSeekHold();
           return;
         }
@@ -16253,23 +16272,19 @@ class _PlayerScreenState extends State<PlayerScreen>
           focusNode: focusNode,
           onKeyEvent: (event) {
             final key = event.logicalKey;
-            final isTvSeekKey =
-                key == LogicalKeyboardKey.arrowLeft ||
-                key == LogicalKeyboardKey.arrowRight ||
-                key == LogicalKeyboardKey.mediaRewind ||
-                key == LogicalKeyboardKey.mediaFastForward;
-            if (event is KeyUpEvent && isTvSeekKey) {
-              _stopTvSeekHold(key);
-              return;
+            final isTvSeekKey = _isTvSeekKey(key);
+            if (event is KeyUpEvent) {
+              if (tvSeekHeldKey != null) _stopTvSeekHold();
+              if (isTvSeekKey) return;
+            }
+            if (tvSeekHeldKey != null && !_isTvSeekKey(key)) {
+              _stopTvSeekHold();
             }
             // KeyRepeatEvent khác nhau giữa các hãng TV và có thể tới rất dày.
             // Timer riêng bên dưới là nguồn lặp duy nhất để tốc độ tua ổn định.
             if (event is KeyRepeatEvent && isTvBuild && isTvSeekKey) {
               final offset = _tvSeekOffsetForKey(key);
               if (offset != null) _startTvSeekHold(key, offset);
-              return;
-            }
-            if (event is KeyRepeatEvent && isTvBuild && tvSeekHeldKey == key) {
               return;
             }
             if (event is! KeyDownEvent) return;
@@ -17404,14 +17419,17 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
     if (!isTvBuild || repeatingKey == key) return;
     repeatSeekTimer?.cancel();
     repeatingKey = key;
-    repeatSeekTimer = Timer.periodic(
-      const Duration(milliseconds: 220),
-      (_) => seek(),
-    );
+    repeatSeekTimer = Timer.periodic(const Duration(milliseconds: 220), (_) {
+      if (!HardwareKeyboard.instance.isLogicalKeyPressed(key)) {
+        _stopRepeatSeek();
+        return;
+      }
+      seek();
+    });
   }
 
-  void _stopRepeatSeek(LogicalKeyboardKey key) {
-    if (repeatingKey != key) return;
+  void _stopRepeatSeek([LogicalKeyboardKey? key]) {
+    if (key != null && repeatingKey != key) return;
     repeatSeekTimer?.cancel();
     repeatSeekTimer = null;
     repeatingKey = null;
@@ -17427,7 +17445,10 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
   Widget build(BuildContext context) {
     return Focus(
       focusNode: widget.focusNode,
-      onFocusChange: (value) => setState(() => focused = value),
+      onFocusChange: (value) {
+        if (!value) _stopRepeatSeek();
+        setState(() => focused = value);
+      },
       onKeyEvent: (_, event) {
         final key = event.logicalKey;
         final isLeft =
@@ -17436,8 +17457,14 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
         final isRight =
             key == LogicalKeyboardKey.arrowRight ||
             key == LogicalKeyboardKey.mediaFastForward;
-        if (event is KeyUpEvent && (isLeft || isRight)) {
-          _stopRepeatSeek(key);
+        if (event is KeyUpEvent) {
+          if (repeatingKey != null) _stopRepeatSeek();
+          if (isLeft || isRight) return KeyEventResult.handled;
+        }
+        if (repeatingKey != null && !_isTvSeekKey(key)) {
+          _stopRepeatSeek();
+        }
+        if (event is KeyRepeatEvent && repeatingKey == key) {
           return KeyEventResult.handled;
         }
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
