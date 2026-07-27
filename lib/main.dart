@@ -10503,6 +10503,9 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   final detailPrimaryActionFocusNode = FocusNode(
     debugLabel: 'detail-primary-action',
   );
+  final detailEpisodeSectionFocusNode = FocusNode(
+    debugLabel: 'detail-episode-section-first-control',
+  );
   int serverIndex = 0;
   int? favoriteMovieId;
   bool isFavorite = false;
@@ -10569,6 +10572,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   void dispose() {
     detailScrollController.dispose();
     detailPrimaryActionFocusNode.dispose();
+    detailEpisodeSectionFocusNode.dispose();
     super.dispose();
   }
 
@@ -10583,6 +10587,13 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) detailPrimaryActionFocusNode.requestFocus();
+    });
+  }
+
+  void focusEpisodeSection() {
+    if (!isTvBuild) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) detailEpisodeSectionFocusNode.requestFocus();
     });
   }
 
@@ -10700,6 +10711,40 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           final detailHeroFallbackUrl = usePortraitHero
               ? movie.posterFallbackUrl
               : movie.backdropFallbackUrl;
+          Widget detailBackdrop() {
+            final fullBackdrop = NetworkBackdrop(
+              url: detailHeroUrl,
+              fallbackUrl: detailHeroFallbackUrl,
+              fit: BoxFit.contain,
+            );
+            if (!isTvBuild) {
+              return NetworkBackdrop(
+                url: detailHeroUrl,
+                fallbackUrl: detailHeroFallbackUrl,
+                fit: BoxFit.cover,
+              );
+            }
+            return Stack(
+              fit: StackFit.expand,
+              children: [
+                ImageFiltered(
+                  imageFilter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: NetworkBackdrop(
+                    url: detailHeroUrl,
+                    fallbackUrl: detailHeroFallbackUrl,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .32),
+                  ),
+                ),
+                fullBackdrop,
+              ],
+            );
+          }
+
           final titleSize = isTvBuild
               ? 46.0
               : detailWidth < 390
@@ -10732,6 +10777,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                   servers: servers,
                   serverIndex: serverIndex,
                   resumeItem: resumeItem,
+                  firstFocusNode: detailEpisodeSectionFocusNode,
+                  onFocusBackToActions: focusDetailPrimaryAction,
                   onServerChanged: (value) =>
                       setState(() => serverIndex = value),
                   onEpisodeSelected: openEpisode,
@@ -10808,19 +10855,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                     fit: StackFit.expand,
                     children: [
                       widget.heroTag != null
-                          ? Hero(
-                              tag: widget.heroTag!,
-                              child: NetworkBackdrop(
-                                url: detailHeroUrl,
-                                fallbackUrl: detailHeroFallbackUrl,
-                                fit: BoxFit.cover,
-                              ),
-                            )
-                          : NetworkBackdrop(
-                              url: detailHeroUrl,
-                              fallbackUrl: detailHeroFallbackUrl,
-                              fit: BoxFit.cover,
-                            ),
+                          ? Hero(tag: widget.heroTag!, child: detailBackdrop())
+                          : detailBackdrop(),
                       DecoratedBox(
                         decoration: BoxDecoration(
                           gradient: LinearGradient(
@@ -11046,68 +11082,63 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                 ),
               ),
               SliverToBoxAdapter(
-                child: Focus(
-                  onKeyEvent: (_, event) {
-                    if (!isTvBuild ||
-                        event is! KeyDownEvent ||
-                        event.logicalKey != LogicalKeyboardKey.arrowUp) {
-                      return KeyEventResult.ignored;
-                    }
-                    focusDetailPrimaryAction();
-                    return KeyEventResult.handled;
-                  },
-                  child: Padding(
-                    padding: pagePadding(context).copyWith(top: 20, bottom: 10),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (movie.description.isNotEmpty)
-                          CollapsibleMovieDescription(
-                            description: movie.description,
-                            expanded: descriptionExpanded,
-                            collapsedLines: 2,
-                            onToggle: () => setState(
-                              () => descriptionExpanded = !descriptionExpanded,
-                            ),
+                child: Padding(
+                  padding: pagePadding(context).copyWith(top: 20, bottom: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (movie.description.isNotEmpty)
+                        CollapsibleMovieDescription(
+                          description: movie.description,
+                          expanded: descriptionExpanded,
+                          collapsedLines: 2,
+                          onToggle: () => setState(
+                            () => descriptionExpanded = !descriptionExpanded,
                           ),
-                        if ((movie.collection?.items.length ?? 0) >= 2) ...[
-                          const SizedBox(height: 22),
-                          MovieCollectionSelector(
-                            collection: movie.collection!,
-                            currentMovieId: movie.id,
-                            onSelected: selectCollectionPart,
-                          ),
-                        ],
-                        if (movie.genres.isNotEmpty) ...[
-                          const SizedBox(height: 18),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: movie.genres
-                                .map((e) => GenreChip(label: e))
-                                .toList(),
-                          ),
-                        ],
-                        if (!snapshot.hasData)
-                          const Padding(
-                            padding: EdgeInsets.only(top: 24),
-                            child: LinearProgressIndicator(
-                              color: CvColors.accent,
-                            ),
-                          ),
-                        if (detailTabs.isNotEmpty) ...[
-                          SizedBox(height: isTvBuild ? 30 : 24),
-                          DetailSectionTabs(
-                            tabs: detailTabs,
-                            selectedIndex: activeDetailSectionIndex,
-                            onSelected: (value) =>
-                                setState(() => detailSectionIndex = value),
-                          ),
-                          SizedBox(height: isTvBuild ? 20 : 16),
-                          detailTabs[activeDetailSectionIndex].builder(context),
-                        ],
+                        ),
+                      if ((movie.collection?.items.length ?? 0) >= 2) ...[
+                        const SizedBox(height: 22),
+                        MovieCollectionSelector(
+                          collection: movie.collection!,
+                          currentMovieId: movie.id,
+                          onSelected: selectCollectionPart,
+                        ),
                       ],
-                    ),
+                      if (movie.genres.isNotEmpty) ...[
+                        const SizedBox(height: 18),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: movie.genres
+                              .map((e) => GenreChip(label: e))
+                              .toList(),
+                        ),
+                      ],
+                      if (!snapshot.hasData)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 24),
+                          child: LinearProgressIndicator(
+                            color: CvColors.accent,
+                          ),
+                        ),
+                      if (detailTabs.isNotEmpty) ...[
+                        SizedBox(height: isTvBuild ? 30 : 24),
+                        DetailSectionTabs(
+                          tabs: detailTabs,
+                          selectedIndex: activeDetailSectionIndex,
+                          onSelected: (value) =>
+                              setState(() => detailSectionIndex = value),
+                          onMoveUp: focusDetailPrimaryAction,
+                          onMoveDown:
+                              detailTabs[activeDetailSectionIndex].label ==
+                                  'Tập phim'
+                              ? focusEpisodeSection
+                              : null,
+                        ),
+                        SizedBox(height: isTvBuild ? 20 : 16),
+                        detailTabs[activeDetailSectionIndex].builder(context),
+                      ],
+                    ],
                   ),
                 ),
               ),
@@ -11189,38 +11220,60 @@ class DetailSectionTabs extends StatelessWidget {
     required this.tabs,
     required this.selectedIndex,
     required this.onSelected,
+    this.onMoveUp,
+    this.onMoveDown,
   });
 
   final List<DetailSectionTab> tabs;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final VoidCallback? onMoveUp;
+  final VoidCallback? onMoveDown;
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: isTvBuild ? 64 : 52,
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 1),
-        scrollDirection: Axis.horizontal,
-        itemCount: tabs.length,
-        separatorBuilder: (_, _) => SizedBox(width: isTvBuild ? 10 : 8),
-        itemBuilder: (context, index) {
-          final tab = tabs[index];
-          final selected = index == selectedIndex;
-          if (useLeanbackControls) {
-            return TvFilterChip(
-              label: tab.label,
-              icon: tab.icon,
-              selected: selected,
+    return Focus(
+      onKeyEvent: (_, event) {
+        if (!isTvBuild || event is! KeyDownEvent) {
+          return KeyEventResult.ignored;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowUp &&
+            onMoveUp != null) {
+          onMoveUp!();
+          return KeyEventResult.handled;
+        }
+        if (event.logicalKey == LogicalKeyboardKey.arrowDown &&
+            onMoveDown != null) {
+          onMoveDown!();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: SizedBox(
+        height: isTvBuild ? 64 : 52,
+        child: ListView.separated(
+          padding: const EdgeInsets.symmetric(horizontal: 1),
+          scrollDirection: Axis.horizontal,
+          itemCount: tabs.length,
+          separatorBuilder: (_, _) => SizedBox(width: isTvBuild ? 10 : 8),
+          itemBuilder: (context, index) {
+            final tab = tabs[index];
+            final selected = index == selectedIndex;
+            if (useLeanbackControls) {
+              return TvFilterChip(
+                label: tab.label,
+                icon: tab.icon,
+                selected: selected,
+                onPressed: () => onSelected(index),
+              );
+            }
+            return _DetailSectionTabButton(
+              tab: tab,
+              selected: index == selectedIndex,
               onPressed: () => onSelected(index),
             );
-          }
-          return _DetailSectionTabButton(
-            tab: tab,
-            selected: index == selectedIndex,
-            onPressed: () => onSelected(index),
-          );
-        },
+          },
+        ),
       ),
     );
   }
@@ -11358,11 +11411,15 @@ Future<String?> showTvEpisodeSearchDialog(
 Widget tvEpisodeSearchButton({
   required String query,
   required VoidCallback onPressed,
+  FocusNode? focusNode,
+  VoidCallback? onArrowUp,
 }) {
   final hasQuery = query.trim().isNotEmpty;
   return FocusButton(
     onPressed: onPressed,
     selected: hasQuery,
+    focusNode: focusNode,
+    onArrowUp: onArrowUp,
     child: Container(
       constraints: const BoxConstraints(minHeight: 54),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -11408,12 +11465,16 @@ class EpisodeSection extends StatefulWidget {
     required this.resumeItem,
     required this.onServerChanged,
     required this.onEpisodeSelected,
+    this.firstFocusNode,
+    this.onFocusBackToActions,
   });
   final Movie movie;
   final MovieRepository repo;
   final List<EpisodeServer> servers;
   final int serverIndex;
   final WatchItem? resumeItem;
+  final FocusNode? firstFocusNode;
+  final VoidCallback? onFocusBackToActions;
   final ValueChanged<int> onServerChanged;
   final Future<void> Function(
     Movie movie,
@@ -11575,21 +11636,42 @@ class _EpisodeSectionState extends State<EpisodeSection> {
               children: [
                 for (final type in serverTypes)
                   Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: ChoiceChip(
-                      label: Text(type),
-                      selected: type == selectedServerType,
-                      showCheckmark: false,
-                      onSelected: (_) {
-                        final i = widget.servers.indexWhere(
-                          (e) => e.typeName == type,
-                        );
-                        if (i >= 0) {
-                          setState(() => selectedServerType = type);
-                          widget.onServerChanged(i);
-                        }
-                      },
+                    padding: EdgeInsets.only(
+                      right: useLeanbackControls ? 12 : 8,
                     ),
+                    child: useLeanbackControls
+                        ? TvFilterChip(
+                            label: type,
+                            icon: Icons.category_rounded,
+                            selected: type == selectedServerType,
+                            focusNode: type == serverTypes.first
+                                ? widget.firstFocusNode
+                                : null,
+                            onArrowUp: widget.onFocusBackToActions,
+                            onPressed: () {
+                              final i = widget.servers.indexWhere(
+                                (e) => e.typeName == type,
+                              );
+                              if (i >= 0) {
+                                setState(() => selectedServerType = type);
+                                widget.onServerChanged(i);
+                              }
+                            },
+                          )
+                        : ChoiceChip(
+                            label: Text(type),
+                            selected: type == selectedServerType,
+                            showCheckmark: false,
+                            onSelected: (_) {
+                              final i = widget.servers.indexWhere(
+                                (e) => e.typeName == type,
+                              );
+                              if (i >= 0) {
+                                setState(() => selectedServerType = type);
+                                widget.onServerChanged(i);
+                              }
+                            },
+                          ),
                   ),
               ],
             ),
@@ -11627,6 +11709,7 @@ class _EpisodeSectionState extends State<EpisodeSection> {
               tvEpisodeSearchButton(
                 query: query,
                 onPressed: _openTvSearchDialog,
+                onArrowUp: widget.onFocusBackToActions,
               )
             else
               TextField(
@@ -14637,36 +14720,40 @@ class _PlayerScreenState extends State<PlayerScreen>
   Future<void> _showExternalPlayerSheet() async {
     await showModalBottomSheet<void>(
       context: context,
-      builder: (sheetContext) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const ListTile(title: Text('Mở bằng trình phát khác')),
-            ListTile(
-              leading: const Icon(Icons.apps_rounded),
-              title: const Text('Chọn ứng dụng'),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                unawaited(_openExternalPlayer());
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.play_circle_outline_rounded),
-              title: const Text('VLC'),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                unawaited(_openExternalPlayer('org.videolan.vlc'));
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.ondemand_video_rounded),
-              title: const Text('MX Player'),
-              onTap: () {
-                Navigator.pop(sheetContext);
-                unawaited(_openExternalPlayer('com.mxtech.videoplayer.ad'));
-              },
-            ),
-          ],
+      backgroundColor: CvColors.ink,
+      builder: (sheetContext) => _playerChromeThemeBuilder(
+        sheetContext,
+        SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ListTile(title: Text('Mở bằng trình phát khác')),
+              ListTile(
+                leading: const Icon(Icons.apps_rounded),
+                title: const Text('Chọn ứng dụng'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  unawaited(_openExternalPlayer());
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.play_circle_outline_rounded),
+                title: const Text('VLC'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  unawaited(_openExternalPlayer('org.videolan.vlc'));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.ondemand_video_rounded),
+                title: const Text('MX Player'),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  unawaited(_openExternalPlayer('com.mxtech.videoplayer.ad'));
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -15469,6 +15556,41 @@ class _PlayerScreenState extends State<PlayerScreen>
     _switchTo(currentServer, episode);
   }
 
+  ThemeData _playerChromeTheme(BuildContext context) {
+    final appTheme = Theme.of(context);
+    final playerColors = appTheme.colorScheme.copyWith(
+      brightness: Brightness.dark,
+      primary: CvColors.accent,
+      onPrimary: Colors.black,
+      surface: Colors.black,
+      onSurface: Colors.white,
+      onSurfaceVariant: const Color(0xFFD4D8DC),
+      surfaceContainer: CvColors.panel,
+      surfaceContainerHigh: CvColors.panel2,
+      outline: CvColors.border,
+      outlineVariant: CvColors.borderLight,
+    );
+    return appTheme.copyWith(
+      brightness: Brightness.dark,
+      colorScheme: playerColors,
+      scaffoldBackgroundColor: CvColors.black,
+      iconTheme: const IconThemeData(color: Colors.white),
+      textTheme: appTheme.textTheme.apply(
+        bodyColor: Colors.white,
+        displayColor: Colors.white,
+      ),
+      bottomSheetTheme: appTheme.bottomSheetTheme.copyWith(
+        backgroundColor: CvColors.ink,
+        modalBackgroundColor: CvColors.ink,
+        surfaceTintColor: Colors.transparent,
+      ),
+    );
+  }
+
+  Widget _playerChromeThemeBuilder(BuildContext context, Widget child) {
+    return Theme(data: _playerChromeTheme(context), child: child);
+  }
+
   void _cycleFitMode() {
     setState(() {
       fitMode = switch (fitMode) {
@@ -15486,15 +15608,18 @@ class _PlayerScreenState extends State<PlayerScreen>
       backgroundColor: CvColors.ink,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => PlayerEpisodeSheet(
-        repo: widget.repo,
-        movie: widget.movie,
-        currentServer: currentServer,
-        currentEpisode: currentEpisode,
-        onSelect: (server, episode) {
-          Navigator.of(context).pop();
-          _switchTo(server, episode);
-        },
+      builder: (sheetContext) => _playerChromeThemeBuilder(
+        sheetContext,
+        PlayerEpisodeSheet(
+          repo: widget.repo,
+          movie: widget.movie,
+          currentServer: currentServer,
+          currentEpisode: currentEpisode,
+          onSelect: (server, episode) {
+            Navigator.of(context).pop();
+            _switchTo(server, episode);
+          },
+        ),
       ),
     );
     _showControls();
@@ -15507,164 +15632,168 @@ class _PlayerScreenState extends State<PlayerScreen>
       backgroundColor: CvColors.ink,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setSheetState) => SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxHeight: MediaQuery.sizeOf(context).height * .82,
-            ),
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                18,
-                0,
-                18,
-                24 + MediaQuery.viewInsetsOf(context).bottom,
+      builder: (sheetContext) => _playerChromeThemeBuilder(
+        sheetContext,
+        StatefulBuilder(
+          builder: (context, setSheetState) => SafeArea(
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.sizeOf(context).height * .82,
               ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SectionTitle('Cài đặt player'),
-                  const SizedBox(height: 10),
-                  SwitchListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: autoNextEpisode,
-                    title: const Text('Tự chuyển tập'),
-                    subtitle: const Text('Tự phát tập tiếp theo khi hết tập'),
-                    onChanged: (value) {
-                      setState(() => autoNextEpisode = value);
-                      setSheetState(() {});
-                    },
-                  ),
-                  if (currentEpisode.audioSources.isNotEmpty) ...[
-                    const Divider(height: 24),
-                    const Text(
-                      'Âm thanh',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  18,
+                  0,
+                  18,
+                  24 + MediaQuery.viewInsetsOf(context).bottom,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionTitle('Cài đặt player'),
                     const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final audio in currentEpisode.audioSources)
-                          ChoiceChip(
-                            label: Text(audio.label),
-                            selected: selectedAudioKey == audio.key,
-                            showCheckmark: false,
-                            onSelected: (_) async {
-                              await _selectAudioSource(audio.key);
-                              setSheetState(() {});
-                            },
-                          ),
-                      ],
-                    ),
-                  ],
-                  if (currentEpisode.subtitles.isNotEmpty) ...[
-                    const Divider(height: 24),
-                    const Text(
-                      'Phụ đề',
-                      style: TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        ChoiceChip(
-                          label: const Text('Tắt'),
-                          selected:
-                              selectedSubtitleLang == null ||
-                              selectedSubtitleLang == 'off',
-                          showCheckmark: false,
-                          onSelected: (_) async {
-                            await _selectSubtitleTrack('off');
-                            setSheetState(() {});
-                          },
-                        ),
-                        if (currentEpisode.subtitles.any(
-                              (item) => item.lang.toLowerCase() == 'vi',
-                            ) &&
-                            currentEpisode.subtitles.any(
-                              (item) => item.lang.toLowerCase() == 'en',
-                            ))
-                          ChoiceChip(
-                            label: const Text('Song ngữ VI + EN'),
-                            selected: selectedSubtitleLang == 'dual',
-                            showCheckmark: false,
-                            onSelected: (_) async {
-                              await _selectSubtitleTrack('dual');
-                              setSheetState(() {});
-                            },
-                          ),
-                        for (final subtitle in currentEpisode.subtitles)
-                          ChoiceChip(
-                            label: Text(subtitle.label),
-                            selected: selectedSubtitleLang == subtitle.lang,
-                            showCheckmark: false,
-                            onSelected: (_) async {
-                              await _selectSubtitleTrack(subtitle.lang);
-                              setSheetState(() {});
-                            },
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        await _showSubtitleSettingsSheet();
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      value: autoNextEpisode,
+                      title: const Text('Tự chuyển tập'),
+                      subtitle: const Text('Tự phát tập tiếp theo khi hết tập'),
+                      onChanged: (value) {
+                        setState(() => autoNextEpisode = value);
                         setSheetState(() {});
                       },
-                      icon: const Icon(Icons.subtitles_rounded),
-                      label: const Text('Cài đặt phụ đề'),
                     ),
-                  ],
-                  const Divider(height: 24),
-                  const Text(
-                    'Tốc độ phát',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 10),
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      final columns = constraints.maxWidth >= 520 ? 4 : 3;
-                      final itemWidth =
-                          (constraints.maxWidth - (columns - 1) * 8) / columns;
-                      return Wrap(
+                    if (currentEpisode.audioSources.isNotEmpty) ...[
+                      const Divider(height: 24),
+                      const Text(
+                        'Âm thanh',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          for (final speed in speeds)
-                            SizedBox(
-                              width: itemWidth,
-                              child: ChoiceChip(
-                                label: Center(
-                                  child: Text(
-                                    speed == 1.0 ? '1x' : _formatSpeed(speed),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                                selected: playbackSpeed == speed,
-                                showCheckmark: false,
-                                onSelected: (_) async {
-                                  await _setPlaybackSpeed(speed);
-                                  setSheetState(() {});
-                                },
-                              ),
+                          for (final audio in currentEpisode.audioSources)
+                            ChoiceChip(
+                              label: Text(audio.label),
+                              selected: selectedAudioKey == audio.key,
+                              showCheckmark: false,
+                              onSelected: (_) async {
+                                await _selectAudioSource(audio.key);
+                                setSheetState(() {});
+                              },
                             ),
                         ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    playbackSpeed == 1.0
-                        ? 'Đang phát tốc độ bình thường'
-                        : 'Đang phát ${_formatSpeed(playbackSpeed)}',
-                    style: const TextStyle(color: CvColors.muted),
-                  ),
-                ],
+                      ),
+                    ],
+                    if (currentEpisode.subtitles.isNotEmpty) ...[
+                      const Divider(height: 24),
+                      const Text(
+                        'Phụ đề',
+                        style: TextStyle(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          ChoiceChip(
+                            label: const Text('Tắt'),
+                            selected:
+                                selectedSubtitleLang == null ||
+                                selectedSubtitleLang == 'off',
+                            showCheckmark: false,
+                            onSelected: (_) async {
+                              await _selectSubtitleTrack('off');
+                              setSheetState(() {});
+                            },
+                          ),
+                          if (currentEpisode.subtitles.any(
+                                (item) => item.lang.toLowerCase() == 'vi',
+                              ) &&
+                              currentEpisode.subtitles.any(
+                                (item) => item.lang.toLowerCase() == 'en',
+                              ))
+                            ChoiceChip(
+                              label: const Text('Song ngữ VI + EN'),
+                              selected: selectedSubtitleLang == 'dual',
+                              showCheckmark: false,
+                              onSelected: (_) async {
+                                await _selectSubtitleTrack('dual');
+                                setSheetState(() {});
+                              },
+                            ),
+                          for (final subtitle in currentEpisode.subtitles)
+                            ChoiceChip(
+                              label: Text(subtitle.label),
+                              selected: selectedSubtitleLang == subtitle.lang,
+                              showCheckmark: false,
+                              onSelected: (_) async {
+                                await _selectSubtitleTrack(subtitle.lang);
+                                setSheetState(() {});
+                              },
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          await _showSubtitleSettingsSheet();
+                          setSheetState(() {});
+                        },
+                        icon: const Icon(Icons.subtitles_rounded),
+                        label: const Text('Cài đặt phụ đề'),
+                      ),
+                    ],
+                    const Divider(height: 24),
+                    const Text(
+                      'Tốc độ phát',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 10),
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final columns = constraints.maxWidth >= 520 ? 4 : 3;
+                        final itemWidth =
+                            (constraints.maxWidth - (columns - 1) * 8) /
+                            columns;
+                        return Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: [
+                            for (final speed in speeds)
+                              SizedBox(
+                                width: itemWidth,
+                                child: ChoiceChip(
+                                  label: Center(
+                                    child: Text(
+                                      speed == 1.0 ? '1x' : _formatSpeed(speed),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                  selected: playbackSpeed == speed,
+                                  showCheckmark: false,
+                                  onSelected: (_) async {
+                                    await _setPlaybackSpeed(speed);
+                                    setSheetState(() {});
+                                  },
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      playbackSpeed == 1.0
+                          ? 'Đang phát tốc độ bình thường'
+                          : 'Đang phát ${_formatSpeed(playbackSpeed)}',
+                      style: const TextStyle(color: CvColors.muted),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
@@ -15689,218 +15818,233 @@ class _PlayerScreenState extends State<PlayerScreen>
       backgroundColor: CvColors.ink,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (_) => StatefulBuilder(
-        builder: (context, setSheetState) {
-          final style = language == 'vi' ? viSubtitleStyle : enSubtitleStyle;
-          void update(AppSubtitleStyle value) {
-            setState(() {
-              if (language == 'vi') {
-                viSubtitleStyle = value;
-              } else {
-                enSubtitleStyle = value;
-              }
-            });
-            setSheetState(() {});
-            unawaited(_saveSubtitleSettings());
-          }
+      builder: (sheetContext) => _playerChromeThemeBuilder(
+        sheetContext,
+        StatefulBuilder(
+          builder: (context, setSheetState) {
+            final style = language == 'vi' ? viSubtitleStyle : enSubtitleStyle;
+            void update(AppSubtitleStyle value) {
+              setState(() {
+                if (language == 'vi') {
+                  viSubtitleStyle = value;
+                } else {
+                  enSubtitleStyle = value;
+                }
+              });
+              setSheetState(() {});
+              unawaited(_saveSubtitleSettings());
+            }
 
-          Widget settingsSlider({
-            required double value,
-            required double min,
-            required double max,
-            required int divisions,
-            required ValueChanged<double> onChanged,
-          }) {
-            final slider = Slider(
-              value: value,
-              min: min,
-              max: max,
-              divisions: divisions,
-              onChanged: onChanged,
-            );
-            if (!isTvBuild) return slider;
+            Widget settingsSlider({
+              required double value,
+              required double min,
+              required double max,
+              required int divisions,
+              required ValueChanged<double> onChanged,
+            }) {
+              final slider = Slider(
+                value: value,
+                min: min,
+                max: max,
+                divisions: divisions,
+                onChanged: onChanged,
+              );
+              if (!isTvBuild) return slider;
 
-            final step = (max - min) / divisions;
-            return Focus(
-              onKeyEvent: (node, event) {
-                if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+              final step = (max - min) / divisions;
+              return Focus(
+                onKeyEvent: (node, event) {
+                  if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+                    return KeyEventResult.ignored;
+                  }
+                  final key = event.logicalKey;
+                  if (key == LogicalKeyboardKey.arrowLeft) {
+                    onChanged((value - step).clamp(min, max));
+                    return KeyEventResult.handled;
+                  }
+                  if (key == LogicalKeyboardKey.arrowRight) {
+                    onChanged((value + step).clamp(min, max));
+                    return KeyEventResult.handled;
+                  }
+                  if (key == LogicalKeyboardKey.arrowUp) {
+                    node.focusInDirection(TraversalDirection.up);
+                    return KeyEventResult.handled;
+                  }
+                  if (key == LogicalKeyboardKey.arrowDown) {
+                    node.focusInDirection(TraversalDirection.down);
+                    return KeyEventResult.handled;
+                  }
                   return KeyEventResult.ignored;
-                }
-                final key = event.logicalKey;
-                if (key == LogicalKeyboardKey.arrowLeft) {
-                  onChanged((value - step).clamp(min, max));
-                  return KeyEventResult.handled;
-                }
-                if (key == LogicalKeyboardKey.arrowRight) {
-                  onChanged((value + step).clamp(min, max));
-                  return KeyEventResult.handled;
-                }
-                if (key == LogicalKeyboardKey.arrowUp) {
-                  node.focusInDirection(TraversalDirection.up);
-                  return KeyEventResult.handled;
-                }
-                if (key == LogicalKeyboardKey.arrowDown) {
-                  node.focusInDirection(TraversalDirection.down);
-                  return KeyEventResult.handled;
-                }
-                return KeyEventResult.ignored;
-              },
-              child: ExcludeFocus(child: slider),
-            );
-          }
+                },
+                child: ExcludeFocus(child: slider),
+              );
+            }
 
-          return SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SectionTitle('Cài đặt phụ đề'),
-                  const SizedBox(height: 12),
-                  SegmentedButton<String>(
-                    segments: const [
-                      ButtonSegment(value: 'vi', label: Text('Phụ đề chính')),
-                      ButtonSegment(value: 'en', label: Text('Song ngữ / Anh')),
-                    ],
-                    selected: {language},
-                    onSelectionChanged: (value) =>
-                        setSheetState(() => language = value.first),
-                  ),
-                  const SizedBox(height: 14),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 24,
-                      horizontal: 16,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.black,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: CvColors.borderLight),
-                    ),
-                    child: Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 42),
-                          child: Text(
-                            'Đây là nội dung phụ đề mẫu',
-                            textAlign: TextAlign.center,
-                            style: _subtitleTextStyle(viSubtitleStyle),
-                          ),
-                        ),
-                        Padding(
-                          padding: const EdgeInsets.only(top: 42),
-                          child: Text(
-                            'Subtitle preview',
-                            textAlign: TextAlign.center,
-                            style: _subtitleTextStyle(enSubtitleStyle),
-                          ),
+            return SafeArea(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(18, 0, 18, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SectionTitle('Cài đặt phụ đề'),
+                    const SizedBox(height: 12),
+                    SegmentedButton<String>(
+                      segments: const [
+                        ButtonSegment(value: 'vi', label: Text('Phụ đề chính')),
+                        ButtonSegment(
+                          value: 'en',
+                          label: Text('Song ngữ / Anh'),
                         ),
                       ],
+                      selected: {language},
+                      onSelectionChanged: (value) =>
+                          setSheetState(() => language = value.first),
                     ),
-                  ),
-                  const SizedBox(height: 18),
-                  Text(
-                    language == 'vi' ? 'Phụ đề chính' : 'Song ngữ / Phụ đề Anh',
-                    style: const TextStyle(fontWeight: FontWeight.w900),
-                  ),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Font chữ',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final font in fonts)
-                        ChoiceChip(
-                          label: Text(font, style: TextStyle(fontFamily: font)),
-                          selected: style.font == font,
-                          showCheckmark: false,
-                          onSelected: (_) => update(style.copyWith(font: font)),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Text('Cỡ chữ: ${style.size.round()}px'),
-                  settingsSlider(
-                    value: style.size,
-                    min: 10,
-                    max: language == 'vi' ? 50 : 40,
-                    divisions: language == 'vi' ? 40 : 30,
-                    onChanged: (value) => update(style.copyWith(size: value)),
-                  ),
-                  const Text(
-                    'Màu chữ',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 12,
-                    runSpacing: 8,
-                    children: [
-                      for (final color in colors)
-                        InkWell(
-                          onTap: () => update(style.copyWith(color: color)),
-                          onFocusChange: (focused) {
-                            if (isTvBuild && focused && style.color != color) {
-                              update(style.copyWith(color: color));
-                            }
-                          },
-                          borderRadius: BorderRadius.circular(999),
-                          child: Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: color,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: style.color == color
-                                    ? CvColors.accent
-                                    : Colors.white24,
-                                width: style.color == color ? 3 : 1,
+                    const SizedBox(height: 14),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 24,
+                        horizontal: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: CvColors.borderLight),
+                      ),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 42),
+                            child: Text(
+                              'Đây là nội dung phụ đề mẫu',
+                              textAlign: TextAlign.center,
+                              style: _subtitleTextStyle(viSubtitleStyle),
+                            ),
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 42),
+                            child: Text(
+                              'Subtitle preview',
+                              textAlign: TextAlign.center,
+                              style: _subtitleTextStyle(enSubtitleStyle),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    Text(
+                      language == 'vi'
+                          ? 'Phụ đề chính'
+                          : 'Song ngữ / Phụ đề Anh',
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Font chữ',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final font in fonts)
+                          ChoiceChip(
+                            label: Text(
+                              font,
+                              style: TextStyle(fontFamily: font),
+                            ),
+                            selected: style.font == font,
+                            showCheckmark: false,
+                            onSelected: (_) =>
+                                update(style.copyWith(font: font)),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Cỡ chữ: ${style.size.round()}px'),
+                    settingsSlider(
+                      value: style.size,
+                      min: 10,
+                      max: language == 'vi' ? 50 : 40,
+                      divisions: language == 'vi' ? 40 : 30,
+                      onChanged: (value) => update(style.copyWith(size: value)),
+                    ),
+                    const Text(
+                      'Màu chữ',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: [
+                        for (final color in colors)
+                          InkWell(
+                            onTap: () => update(style.copyWith(color: color)),
+                            onFocusChange: (focused) {
+                              if (isTvBuild &&
+                                  focused &&
+                                  style.color != color) {
+                                update(style.copyWith(color: color));
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(999),
+                            child: Container(
+                              width: 36,
+                              height: 36,
+                              decoration: BoxDecoration(
+                                color: color,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: style.color == color
+                                      ? CvColors.accent
+                                      : Colors.white24,
+                                  width: style.color == color ? 3 : 1,
+                                ),
                               ),
                             ),
                           ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Vị trí: ${style.bottom.round()}% từ cạnh dưới'),
+                    settingsSlider(
+                      value: style.bottom,
+                      min: 2,
+                      max: 30,
+                      divisions: 28,
+                      onChanged: (value) =>
+                          update(style.copyWith(bottom: value)),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            _resetSubtitleSettings();
+                            setSheetState(() {});
+                          },
+                          icon: const Icon(Icons.restart_alt_rounded),
+                          label: const Text('Reset tất cả'),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  Text('Vị trí: ${style.bottom.round()}% từ cạnh dưới'),
-                  settingsSlider(
-                    value: style.bottom,
-                    min: 2,
-                    max: 30,
-                    divisions: 28,
-                    onChanged: (value) => update(style.copyWith(bottom: value)),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          _resetSubtitleSettings();
-                          setSheetState(() {});
-                        },
-                        icon: const Icon(Icons.restart_alt_rounded),
-                        label: const Text('Reset tất cả'),
-                      ),
-                      const Spacer(),
-                      FilledButton(
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Lưu cài đặt'),
-                      ),
-                    ],
-                  ),
-                ],
+                        const Spacer(),
+                        FilledButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Lưu cài đặt'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
     _showControls();
@@ -16943,48 +17087,60 @@ class AutoNextPrompt extends StatelessWidget {
               ),
             ],
           ),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.skip_next_rounded, color: CvColors.accent),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Tự chuyển sau ${remainingSeconds}s',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w900),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  nextEpisode,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: CvColors.muted),
-                ),
-                const SizedBox(height: 12),
-                Row(
+          child: DefaultTextStyle.merge(
+            style: const TextStyle(color: Colors.white),
+            child: IconTheme.merge(
+              data: const IconThemeData(color: Colors.white),
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    FilledButton.icon(
-                      autofocus: isTvBuild,
-                      onPressed: onPlayNow,
-                      icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                      label: const Text('Xem ngay'),
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.skip_next_rounded,
+                          color: CvColors.accent,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Tự chuyển sau ${remainingSeconds}s',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 8),
-                    TextButton(onPressed: onCancel, child: const Text('Huỷ')),
+                    const SizedBox(height: 6),
+                    Text(
+                      nextEpisode,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: CvColors.muted),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FilledButton.icon(
+                          autofocus: isTvBuild,
+                          onPressed: onPlayNow,
+                          icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                          label: const Text('Xem ngay'),
+                        ),
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: onCancel,
+                          child: const Text('Huỷ'),
+                        ),
+                      ],
+                    ),
                   ],
                 ),
-              ],
+              ),
             ),
           ),
         ),
@@ -17010,29 +17166,32 @@ class PlaybackNotice extends StatelessWidget {
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: Colors.white.withValues(alpha: .12)),
           ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: CvColors.accent,
+          child: DefaultTextStyle.merge(
+            style: const TextStyle(color: Colors.white),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: CvColors.accent,
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Flexible(
-                  child: Text(
-                    message,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  const SizedBox(width: 10),
+                  Flexible(
+                    child: Text(
+                      message,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -18360,23 +18519,42 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                     children: [
                       for (final type in serverTypes)
                         Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(type),
-                            selected: type == selectedServerType,
-                            showCheckmark: false,
-                            onSelected: (_) {
-                              final i = servers.indexWhere(
-                                (e) => e.typeName == type,
-                              );
-                              if (i >= 0) {
-                                setState(() {
-                                  selectedServerType = type;
-                                  serverIndex = i;
-                                });
-                              }
-                            },
+                          padding: EdgeInsets.only(
+                            right: useLeanbackControls ? 12 : 8,
                           ),
+                          child: useLeanbackControls
+                              ? TvFilterChip(
+                                  label: type,
+                                  icon: Icons.category_rounded,
+                                  selected: type == selectedServerType,
+                                  onPressed: () {
+                                    final i = servers.indexWhere(
+                                      (e) => e.typeName == type,
+                                    );
+                                    if (i >= 0) {
+                                      setState(() {
+                                        selectedServerType = type;
+                                        serverIndex = i;
+                                      });
+                                    }
+                                  },
+                                )
+                              : ChoiceChip(
+                                  label: Text(type),
+                                  selected: type == selectedServerType,
+                                  showCheckmark: false,
+                                  onSelected: (_) {
+                                    final i = servers.indexWhere(
+                                      (e) => e.typeName == type,
+                                    );
+                                    if (i >= 0) {
+                                      setState(() {
+                                        selectedServerType = type;
+                                        serverIndex = i;
+                                      });
+                                    }
+                                  },
+                                ),
                         ),
                     ],
                   ),
@@ -19216,6 +19394,8 @@ class TvActionButton extends StatelessWidget {
     this.width,
     this.onFocus,
     this.focusNode,
+    this.onArrowUp,
+    this.onArrowDown,
   });
 
   final IconData? icon;
@@ -19227,6 +19407,8 @@ class TvActionButton extends StatelessWidget {
   final double? width;
   final VoidCallback? onFocus;
   final FocusNode? focusNode;
+  final VoidCallback? onArrowUp;
+  final VoidCallback? onArrowDown;
 
   @override
   Widget build(BuildContext context) {
@@ -19283,6 +19465,8 @@ class TvActionButton extends StatelessWidget {
       onPressed: onPressed!,
       onFocus: onFocus,
       focusNode: focusNode,
+      onArrowUp: onArrowUp,
+      onArrowDown: onArrowDown,
       child: content,
     );
   }
@@ -19295,12 +19479,18 @@ class TvFilterChip extends StatelessWidget {
     required this.selected,
     required this.onPressed,
     this.icon,
+    this.focusNode,
+    this.onArrowUp,
+    this.onArrowDown,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onPressed;
   final IconData? icon;
+  final FocusNode? focusNode;
+  final VoidCallback? onArrowUp;
+  final VoidCallback? onArrowDown;
 
   @override
   Widget build(BuildContext context) => TvActionButton(
@@ -19309,6 +19499,9 @@ class TvFilterChip extends StatelessWidget {
     selected: selected,
     onPressed: onPressed,
     width: 166,
+    focusNode: focusNode,
+    onArrowUp: onArrowUp,
+    onArrowDown: onArrowDown,
   );
 }
 
@@ -19321,6 +19514,8 @@ class FocusButton extends StatefulWidget {
     this.autofocus = false,
     this.focusNode,
     this.onFocus,
+    this.onArrowUp,
+    this.onArrowDown,
     this.borderRadius = 8,
   });
   final Widget child;
@@ -19329,6 +19524,8 @@ class FocusButton extends StatefulWidget {
   final bool autofocus;
   final FocusNode? focusNode;
   final VoidCallback? onFocus;
+  final VoidCallback? onArrowUp;
+  final VoidCallback? onArrowDown;
   final double borderRadius;
 
   @override
@@ -19363,6 +19560,18 @@ class _FocusButtonState extends State<FocusButton> {
       autofocus: widget.autofocus,
       onFocusChange: _handleFocusChange,
       onKeyEvent: (_, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.arrowUp &&
+            widget.onArrowUp != null) {
+          widget.onArrowUp!();
+          return KeyEventResult.handled;
+        }
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.arrowDown &&
+            widget.onArrowDown != null) {
+          widget.onArrowDown!();
+          return KeyEventResult.handled;
+        }
         if (event is KeyDownEvent &&
             (event.logicalKey == LogicalKeyboardKey.select ||
                 event.logicalKey == LogicalKeyboardKey.enter ||
