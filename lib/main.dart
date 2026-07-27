@@ -5279,12 +5279,8 @@ class HeroBanner extends StatelessWidget {
                                             vertical: 14,
                                           ),
                                         ),
-                                        onPressed: () => openDetail(
-                                          context,
-                                          repo,
-                                          movie,
-                                          autoplay: true,
-                                        ),
+                                        onPressed: () =>
+                                            openWatchNow(context, repo, movie),
                                         icon: const Icon(
                                           Icons.play_arrow_rounded,
                                         ),
@@ -10526,16 +10522,35 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           .catchError((_) {});
     }
     if (widget.autoplay) {
-      future.then((movie) {
-        if (!mounted) return;
-        final server = movie.episodes.isNotEmpty ? movie.episodes.first : null;
-        final episode = server?.items.isNotEmpty == true
-            ? server!.items.first
-            : null;
-        if (server != null && episode != null) {
-          openPlayer(context, widget.repo, movie, server, episode, 0);
-        }
-      });
+      final playable = firstPlayableEpisode(widget.initial);
+      if (playable != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          openPlayer(
+            context,
+            widget.repo,
+            widget.initial,
+            playable.server,
+            playable.episode,
+            playable.serverIndex,
+          );
+        });
+      } else {
+        future.then((movie) {
+          if (!mounted) return;
+          final playable = firstPlayableEpisode(movie);
+          if (playable != null) {
+            openPlayer(
+              context,
+              widget.repo,
+              movie,
+              playable.server,
+              playable.episode,
+              playable.serverIndex,
+            );
+          }
+        });
+      }
     }
   }
 
@@ -12509,6 +12524,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   final seekBarFocusNode = FocusNode(debugLabel: 'player-seekbar');
   final backButtonFocusNode = FocusNode(debugLabel: 'player-back');
   final webViewPlayFocusNode = FocusNode(debugLabel: 'streamc-play-toggle');
+  final introSkipFocusNode = FocusNode(debugLabel: 'player-intro-skip');
   late EpisodeServer currentServer;
   late EpisodeItem currentEpisode;
   late int currentServerIndex;
@@ -14494,6 +14510,14 @@ class _PlayerScreenState extends State<PlayerScreen>
     });
   }
 
+  void _focusTvIntroSkip() {
+    if (!isTvBuild || controlsLocked) return;
+    _showControls();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) introSkipFocusNode.requestFocus();
+    });
+  }
+
   void _toggleControlsLock() {
     setState(() {
       controlsLocked = !controlsLocked;
@@ -14623,6 +14647,18 @@ class _PlayerScreenState extends State<PlayerScreen>
         unawaited(_seekBy(offset, showControls: false));
       });
     });
+  }
+
+  Duration? _tvSeekOffsetForKey(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.arrowRight ||
+        key == LogicalKeyboardKey.mediaFastForward) {
+      return const Duration(seconds: 10);
+    }
+    if (key == LogicalKeyboardKey.arrowLeft ||
+        key == LogicalKeyboardKey.mediaRewind) {
+      return const Duration(seconds: -10);
+    }
+    return null;
   }
 
   Future<void> _seekBy(Duration offset, {bool showControls = true}) async {
@@ -16180,6 +16216,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     seekBarFocusNode.dispose();
     backButtonFocusNode.dispose();
     webViewPlayFocusNode.dispose();
+    introSkipFocusNode.dispose();
     watchChatController.dispose();
     controller?.removeListener(_handlePlayerTick);
     controller?.dispose();
@@ -16227,6 +16264,11 @@ class _PlayerScreenState extends State<PlayerScreen>
             }
             // KeyRepeatEvent khác nhau giữa các hãng TV và có thể tới rất dày.
             // Timer riêng bên dưới là nguồn lặp duy nhất để tốc độ tua ổn định.
+            if (event is KeyRepeatEvent && isTvBuild && isTvSeekKey) {
+              final offset = _tvSeekOffsetForKey(key);
+              if (offset != null) _startTvSeekHold(key, offset);
+              return;
+            }
             if (event is KeyRepeatEvent && isTvBuild && tvSeekHeldKey == key) {
               return;
             }
@@ -16362,7 +16404,11 @@ class _PlayerScreenState extends State<PlayerScreen>
             }
             if (key == LogicalKeyboardKey.arrowUp) {
               if (isTvBuild && playerHasPrimaryFocus) {
-                _moveTvOverlayFocus(forward: false);
+                if (showIntroSkip) {
+                  _focusTvIntroSkip();
+                } else {
+                  _moveTvOverlayFocus(forward: false);
+                }
               } else {
                 _showControls();
               }
@@ -16488,6 +16534,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     ),
                   if (showIntroSkip && !controlsLocked)
                     IntroSkipButton(
+                      focusNode: introSkipFocusNode,
                       label: introSegment?.buttonLabel ?? 'Bỏ qua intro',
                       onPressed: _skipIntro,
                     ),
@@ -16715,10 +16762,12 @@ class _PlayerScreenState extends State<PlayerScreen>
 class IntroSkipButton extends StatelessWidget {
   const IntroSkipButton({
     super.key,
+    this.focusNode,
     required this.label,
     required this.onPressed,
   });
 
+  final FocusNode? focusNode;
   final String label;
   final VoidCallback onPressed;
 
@@ -16727,17 +16776,37 @@ class IntroSkipButton extends StatelessWidget {
     right: 20,
     bottom: 118,
     child: SafeArea(
-      child: FilledButton.icon(
+      child: FocusButton(
+        focusNode: focusNode,
         onPressed: onPressed,
-        style: FilledButton.styleFrom(
-          backgroundColor: Colors.black.withValues(alpha: .72),
-          foregroundColor: CvColors.text,
-          side: const BorderSide(color: CvColors.borderLight),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: .72),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: CvColors.borderLight),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.fast_forward_rounded,
+                  size: 18,
+                  color: CvColors.text,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  label,
+                  style: const TextStyle(
+                    color: CvColors.text,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        icon: const Icon(Icons.fast_forward_rounded, size: 18),
-        label: Text(label, style: TextStyle(fontWeight: FontWeight.w900)),
       ),
     ),
   );
@@ -19859,6 +19928,17 @@ int episodeNumber(String value) {
   return int.tryParse(match.group(0) ?? '') ?? 1;
 }
 
+({EpisodeServer server, EpisodeItem episode, int serverIndex})?
+firstPlayableEpisode(Movie movie) {
+  for (final entry in movie.episodes.indexed) {
+    for (final episode in entry.$2.items) {
+      if (episode.playUrl.isEmpty) continue;
+      return (server: entry.$2, episode: episode, serverIndex: entry.$1);
+    }
+  }
+  return null;
+}
+
 void openDetail(
   BuildContext context,
   MovieRepository repo,
@@ -19903,6 +19983,22 @@ void openDetail(
         );
       },
     ),
+  );
+}
+
+void openWatchNow(BuildContext context, MovieRepository repo, Movie movie) {
+  final playable = firstPlayableEpisode(movie);
+  if (playable == null) {
+    openDetail(context, repo, movie, autoplay: true);
+    return;
+  }
+  openPlayer(
+    context,
+    repo,
+    movie,
+    playable.server,
+    playable.episode,
+    playable.serverIndex,
   );
 }
 
