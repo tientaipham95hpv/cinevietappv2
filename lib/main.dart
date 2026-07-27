@@ -10500,13 +10500,15 @@ class MovieDetailScreen extends StatefulWidget {
 class _MovieDetailScreenState extends State<MovieDetailScreen> {
   late Future<Movie> future;
   final detailScrollController = ScrollController();
-  final detailPrimaryActionFocusNode = FocusNode(
-    debugLabel: 'detail-primary-action',
+  final detailHeroActionFocusNodes = List<FocusNode>.generate(
+    7,
+    (index) => FocusNode(debugLabel: 'detail-hero-action-$index'),
   );
   final detailTabsFocusNode = FocusNode(debugLabel: 'detail-section-tabs');
   final detailEpisodeSectionFocusNode = FocusNode(
     debugLabel: 'detail-episode-section-first-control',
   );
+  int detailHeroActionCount = 0;
   int serverIndex = 0;
   int? favoriteMovieId;
   bool isFavorite = false;
@@ -10572,10 +10574,21 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   @override
   void dispose() {
     detailScrollController.dispose();
-    detailPrimaryActionFocusNode.dispose();
+    for (final node in detailHeroActionFocusNodes) {
+      node.dispose();
+    }
     detailTabsFocusNode.dispose();
     detailEpisodeSectionFocusNode.dispose();
     super.dispose();
+  }
+
+  void focusDetailHeroAction(int index) {
+    if (!isTvBuild || detailHeroActionCount <= 0) return;
+    final targetIndex = index.clamp(0, detailHeroActionCount - 1);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      detailHeroActionFocusNodes[targetIndex].requestFocus();
+    });
   }
 
   void focusDetailPrimaryAction() {
@@ -10588,7 +10601,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       );
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) detailPrimaryActionFocusNode.requestFocus();
+      if (mounted) focusDetailHeroAction(0);
     });
   }
 
@@ -10848,6 +10861,143 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           final activeDetailSectionIndex = detailTabs.isEmpty
               ? 0
               : detailSectionIndex.clamp(0, detailTabs.length - 1);
+          var heroActionIndex = 0;
+          Widget detailHeroAction({
+            required IconData icon,
+            required String label,
+            required VoidCallback? onPressed,
+            bool primary = false,
+            Color? color,
+          }) {
+            final currentIndex = onPressed == null ? null : heroActionIndex++;
+            return detailAction(
+              icon: icon,
+              label: label,
+              primary: primary,
+              color: color,
+              focusNode:
+                  currentIndex != null &&
+                      currentIndex < detailHeroActionFocusNodes.length
+                  ? detailHeroActionFocusNodes[currentIndex]
+                  : null,
+              onArrowLeft: currentIndex == null || currentIndex == 0
+                  ? null
+                  : () => focusDetailHeroAction(currentIndex - 1),
+              onArrowRight: currentIndex == null
+                  ? null
+                  : () => focusDetailHeroAction(currentIndex + 1),
+              onArrowDown: focusDetailTabs,
+              onPressed: onPressed,
+            );
+          }
+
+          final heroActions = <Widget>[
+            if (resumeItem != null)
+              detailHeroAction(
+                icon: Icons.play_circle_fill_rounded,
+                label: resumeItem!.resumeLabel,
+                primary: true,
+                onPressed: () => openResume(resumeItem!),
+              ),
+            detailHeroAction(
+              icon: Icons.play_arrow_rounded,
+              label: resumeItem == null ? 'Phát' : 'Xem từ đầu',
+              primary: resumeItem == null,
+              onPressed: selectedServer == null || selectedServer.items.isEmpty
+                  ? null
+                  : () => openEpisode(
+                      movie,
+                      selectedServer,
+                      selectedServer.items.first,
+                      serverIndex,
+                    ),
+            ),
+            if (supportsOfflineDownloads &&
+                selectedServer != null &&
+                selectedServer.supportsOfflineDownload)
+              detailHeroAction(
+                icon: Icons.download_rounded,
+                label: 'Tải xuống',
+                onPressed: () async {
+                  if (!await requireOfflineVip(context)) {
+                    return;
+                  }
+                  if (!context.mounted) return;
+                  await showModalBottomSheet<void>(
+                    context: context,
+                    showDragHandle: true,
+                    isScrollControlled: true,
+                    builder: (_) => OfflineEpisodePicker(
+                      movie: movie,
+                      servers: servers,
+                      initialServerIndex: serverIndex,
+                    ),
+                  );
+                },
+              ),
+            detailHeroAction(
+              icon: isFavorite
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              label: isFavorite ? 'Đã thích' : 'Yêu thích',
+              color: isFavorite ? Colors.redAccent : null,
+              onPressed: favoriteBusy ? null : () => toggleFavorite(movie),
+            ),
+            detailHeroAction(
+              icon: Icons.share_rounded,
+              label: 'Chia sẻ',
+              onPressed: () => launchUrl(
+                Uri.parse('$siteBase/movie/${movie.slug}'),
+                mode: LaunchMode.externalApplication,
+              ),
+            ),
+            detailHeroAction(
+              icon: Icons.playlist_add_rounded,
+              label: 'Playlist',
+              onPressed: () async {
+                if (!await requireLogin(context, 'Playlist')) {
+                  return;
+                }
+                if (!context.mounted) return;
+                showModalBottomSheet(
+                  context: context,
+                  showDragHandle: !isTvBuild,
+                  builder: (_) =>
+                      AddToPlaylistSheet(repo: widget.repo, movie: movie),
+                );
+              },
+            ),
+            if (!isTvBuild)
+              detailHeroAction(
+                icon: Icons.groups_rounded,
+                label: 'Xem chung',
+                onPressed:
+                    selectedServer == null || selectedServer.items.isEmpty
+                    ? null
+                    : () async {
+                        if (!await requireLogin(context, 'Xem chung')) {
+                          return;
+                        }
+                        if (context.mounted) {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => WatchTogetherScreen(
+                                repo: widget.repo,
+                                prefillMovie: movie,
+                                prefillServer: selectedServer,
+                                prefillEpisode: selectedServer.items.first,
+                                prefillServerIndex: serverIndex,
+                              ),
+                            ),
+                          );
+                        }
+                      },
+              ),
+          ];
+          detailHeroActionCount = math.min(
+            heroActionIndex,
+            detailHeroActionFocusNodes.length,
+          );
           final double expandedHeroHeight = isTvBuild
               ? math.min(
                   detailWidth * 9 / 16,
@@ -10947,151 +11097,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                 Wrap(
                                   spacing: useLeanbackControls ? 12 : 10,
                                   runSpacing: useLeanbackControls ? 12 : 10,
-                                  children: [
-                                    if (resumeItem != null)
-                                      detailAction(
-                                        icon: Icons.play_circle_fill_rounded,
-                                        label: resumeItem!.resumeLabel,
-                                        primary: true,
-                                        focusNode: detailPrimaryActionFocusNode,
-                                        onArrowDown: focusDetailTabs,
-                                        onPressed: () =>
-                                            openResume(resumeItem!),
-                                      ),
-                                    detailAction(
-                                      icon: Icons.play_arrow_rounded,
-                                      label: resumeItem == null
-                                          ? 'Phát'
-                                          : 'Xem từ đầu',
-                                      primary: resumeItem == null,
-                                      focusNode: resumeItem == null
-                                          ? detailPrimaryActionFocusNode
-                                          : null,
-                                      onArrowDown: focusDetailTabs,
-                                      onPressed:
-                                          selectedServer == null ||
-                                              selectedServer.items.isEmpty
-                                          ? null
-                                          : () => openEpisode(
-                                              movie,
-                                              selectedServer,
-                                              selectedServer.items.first,
-                                              serverIndex,
-                                            ),
-                                    ),
-                                    if (supportsOfflineDownloads &&
-                                        selectedServer != null &&
-                                        selectedServer.supportsOfflineDownload)
-                                      detailAction(
-                                        icon: Icons.download_rounded,
-                                        label: 'Tải xuống',
-                                        onArrowDown: focusDetailTabs,
-                                        onPressed: () async {
-                                          if (!await requireOfflineVip(
-                                            context,
-                                          )) {
-                                            return;
-                                          }
-                                          if (!context.mounted) return;
-                                          await showModalBottomSheet<void>(
-                                            context: context,
-                                            showDragHandle: true,
-                                            isScrollControlled: true,
-                                            builder: (_) =>
-                                                OfflineEpisodePicker(
-                                                  movie: movie,
-                                                  servers: servers,
-                                                  initialServerIndex:
-                                                      serverIndex,
-                                                ),
-                                          );
-                                        },
-                                      ),
-                                    detailAction(
-                                      icon: isFavorite
-                                          ? Icons.favorite_rounded
-                                          : Icons.favorite_border_rounded,
-                                      label: isFavorite
-                                          ? 'Đã thích'
-                                          : 'Yêu thích',
-                                      color: isFavorite
-                                          ? Colors.redAccent
-                                          : null,
-                                      onArrowDown: focusDetailTabs,
-                                      onPressed: favoriteBusy
-                                          ? null
-                                          : () => toggleFavorite(movie),
-                                    ),
-                                    detailAction(
-                                      icon: Icons.share_rounded,
-                                      label: 'Chia sẻ',
-                                      onArrowDown: focusDetailTabs,
-                                      onPressed: () => launchUrl(
-                                        Uri.parse(
-                                          '$siteBase/movie/${movie.slug}',
-                                        ),
-                                        mode: LaunchMode.externalApplication,
-                                      ),
-                                    ),
-                                    detailAction(
-                                      icon: Icons.playlist_add_rounded,
-                                      label: 'Playlist',
-                                      onArrowDown: focusDetailTabs,
-                                      onPressed: () async {
-                                        if (!await requireLogin(
-                                          context,
-                                          'Playlist',
-                                        )) {
-                                          return;
-                                        }
-                                        if (!context.mounted) return;
-                                        showModalBottomSheet(
-                                          context: context,
-                                          showDragHandle: !isTvBuild,
-                                          builder: (_) => AddToPlaylistSheet(
-                                            repo: widget.repo,
-                                            movie: movie,
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                    if (!isTvBuild)
-                                      detailAction(
-                                        icon: Icons.groups_rounded,
-                                        label: 'Xem chung',
-                                        onPressed:
-                                            selectedServer == null ||
-                                                selectedServer.items.isEmpty
-                                            ? null
-                                            : () async {
-                                                if (!await requireLogin(
-                                                  context,
-                                                  'Xem chung',
-                                                )) {
-                                                  return;
-                                                }
-                                                if (context.mounted) {
-                                                  Navigator.of(context).push(
-                                                    MaterialPageRoute(
-                                                      builder: (_) =>
-                                                          WatchTogetherScreen(
-                                                            repo: widget.repo,
-                                                            prefillMovie: movie,
-                                                            prefillServer:
-                                                                selectedServer,
-                                                            prefillEpisode:
-                                                                selectedServer
-                                                                    .items
-                                                                    .first,
-                                                            prefillServerIndex:
-                                                                serverIndex,
-                                                          ),
-                                                    ),
-                                                  );
-                                                }
-                                              },
-                                      ),
-                                  ],
+                                  children: heroActions,
                                 ),
                               ],
                             ),
@@ -11180,6 +11186,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     Color? color,
     bool onHero = true,
     FocusNode? focusNode,
+    VoidCallback? onArrowLeft,
+    VoidCallback? onArrowRight,
     VoidCallback? onArrowDown,
   }) {
     if (useLeanbackControls) {
@@ -11190,6 +11198,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         selected: color != null,
         onDarkSurface: true,
         focusNode: focusNode,
+        onArrowLeft: onArrowLeft,
+        onArrowRight: onArrowRight,
         onArrowDown: onArrowDown,
         onPressed: onPressed,
       );
@@ -19425,6 +19435,8 @@ class TvActionButton extends StatelessWidget {
     this.width,
     this.onFocus,
     this.focusNode,
+    this.onArrowLeft,
+    this.onArrowRight,
     this.onArrowUp,
     this.onArrowDown,
     this.onDarkSurface = false,
@@ -19439,6 +19451,8 @@ class TvActionButton extends StatelessWidget {
   final double? width;
   final VoidCallback? onFocus;
   final FocusNode? focusNode;
+  final VoidCallback? onArrowLeft;
+  final VoidCallback? onArrowRight;
   final VoidCallback? onArrowUp;
   final VoidCallback? onArrowDown;
   final bool onDarkSurface;
@@ -19517,6 +19531,8 @@ class TvActionButton extends StatelessWidget {
       onPressed: onPressed!,
       onFocus: onFocus,
       focusNode: focusNode,
+      onArrowLeft: onArrowLeft,
+      onArrowRight: onArrowRight,
       onArrowUp: onArrowUp,
       onArrowDown: onArrowDown,
       child: content,
@@ -19532,6 +19548,8 @@ class TvFilterChip extends StatelessWidget {
     required this.onPressed,
     this.icon,
     this.focusNode,
+    this.onArrowLeft,
+    this.onArrowRight,
     this.onArrowUp,
     this.onArrowDown,
     this.onDarkSurface = false,
@@ -19542,6 +19560,8 @@ class TvFilterChip extends StatelessWidget {
   final VoidCallback onPressed;
   final IconData? icon;
   final FocusNode? focusNode;
+  final VoidCallback? onArrowLeft;
+  final VoidCallback? onArrowRight;
   final VoidCallback? onArrowUp;
   final VoidCallback? onArrowDown;
   final bool onDarkSurface;
@@ -19554,6 +19574,8 @@ class TvFilterChip extends StatelessWidget {
     onPressed: onPressed,
     width: 166,
     focusNode: focusNode,
+    onArrowLeft: onArrowLeft,
+    onArrowRight: onArrowRight,
     onArrowUp: onArrowUp,
     onArrowDown: onArrowDown,
     onDarkSurface: onDarkSurface,
@@ -19569,6 +19591,8 @@ class FocusButton extends StatefulWidget {
     this.autofocus = false,
     this.focusNode,
     this.onFocus,
+    this.onArrowLeft,
+    this.onArrowRight,
     this.onArrowUp,
     this.onArrowDown,
     this.borderRadius = 8,
@@ -19579,6 +19603,8 @@ class FocusButton extends StatefulWidget {
   final bool autofocus;
   final FocusNode? focusNode;
   final VoidCallback? onFocus;
+  final VoidCallback? onArrowLeft;
+  final VoidCallback? onArrowRight;
   final VoidCallback? onArrowUp;
   final VoidCallback? onArrowDown;
   final double borderRadius;
@@ -19615,6 +19641,18 @@ class _FocusButtonState extends State<FocusButton> {
       autofocus: widget.autofocus,
       onFocusChange: _handleFocusChange,
       onKeyEvent: (_, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.arrowLeft &&
+            widget.onArrowLeft != null) {
+          widget.onArrowLeft!();
+          return KeyEventResult.handled;
+        }
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.arrowRight &&
+            widget.onArrowRight != null) {
+          widget.onArrowRight!();
+          return KeyEventResult.handled;
+        }
         if (event is KeyDownEvent &&
             event.logicalKey == LogicalKeyboardKey.arrowUp &&
             widget.onArrowUp != null) {
