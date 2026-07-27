@@ -10503,6 +10503,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   final detailPrimaryActionFocusNode = FocusNode(
     debugLabel: 'detail-primary-action',
   );
+  final detailTabsFocusNode = FocusNode(debugLabel: 'detail-section-tabs');
   final detailEpisodeSectionFocusNode = FocusNode(
     debugLabel: 'detail-episode-section-first-control',
   );
@@ -10572,6 +10573,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   void dispose() {
     detailScrollController.dispose();
     detailPrimaryActionFocusNode.dispose();
+    detailTabsFocusNode.dispose();
     detailEpisodeSectionFocusNode.dispose();
     super.dispose();
   }
@@ -10587,6 +10589,13 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) detailPrimaryActionFocusNode.requestFocus();
+    });
+  }
+
+  void focusDetailTabs() {
+    if (!isTvBuild) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) detailTabsFocusNode.requestFocus();
     });
   }
 
@@ -10704,6 +10713,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
               ? null
               : servers[serverIndex.clamp(0, servers.length - 1)];
           final detailWidth = MediaQuery.sizeOf(context).width;
+          final detailHeight = MediaQuery.sizeOf(context).height;
           final usePortraitHero = detailWidth < 600 && !isTvBuild;
           final detailHeroUrl = usePortraitHero
               ? movie.posterUrl
@@ -10838,16 +10848,21 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
           final activeDetailSectionIndex = detailTabs.isEmpty
               ? 0
               : detailSectionIndex.clamp(0, detailTabs.length - 1);
+          final double expandedHeroHeight = isTvBuild
+              ? math.min(
+                  detailWidth * 9 / 16,
+                  detailHeight - MediaQuery.paddingOf(context).top,
+                )
+              : math.min(
+                  detailHeight * (usePortraitHero ? .72 : .58),
+                  usePortraitHero ? 660 : 540,
+                );
           return CustomScrollView(
             controller: detailScrollController,
             key: PageStorageKey('detail-scroll-${movie.id}'),
             slivers: [
               SliverAppBar(
-                expandedHeight: math.min(
-                  MediaQuery.sizeOf(context).height *
-                      (usePortraitHero ? .72 : .58),
-                  usePortraitHero ? 660 : 540,
-                ),
+                expandedHeight: expandedHeroHeight,
                 pinned: true,
                 backgroundColor: Colors.black,
                 flexibleSpace: FlexibleSpaceBar(
@@ -10939,6 +10954,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                         label: resumeItem!.resumeLabel,
                                         primary: true,
                                         focusNode: detailPrimaryActionFocusNode,
+                                        onArrowDown: focusDetailTabs,
                                         onPressed: () =>
                                             openResume(resumeItem!),
                                       ),
@@ -10951,6 +10967,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                       focusNode: resumeItem == null
                                           ? detailPrimaryActionFocusNode
                                           : null,
+                                      onArrowDown: focusDetailTabs,
                                       onPressed:
                                           selectedServer == null ||
                                               selectedServer.items.isEmpty
@@ -10968,6 +10985,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                       detailAction(
                                         icon: Icons.download_rounded,
                                         label: 'Tải xuống',
+                                        onArrowDown: focusDetailTabs,
                                         onPressed: () async {
                                           if (!await requireOfflineVip(
                                             context,
@@ -10999,6 +11017,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                       color: isFavorite
                                           ? Colors.redAccent
                                           : null,
+                                      onArrowDown: focusDetailTabs,
                                       onPressed: favoriteBusy
                                           ? null
                                           : () => toggleFavorite(movie),
@@ -11006,6 +11025,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                     detailAction(
                                       icon: Icons.share_rounded,
                                       label: 'Chia sẻ',
+                                      onArrowDown: focusDetailTabs,
                                       onPressed: () => launchUrl(
                                         Uri.parse(
                                           '$siteBase/movie/${movie.slug}',
@@ -11016,6 +11036,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                                     detailAction(
                                       icon: Icons.playlist_add_rounded,
                                       label: 'Playlist',
+                                      onArrowDown: focusDetailTabs,
                                       onPressed: () async {
                                         if (!await requireLogin(
                                           context,
@@ -11126,6 +11147,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                         DetailSectionTabs(
                           tabs: detailTabs,
                           selectedIndex: activeDetailSectionIndex,
+                          selectedFocusNode: detailTabsFocusNode,
                           onSelected: (value) =>
                               setState(() => detailSectionIndex = value),
                           onMoveUp: focusDetailPrimaryAction,
@@ -11158,6 +11180,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     Color? color,
     bool onHero = true,
     FocusNode? focusNode,
+    VoidCallback? onArrowDown,
   }) {
     if (useLeanbackControls) {
       return TvActionButton(
@@ -11165,7 +11188,9 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
         label: label,
         primary: primary,
         selected: color != null,
+        onDarkSurface: true,
         focusNode: focusNode,
+        onArrowDown: onArrowDown,
         onPressed: onPressed,
       );
     }
@@ -11220,6 +11245,7 @@ class DetailSectionTabs extends StatelessWidget {
     required this.tabs,
     required this.selectedIndex,
     required this.onSelected,
+    this.selectedFocusNode,
     this.onMoveUp,
     this.onMoveDown,
   });
@@ -11227,6 +11253,7 @@ class DetailSectionTabs extends StatelessWidget {
   final List<DetailSectionTab> tabs;
   final int selectedIndex;
   final ValueChanged<int> onSelected;
+  final FocusNode? selectedFocusNode;
   final VoidCallback? onMoveUp;
   final VoidCallback? onMoveDown;
 
@@ -11264,6 +11291,7 @@ class DetailSectionTabs extends StatelessWidget {
                 label: tab.label,
                 icon: tab.icon,
                 selected: selected,
+                focusNode: selected ? selectedFocusNode : null,
                 onPressed: () => onSelected(index),
               );
             }
@@ -11409,12 +11437,14 @@ Future<String?> showTvEpisodeSearchDialog(
 }
 
 Widget tvEpisodeSearchButton({
+  required BuildContext context,
   required String query,
   required VoidCallback onPressed,
   FocusNode? focusNode,
   VoidCallback? onArrowUp,
 }) {
   final hasQuery = query.trim().isNotEmpty;
+  final colors = Theme.of(context).colorScheme;
   return FocusButton(
     onPressed: onPressed,
     selected: hasQuery,
@@ -11424,17 +11454,19 @@ Widget tvEpisodeSearchButton({
       constraints: const BoxConstraints(minHeight: 54),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: hasQuery ? .1 : .06),
+        color: hasQuery
+            ? colors.primary.withValues(alpha: .14)
+            : colors.surfaceContainerHigh,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
           color: hasQuery
-              ? CvColors.accent.withValues(alpha: .62)
-              : CvColors.borderLight.withValues(alpha: .48),
+              ? colors.primary.withValues(alpha: .62)
+              : colors.outlineVariant,
         ),
       ),
       child: Row(
         children: [
-          const Icon(Icons.search_rounded, color: CvColors.muted),
+          Icon(Icons.search_rounded, color: colors.onSurfaceVariant),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -11442,13 +11474,13 @@ Widget tvEpisodeSearchButton({
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                color: hasQuery ? CvColors.text : CvColors.muted,
+                color: hasQuery ? colors.primary : colors.onSurfaceVariant,
                 fontWeight: FontWeight.w800,
               ),
             ),
           ),
           const SizedBox(width: 10),
-          const Icon(Icons.keyboard_return_rounded, color: CvColors.muted),
+          Icon(Icons.keyboard_return_rounded, color: colors.onSurfaceVariant),
         ],
       ),
     ),
@@ -11585,6 +11617,7 @@ class _EpisodeSectionState extends State<EpisodeSection> {
               _matchesQuery(entry.$2, query),
         )
         .toList();
+    final colors = Theme.of(context).colorScheme;
     final width = MediaQuery.sizeOf(context).width;
     final columns = isTvBuild
         ? 5
@@ -11707,6 +11740,7 @@ class _EpisodeSectionState extends State<EpisodeSection> {
             const SizedBox(height: 14),
             if (isTvBuild)
               tvEpisodeSearchButton(
+                context: context,
                 query: query,
                 onPressed: _openTvSearchDialog,
                 onArrowUp: widget.onFocusBackToActions,
@@ -11822,13 +11856,9 @@ class _EpisodeSectionState extends State<EpisodeSection> {
                         Positioned.fill(
                           child: DecoratedBox(
                             decoration: BoxDecoration(
-                              color: CvColors.panel2.withValues(alpha: .74),
+                              color: colors.surfaceContainerHigh,
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(
-                                color: CvColors.borderLight.withValues(
-                                  alpha: .48,
-                                ),
-                              ),
+                              border: Border.all(color: colors.outlineVariant),
                             ),
                           ),
                         ),
@@ -11846,7 +11876,7 @@ class _EpisodeSectionState extends State<EpisodeSection> {
                                   : FontWeight.w800,
                               color: isResumeEpisode
                                   ? CvColors.accent
-                                  : CvColors.text,
+                                  : colors.onSurface,
                               fontSize: isTvBuild ? 16 : 13.5,
                             ),
                           ),
@@ -18598,6 +18628,7 @@ class _PlayerEpisodeSheetState extends State<PlayerEpisodeSheet> {
                   const SizedBox(height: 12),
                   if (isTvBuild)
                     tvEpisodeSearchButton(
+                      context: context,
                       query: query,
                       onPressed: _openTvSearchDialog,
                     )
@@ -19396,6 +19427,7 @@ class TvActionButton extends StatelessWidget {
     this.focusNode,
     this.onArrowUp,
     this.onArrowDown,
+    this.onDarkSurface = false,
   });
 
   final IconData? icon;
@@ -19409,20 +19441,40 @@ class TvActionButton extends StatelessWidget {
   final FocusNode? focusNode;
   final VoidCallback? onArrowUp;
   final VoidCallback? onArrowDown;
+  final bool onDarkSurface;
 
   @override
   Widget build(BuildContext context) {
-    final background = primary
-        ? Colors.white
+    final colors = Theme.of(context).colorScheme;
+    final darkSurface =
+        onDarkSurface || Theme.of(context).brightness == Brightness.dark;
+    final background = darkSurface
+        ? primary
+              ? Colors.white
+              : selected
+              ? CvColors.accent.withValues(alpha: .22)
+              : Colors.white.withValues(alpha: .09)
+        : primary
+        ? colors.primary
         : selected
-        ? CvColors.accent.withValues(alpha: .22)
-        : Colors.white.withValues(alpha: .09);
-    final foreground = primary ? Colors.black : Colors.white;
+        ? colors.primary.withValues(alpha: .18)
+        : colors.surfaceContainerHigh;
+    final foreground = darkSurface
+        ? primary
+              ? Colors.black
+              : Colors.white
+        : primary
+        ? colors.onPrimary
+        : selected
+        ? colors.primary
+        : colors.onSurface;
     final border = danger
         ? CvColors.danger.withValues(alpha: .62)
         : selected
-        ? CvColors.accent.withValues(alpha: .78)
-        : Colors.white.withValues(alpha: .14);
+        ? colors.primary.withValues(alpha: .78)
+        : darkSurface
+        ? Colors.white.withValues(alpha: .14)
+        : colors.outlineVariant;
     final content = Container(
       width: width,
       constraints: const BoxConstraints(minHeight: 58, minWidth: 138),
@@ -19482,6 +19534,7 @@ class TvFilterChip extends StatelessWidget {
     this.focusNode,
     this.onArrowUp,
     this.onArrowDown,
+    this.onDarkSurface = false,
   });
 
   final String label;
@@ -19491,6 +19544,7 @@ class TvFilterChip extends StatelessWidget {
   final FocusNode? focusNode;
   final VoidCallback? onArrowUp;
   final VoidCallback? onArrowDown;
+  final bool onDarkSurface;
 
   @override
   Widget build(BuildContext context) => TvActionButton(
@@ -19502,6 +19556,7 @@ class TvFilterChip extends StatelessWidget {
     focusNode: focusNode,
     onArrowUp: onArrowUp,
     onArrowDown: onArrowDown,
+    onDarkSurface: onDarkSurface,
   );
 }
 
