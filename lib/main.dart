@@ -12624,20 +12624,34 @@ class _ResumeLoaderScreenState extends State<ResumeLoaderScreen> {
           _openingPlayer = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(
-                builder: (_) => PlayerScreen(
-                  repo: widget.repo,
-                  movie: movie,
-                  server: server,
-                  episode: episode,
-                  serverIndex: item.serverIndex.clamp(
-                    0,
-                    movie.episodes.length - 1,
-                  ),
-                  resume: Duration(milliseconds: item.positionMs),
-                ),
-              ),
+            final navigator = Navigator.of(context);
+            unawaited(
+              navigator
+                  .push(
+                    MaterialPageRoute(
+                      builder: (_) => PlayerScreen(
+                        repo: widget.repo,
+                        movie: movie,
+                        server: server,
+                        episode: episode,
+                        serverIndex: item.serverIndex.clamp(
+                          0,
+                          movie.episodes.length - 1,
+                        ),
+                        resume: Duration(milliseconds: item.positionMs),
+                      ),
+                    ),
+                  )
+                  .whenComplete(() {
+                    if (!navigator.mounted) return;
+                    if (navigator.canPop()) {
+                      navigator.pop();
+                    } else {
+                      navigator.pushReplacement(
+                        MaterialPageRoute(builder: (_) => const AppShell()),
+                      );
+                    }
+                  }),
             );
           });
         }
@@ -12688,6 +12702,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   Timer? gestureHintTimer;
   Timer? tvSeekHoldDelayTimer;
   Timer? tvSeekRepeatTimer;
+  Timer? webViewLoadWatchdogTimer;
   LogicalKeyboardKey? tvSeekHeldKey;
   final focusNode = FocusNode();
   final overlayFocusScopeNode = FocusScopeNode(
@@ -12750,6 +12765,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   WebViewController? webViewController;
   windows_webview.WebviewController? windowsWebViewController;
   String? activeWebViewUrl;
+  int webViewSessionId = 0;
+  int webViewRecoveryAttempts = 0;
+  bool webViewPageFinished = false;
   IntroSkipData? introSkipData;
   String introSkipDataKey = '';
   final skippedIntroDbSegments = <String>{};
@@ -12882,7 +12900,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     final path = parsed.path.toLowerCase();
     final isStreamC = host.endsWith('streamc.xyz') && path.contains('/embed');
     final isPhimApi = host == 'player.phimapi.com' && path.contains('/player');
-    return isStreamC || isPhimApi;
+    final isNguonC =
+        host == 'phim.nguonc.com' && !path.contains('/public/images/');
+    return isStreamC || isPhimApi || isNguonC;
   }
 
   bool _isStreamCEmbedUrl(String raw) {
@@ -13271,6 +13291,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (_isStreamCEmbedUrl(url)) return 'streamc_webview';
     final parsed = Uri.tryParse(url);
     if (parsed == null) return 'unknown';
+    if (parsed.host.toLowerCase() == 'phim.nguonc.com') {
+      return 'nguonc_webview';
+    }
     if (parsed.path.toLowerCase().contains('.m3u8')) return 'm3u8';
     if (parsed.path.contains('/api/stream')) return 'proxy';
     if (parsed.host.contains('phimapi.com')) return 'embed';
@@ -14004,9 +14027,63 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  void _scheduleWebViewLoadWatchdog(int sessionId, String url) {
+    webViewLoadWatchdogTimer?.cancel();
+    webViewLoadWatchdogTimer = Timer(const Duration(seconds: 14), () {
+      if (!mounted ||
+          leavingPlayer ||
+          playerDisposed ||
+          sessionId != webViewSessionId ||
+          activeWebViewUrl != url ||
+          webViewPageFinished ||
+          webViewRecoveryAttempts >= 1) {
+        return;
+      }
+      webViewRecoveryAttempts += 1;
+      playbackNotice = 'WebView đứng, đang tải lại nguồn...';
+      _trackPlaybackEvent(
+        'webview_reload',
+        errorCode: 'load_watchdog_timeout',
+        errorMessage: url,
+      );
+      if (mounted) setState(() {});
+      unawaited(_reloadActiveWebView());
+    });
+  }
+
+  Future<void> _reloadActiveWebView() async {
+    final url = activeWebViewUrl;
+    if (url == null || url.isEmpty || leavingPlayer || playerDisposed) return;
+    webViewPageFinished = false;
+    final sessionId = webViewSessionId;
+    _scheduleWebViewLoadWatchdog(sessionId, url);
+    try {
+      final wc = webViewController;
+      final wwc = windowsWebViewController;
+      if (wc != null) {
+        await wc.loadRequest(
+          Uri.parse(url),
+          headers: const {
+            'Referer': 'https://cineviet.live/',
+            'Origin': 'https://cineviet.live',
+          },
+        );
+      } else if (wwc != null) {
+        await wwc.loadUrl(url);
+      }
+    } catch (e) {
+      lastPlaybackError = '$e';
+    }
+  }
+
   Future<void> _openWebViewSource(PlaybackSourceCandidate source) async {
     final url = source.webViewUrl;
     if (url == null || url.isEmpty) return;
+    webViewLoadWatchdogTimer?.cancel();
+    webViewSessionId += 1;
+    final sessionId = webViewSessionId;
+    webViewRecoveryAttempts = 0;
+    webViewPageFinished = false;
     if (!kIsWeb && Platform.isWindows) {
       final controller = windows_webview.WebviewController();
       await controller.initialize();
@@ -14074,7 +14151,8 @@ class _PlayerScreenState extends State<PlayerScreen>
             final isTrustedPlayerFrame =
                 host == initialHost ||
                 host.endsWith('.streamc.xyz') ||
-                host == 'player.phimapi.com';
+                host == 'player.phimapi.com' ||
+                host == 'phim.nguonc.com';
             if (request.isMainFrame && !isTrustedPlayerFrame) {
               // Chặn popup/redirect quảng cáo chiếm toàn màn hình. Tài nguyên phụ
               // (JS/CDN/ads iframe) vẫn để trang tự xử lý để player StreamC chạy.
@@ -14086,6 +14164,13 @@ class _PlayerScreenState extends State<PlayerScreen>
             // StreamC/JWPlayer có fullscreen HTML riêng; khi vào fullscreen đó
             // Flutter không còn vẽ được nút back của app. Giữ video inline để
             // nút back native overlay bên dưới luôn hoạt động.
+            if (sessionId != webViewSessionId) return;
+            webViewPageFinished = true;
+            webViewLoadWatchdogTimer?.cancel();
+            if (playbackNotice == 'WebView đứng, đang tải lại nguồn...') {
+              playbackNotice = null;
+              if (mounted) setState(() {});
+            }
             unawaited(_injectWebViewPlaybackAssist());
           },
           onWebResourceError: (error) {
@@ -14096,6 +14181,14 @@ class _PlayerScreenState extends State<PlayerScreen>
               errorCode: '${error.errorCode}',
               errorMessage: error.description,
             );
+            if (sessionId == webViewSessionId &&
+                !leavingPlayer &&
+                webViewRecoveryAttempts < 1) {
+              webViewRecoveryAttempts += 1;
+              playbackNotice = 'WebView lỗi, đang tải lại nguồn...';
+              if (mounted) setState(() {});
+              unawaited(_reloadActiveWebView());
+            }
           },
         ),
       )
@@ -14123,6 +14216,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     // WebView không có controller native nên cần timer riêng để lưu "Xem tiếp".
     saveTimer?.cancel();
     saveTimer = Timer.periodic(const Duration(seconds: 30), (_) => _save());
+    _scheduleWebViewLoadWatchdog(sessionId, url);
     _trackPlaybackEvent('webview_start');
     if (mounted) setState(() {});
     if (isTvBuild) {
@@ -15284,6 +15378,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   Future<void> _stopWebViewNow() async {
     final wc = webViewController;
     final wwc = windowsWebViewController;
+    webViewLoadWatchdogTimer?.cancel();
+    webViewSessionId += 1;
+    webViewRecoveryAttempts = 0;
+    webViewPageFinished = false;
     if (wc == null && wwc == null) return;
     const script = '''
       (function () {
@@ -15357,7 +15455,14 @@ class _PlayerScreenState extends State<PlayerScreen>
       } catch (_) {}
     }
     if (!mounted) return;
-    Navigator.of(context).pop();
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushReplacement(
+        MaterialPageRoute(builder: (_) => const AppShell()),
+      );
+    }
   }
 
   Future<void> _retryPlayback() async {
@@ -16450,6 +16555,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     levelApplyTimer?.cancel();
     gestureHintTimer?.cancel();
     deviceLevelSyncTimer?.cancel();
+    webViewLoadWatchdogTimer?.cancel();
     _stopTvSeekHold();
     saveTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
