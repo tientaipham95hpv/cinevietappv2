@@ -98,4 +98,28 @@ void main() {
     // Ophim (ưu tiên 0) phải đứng trước NguonC (ưu tiên 2).
     expect(m.episodes.first.name.toLowerCase(), contains('ophim'));
   });
+
+  test('WatchItem.fromJson đọc được progress cloud không có positionMs', () {
+    final item = WatchItem.fromJson({
+      'movie_id': 88,
+      'movie': {
+        'title': 'Phim Cloud',
+        'slug': 'phim-cloud',
+        'poster': '/poster.jpg',
+      },
+      'episode': 7,
+      'progress': 42,
+      'duration_seconds': 1000,
+      'server_name': 'NguonC',
+      'watched_at': '2026-07-28T03:00:00Z',
+    });
+
+    expect(item.movieId, 88);
+    expect(item.slug, 'phim-cloud');
+    expect(item.title, 'Phim Cloud');
+    expect(item.episodeName, '7');
+    expect(item.positionMs, 420000);
+    expect(item.durationMs, 1000000);
+    expect(item.shouldShow, isTrue);
+  });
 }

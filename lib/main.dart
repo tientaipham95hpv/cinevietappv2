@@ -1781,6 +1781,10 @@ class WatchItem {
 
   Map<String, dynamic> toCloudJson() => {
     'movie_id': movieId,
+    'slug': slug,
+    'title': title,
+    'poster': poster,
+    'backdrop': backdrop,
     'episode': episodeNumber(episodeName),
     'progress': progressPercent,
     'completed': isCompleted ? 1 : 0,
@@ -1790,39 +1794,90 @@ class WatchItem {
     'episode_name': episodeName,
     'server_name': serverName,
     'stream_url': streamUrl,
+    'updated_at_ms': updatedAtMs,
   };
 
-  factory WatchItem.fromJson(Map<String, dynamic> json) => WatchItem(
-    movieId: asInt(json['movieId'] ?? json['movie_id']) ?? 0,
-    slug: cleanText(json['slug']),
-    title: cleanText(json['title']).isEmpty
-        ? 'Không tên'
-        : cleanText(json['title']),
-    poster: imageUrl(json['poster'] ?? json['posterUrl'] ?? json['thumbnail']),
-    backdrop: imageUrl(
-      json['backdrop'] ?? json['backdropUrl'] ?? json['thumbnail'],
-    ),
-    serverName: cleanText(json['serverName'] ?? json['server_name']).isEmpty
-        ? 'Server'
-        : cleanText(json['serverName'] ?? json['server_name']),
-    serverIndex: asInt(json['serverIndex'] ?? json['server_index']) ?? 0,
-    episodeName: cleanText(
-      json['episodeName'] ?? json['episode_name'] ?? json['episode'],
-    ).replaceFirst(RegExp(r'^$'), 'Tập'),
-    streamUrl: cleanText(json['streamUrl'] ?? json['stream_url']),
-    positionMs:
+  factory WatchItem.fromJson(Map<String, dynamic> json) {
+    final movie = json['movie'] is Map
+        ? Map<String, dynamic>.from(json['movie'] as Map)
+        : const <String, dynamic>{};
+    final progressRaw = asDouble(
+      json['progress'] ?? json['percent'] ?? json['progress_percent'],
+    );
+    final progressRatio = progressRaw == null
+        ? 0.0
+        : progressRaw > 1
+        ? (progressRaw / 100).clamp(0.0, 1.0)
+        : progressRaw.clamp(0.0, 1.0);
+    final durationSeconds =
+        asDouble(
+          json['duration_seconds'] ??
+              json['duration'] ??
+              json['duration_sec'] ??
+              json['total_seconds'],
+        ) ??
+        0;
+    final positionSeconds =
+        asDouble(
+          json['position_seconds'] ??
+              json['position'] ??
+              json['current_time'] ??
+              json['current_seconds'] ??
+              json['watched_seconds'],
+        ) ??
+        (durationSeconds > 0 && progressRatio > 0
+            ? durationSeconds * progressRatio
+            : 0);
+    final durationMs =
+        asInt(json['durationMs']) ?? (durationSeconds * 1000).round();
+    final positionMs =
         asInt(json['positionMs']) ??
-        (((asDouble(json['position_seconds']) ?? 0) * 1000).round()),
-    durationMs:
-        asInt(json['durationMs']) ??
-        (((asDouble(json['duration_seconds']) ?? 0) * 1000).round()),
-    updatedAtMs:
-        asInt(json['updatedAtMs']) ??
+        (positionSeconds * 1000).round().clamp(0, math.max(durationMs, 0));
+    final title = cleanText(
+      json['title'] ?? json['movie_title'] ?? movie['title'] ?? movie['name'],
+    );
+    final updatedAt =
+        asInt(json['updatedAtMs'] ?? json['updated_at_ms']) ??
         DateTime.tryParse(
-          cleanText(json['watched_at']),
+          cleanText(
+            json['watched_at'] ??
+                json['updated_at'] ??
+                json['created_at'] ??
+                json['last_watched_at'],
+          ),
         )?.millisecondsSinceEpoch ??
-        DateTime.now().millisecondsSinceEpoch,
-  );
+        DateTime.now().millisecondsSinceEpoch;
+    return WatchItem(
+      movieId: asInt(json['movieId'] ?? json['movie_id'] ?? movie['id']) ?? 0,
+      slug: cleanText(json['slug'] ?? movie['slug']),
+      title: title.isEmpty ? 'Không tên' : title,
+      poster: imageUrl(
+        json['poster'] ??
+            json['posterUrl'] ??
+            json['thumbnail'] ??
+            movie['poster'] ??
+            movie['thumbnail'],
+      ),
+      backdrop: imageUrl(
+        json['backdrop'] ??
+            json['backdropUrl'] ??
+            json['thumbnail'] ??
+            movie['backdrop'] ??
+            movie['thumbnail'],
+      ),
+      serverName: cleanText(json['serverName'] ?? json['server_name']).isEmpty
+          ? 'Server'
+          : cleanText(json['serverName'] ?? json['server_name']),
+      serverIndex: asInt(json['serverIndex'] ?? json['server_index']) ?? 0,
+      episodeName: cleanText(
+        json['episodeName'] ?? json['episode_name'] ?? json['episode'],
+      ).replaceFirst(RegExp(r'^$'), 'Tập'),
+      streamUrl: cleanText(json['streamUrl'] ?? json['stream_url']),
+      positionMs: positionMs,
+      durationMs: durationMs,
+      updatedAtMs: updatedAt,
+    );
+  }
 }
 
 class CinePlaylist {
@@ -2416,13 +2471,20 @@ class MovieRepository {
   }
 
   Future<void> syncWatch(WatchItem item) async {
+    if (!api.hasAuthToken) return;
+    final payload = item.toCloudJson();
+    var synced = false;
     try {
-      await api.dio.post(
-        '/movies/${item.movieId}/watch',
-        data: item.toCloudJson(),
-      );
-      await api.dio.post('/history', data: item.toCloudJson());
+      await api.dio.post('/history', data: payload);
+      synced = true;
     } catch (_) {}
+    try {
+      await api.dio.post('/movies/${item.movieId}/watch', data: payload);
+      synced = true;
+    } catch (_) {}
+    if (!synced) {
+      debugPrint('CineViet syncWatch failed for movie ${item.movieId}');
+    }
   }
 
   Future<int> syncLocalHistoryToCloud() async {
@@ -2451,15 +2513,24 @@ class MovieRepository {
     for (final item in latestLocalByMovie.values) {
       final cloud = cloudByMovie[item.movieId];
       if (cloud != null && cloud.updatedAtMs >= item.updatedAtMs) continue;
+      var itemSynced = false;
+      try {
+        await api.dio.post('/history', data: item.toCloudJson());
+        itemSynced = true;
+      } catch (_) {
+        // Keep local history intact; retry on next login/startup.
+      }
       try {
         await api.dio.post(
           '/movies/${item.movieId}/watch',
           data: item.toCloudJson(),
         );
-        await api.dio.post('/history', data: item.toCloudJson());
-        synced += 1;
+        itemSynced = true;
       } catch (_) {
         // Keep local history intact; retry on next login/startup.
+      }
+      if (itemSynced) {
+        synced += 1;
       }
     }
     return synced;
@@ -3117,6 +3188,46 @@ class LocalHistory {
     _notifyChanged();
   }
 
+  static Future<void> mergeFromCloud(List<WatchItem> cloud) async {
+    final incoming = cloud
+        .where((item) => item.shouldShow && item.movieId > 0)
+        .toList();
+    if (incoming.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final deletedIds = await deletedMovieIds();
+    final byMovie = <int, WatchItem>{};
+    for (final item in await items()) {
+      if (item.movieId <= 0) continue;
+      byMovie[item.movieId] = item;
+    }
+    var changed = false;
+    for (final item in incoming) {
+      if (deletedIds.contains(item.movieId)) continue;
+      final current = byMovie[item.movieId];
+      final cloudIsNewer =
+          current == null || item.updatedAtMs > current.updatedAtMs;
+      final sameTimestampButDifferentProgress =
+          current != null &&
+          item.updatedAtMs == current.updatedAtMs &&
+          (item.positionMs != current.positionMs ||
+              item.durationMs != current.durationMs ||
+              item.episodeName != current.episodeName);
+      if (cloudIsNewer || sameTimestampButDifferentProgress) {
+        byMovie[item.movieId] = item;
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    final next = byMovie.values.toList()
+      ..sort((a, b) => b.updatedAtMs.compareTo(a.updatedAtMs));
+    await prefs.setString(
+      key,
+      jsonEncode(next.take(120).map((e) => e.toJson()).toList()),
+    );
+    _cache = next.take(120).toList();
+    _notifyChanged();
+  }
+
   static Future<void> removeMovie(int movieId) async {
     final prefs = await SharedPreferences.getInstance();
     await _rememberDeletedMovie(prefs, movieId);
@@ -3284,11 +3395,15 @@ List<WatchItem> mergeWatchHistoryItems(
 }
 
 Future<List<WatchItem>> mergedWatchHistory(MovieRepository repo) async {
-  final local = await LocalHistory.items();
+  var local = await LocalHistory.items();
   var cloud = const <WatchItem>[];
   if (Api.instance.hasAuthToken) {
     try {
       cloud = await repo.cloudHistory();
+      if (cloud.isNotEmpty) {
+        await LocalHistory.mergeFromCloud(cloud);
+        local = await LocalHistory.items();
+      }
     } catch (error) {
       debugPrint('CineViet cloud history merge error: $error');
     }
@@ -3317,7 +3432,7 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final repo = MovieRepository(Api.instance);
   int index = 0;
   bool ready = false;
@@ -3325,6 +3440,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     Api.instance.restoreToken().whenComplete(() {
       if (!mounted) return;
       setState(() => ready = true);
@@ -3336,6 +3452,20 @@ class _AppShellState extends State<AppShell> {
         }
       });
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !Api.instance.hasAuthToken) {
+      return;
+    }
+    unawaited(mergedWatchHistory(repo));
   }
 
   @override
@@ -6526,12 +6656,20 @@ class HistoryScreen extends StatefulWidget {
 
 class _HistoryScreenState extends State<HistoryScreen> {
   late Future<List<WatchItem>> items;
+  bool refreshingHistory = false;
 
   @override
   void initState() {
     super.initState();
     items = LocalHistory.items();
+    LocalHistory.version.addListener(_refreshFromCloud);
     unawaited(_refreshFromCloud());
+  }
+
+  @override
+  void dispose() {
+    LocalHistory.version.removeListener(_refreshFromCloud);
+    super.dispose();
   }
 
   Future<List<WatchItem>> _history() async {
@@ -6539,8 +6677,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 
   Future<void> _refreshFromCloud() async {
-    final next = await _history();
-    if (mounted) setState(() => items = Future.value(next));
+    if (refreshingHistory) return;
+    refreshingHistory = true;
+    try {
+      final next = await _history();
+      if (mounted) setState(() => items = Future.value(next));
+    } finally {
+      refreshingHistory = false;
+    }
   }
 
   Future<void> _remove(WatchItem item) async {
