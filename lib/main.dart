@@ -12773,6 +12773,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   final skippedIntroDbSegments = <String>{};
   bool recoveringPlayback = false;
   bool savingProgress = false;
+  Future<void>? saveInFlight;
   bool reportingPlaybackIssue = false;
   bool androidBrightnessSettingsPrompted = false;
   bool landscapeFullscreen = false;
@@ -14617,13 +14618,21 @@ class _PlayerScreenState extends State<PlayerScreen>
     recoveringPlayback = false;
   }
 
-  Future<void> _save() async {
-    if (savingProgress) return;
+  Future<void> _save({bool force = false}) async {
+    if (savingProgress) {
+      if (!force) return;
+      try {
+        await saveInFlight;
+      } catch (_) {}
+    }
     savingProgress = true;
+    final save = _saveUnlocked();
+    saveInFlight = save;
     try {
-      await _saveUnlocked();
+      await save;
     } finally {
       savingProgress = false;
+      if (identical(saveInFlight, save)) saveInFlight = null;
     }
   }
 
@@ -14953,7 +14962,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (c == null || !c.value.isInitialized) return;
     await c.seekTo(_clampPosition(c.value.position + offset, c.value.duration));
     _emitWatchSync(force: true);
-    unawaited(_save());
+    unawaited(_save(force: true));
     if (showControls) _showControls();
   }
 
@@ -15021,7 +15030,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     await c.seekTo(_clampPosition(target, c.value.duration));
     _emitWatchSync(force: true);
-    unawaited(_save());
+    unawaited(_save(force: true));
     if (mounted) setState(() {});
   }
 
@@ -15240,7 +15249,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (c == null || !c.value.isInitialized) return;
     c.value.isPlaying ? c.pause() : c.play();
     _emitWatchSync(force: true);
-    unawaited(_save());
+    unawaited(_save(force: true));
     _showControls();
   }
 
@@ -15438,14 +15447,14 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (leavingPlayer) return;
     leavingPlayer = true;
     if (mounted) setState(() {});
-    // Silence playback synchronously before waiting for history/network work.
-    // Otherwise Back can leave audio audible for up to the save timeout.
+    try {
+      await _save(force: true).timeout(const Duration(seconds: 2));
+    } catch (_) {}
+    // Silence playback synchronously after the final position is persisted.
+    // Disposing first clears the controller/WebView and loses the last tick.
     _stopPlaybackNow();
     final disposePlayback = _disposePlaybackNow();
     final stopWebView = _stopWebViewNow();
-    try {
-      await _save().timeout(const Duration(seconds: 2));
-    } catch (_) {}
     await Future.wait([disposePlayback, stopWebView]);
     await _setLandscapeFullscreen(false);
     if (mounted) setState(() {});
@@ -15588,7 +15597,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (dragMode == 'seek' && target != null) {
       controller?.seekTo(target);
       _emitWatchSync(force: true);
-      unawaited(_save());
+      unawaited(_save(force: true));
     }
     unawaited(_applyPendingLevels(settle: true));
     setState(() {
@@ -15619,7 +15628,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.detached) {
       _stopTvSeekHold();
-      unawaited(_save());
+      unawaited(_save(force: true));
       return;
     }
     if (state == AppLifecycleState.resumed) {
@@ -15662,7 +15671,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _switchTo(EpisodeServer server, EpisodeItem episode) async {
-    await _save();
+    await _save(force: true);
     final serverIndex = widget.movie.episodes.indexOf(server);
     setState(() {
       currentServer = server;
@@ -16549,8 +16558,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (decrypted != null) {
       unawaited(decrypted.delete().catchError((_) => decrypted));
     }
+    unawaited(_save(force: true));
     unawaited(_stopWebViewNow());
-    _save();
     controlsTimer?.cancel();
     levelApplyTimer?.cancel();
     gestureHintTimer?.cancel();
@@ -16911,6 +16920,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                           onFocusPrimaryControl: () =>
                               playButtonFocusNode.requestFocus(),
                           onFocusSeekBar: () => seekBarFocusNode.requestFocus(),
+                          onSeekComplete: () {
+                            _emitWatchSync(force: true);
+                            unawaited(_save(force: true));
+                          },
                           onPrevious: () => _playSibling(-1),
                           onNext: () => _playSibling(1),
                           onEpisodes: _showEpisodeSheet,
@@ -17475,6 +17488,7 @@ class PlayerOverlay extends StatelessWidget {
     required this.onFocusBack,
     required this.onFocusPrimaryControl,
     required this.onFocusSeekBar,
+    required this.onSeekComplete,
     required this.onPrevious,
     required this.onNext,
     required this.onEpisodes,
@@ -17502,6 +17516,7 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onFocusBack;
   final VoidCallback onFocusPrimaryControl;
   final VoidCallback onFocusSeekBar;
+  final VoidCallback onSeekComplete;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final VoidCallback onEpisodes;
@@ -17621,6 +17636,7 @@ class PlayerOverlay extends StatelessWidget {
                           onFocusBack: onFocusBack,
                           focusNode: seekBarFocusNode,
                           onFocusPrimaryControl: onFocusPrimaryControl,
+                          onSeekComplete: onSeekComplete,
                         ),
                         const SizedBox(height: 12),
                         LayoutBuilder(
@@ -17744,6 +17760,7 @@ class PlayerSeekBar extends StatefulWidget {
     required this.onSeekForward,
     required this.onFocusBack,
     required this.onFocusPrimaryControl,
+    required this.onSeekComplete,
   });
 
   final VideoPlayerController controller;
@@ -17752,6 +17769,7 @@ class PlayerSeekBar extends StatefulWidget {
   final VoidCallback onSeekForward;
   final VoidCallback onFocusBack;
   final VoidCallback onFocusPrimaryControl;
+  final VoidCallback onSeekComplete;
 
   @override
   State<PlayerSeekBar> createState() => _PlayerSeekBarState();
@@ -17870,6 +17888,17 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
               0.0,
               max,
             );
+            Future<void> seekToMs(double nextMs) async {
+              final wasPlaying = widget.controller.value.isPlaying;
+              await widget.controller.seekTo(
+                Duration(milliseconds: nextMs.round()),
+              );
+              widget.onSeekComplete();
+              if (wasPlaying && !widget.controller.value.isPlaying) {
+                await widget.controller.play();
+              }
+            }
+
             final slider = Slider(
               value: sliderValue,
               min: 0,
@@ -17880,49 +17909,92 @@ class _PlayerSeekBarState extends State<PlayerSeekBar> {
               onChangeEnd: durationMs <= 0
                   ? null
                   : (nextMs) async {
-                      final wasPlaying = widget.controller.value.isPlaying;
                       setState(() => dragValueMs = null);
-                      await widget.controller.seekTo(
-                        Duration(milliseconds: nextMs.round()),
-                      );
-                      if (wasPlaying && !widget.controller.value.isPlaying) {
-                        await widget.controller.play();
-                      }
+                      await seekToMs(nextMs);
                     },
             );
+            Future<void> seekToLocalDx(double dx) async {
+              final box = context.findRenderObject() as RenderBox?;
+              final width = box?.size.width ?? 0;
+              if (width <= 0) return;
+              final fraction = (dx / width).clamp(0.0, 1.0);
+              await seekToMs(durationMs * fraction);
+            }
+
             return SliderTheme(
               data: SliderTheme.of(context).copyWith(
-                trackHeight: focused && isTvBuild ? 7 : 4,
+                trackHeight: isTvBuild
+                    ? focused
+                          ? 7
+                          : 4
+                    : 6,
                 activeTrackColor: CvColors.accent,
                 inactiveTrackColor: Colors.white.withValues(alpha: .28),
-                thumbColor: Colors.transparent,
-                overlayColor: Colors.transparent,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 0),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 0),
+                thumbColor: isTvBuild ? Colors.transparent : CvColors.accent,
+                overlayColor: isTvBuild
+                    ? Colors.transparent
+                    : CvColors.accent.withValues(alpha: .16),
+                thumbShape: RoundSliderThumbShape(
+                  enabledThumbRadius: isTvBuild ? 0 : 7,
+                ),
+                overlayShape: RoundSliderOverlayShape(
+                  overlayRadius: isTvBuild ? 0 : 24,
+                ),
               ),
               child: isTvBuild
                   ? ExcludeFocus(child: slider)
-                  : GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapDown: durationMs <= 0
-                          ? null
-                          : (details) async {
-                              final box =
-                                  context.findRenderObject() as RenderBox?;
-                              final width = box?.size.width ?? 0;
-                              if (width <= 0) return;
-                              final fraction =
-                                  (details.localPosition.dx / width).clamp(
-                                    0.0,
-                                    1.0,
-                                  );
-                              await widget.controller.seekTo(
-                                Duration(
-                                  milliseconds: (durationMs * fraction).round(),
-                                ),
-                              );
-                            },
-                      child: slider,
+                  : SizedBox(
+                      height: 48,
+                      child: GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapDown: durationMs <= 0
+                            ? null
+                            : (details) => unawaited(
+                                seekToLocalDx(details.localPosition.dx),
+                              ),
+                        onHorizontalDragStart: durationMs <= 0
+                            ? null
+                            : (details) {
+                                final box =
+                                    context.findRenderObject() as RenderBox?;
+                                final width = box?.size.width ?? 0;
+                                if (width <= 0) return;
+                                final fraction =
+                                    (details.localPosition.dx / width).clamp(
+                                      0.0,
+                                      1.0,
+                                    );
+                                setState(
+                                  () => dragValueMs = durationMs * fraction,
+                                );
+                              },
+                        onHorizontalDragUpdate: durationMs <= 0
+                            ? null
+                            : (details) {
+                                final box =
+                                    context.findRenderObject() as RenderBox?;
+                                final width = box?.size.width ?? 0;
+                                if (width <= 0) return;
+                                final fraction =
+                                    (details.localPosition.dx / width).clamp(
+                                      0.0,
+                                      1.0,
+                                    );
+                                setState(
+                                  () => dragValueMs = durationMs * fraction,
+                                );
+                              },
+                        onHorizontalDragEnd: durationMs <= 0
+                            ? null
+                            : (_) {
+                                final target = dragValueMs;
+                                setState(() => dragValueMs = null);
+                                if (target != null) {
+                                  unawaited(seekToMs(target));
+                                }
+                              },
+                        child: Center(child: slider),
+                      ),
                     ),
             );
           },
