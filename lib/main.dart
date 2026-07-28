@@ -15856,6 +15856,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   ThemeData _playerChromeTheme(BuildContext context) {
     final appTheme = Theme.of(context);
+    const disabledText = Color(0xFFB7BEC8);
     final playerColors = appTheme.colorScheme.copyWith(
       brightness: Brightness.dark,
       primary: CvColors.accent,
@@ -15868,14 +15869,71 @@ class _PlayerScreenState extends State<PlayerScreen>
       outline: CvColors.border,
       outlineVariant: CvColors.borderLight,
     );
+    final playerTextTheme = Typography.whiteMountainView.apply(
+      fontFamily: appTheme.textTheme.bodyMedium?.fontFamily,
+      bodyColor: Colors.white,
+      displayColor: Colors.white,
+    );
     return appTheme.copyWith(
       brightness: Brightness.dark,
       colorScheme: playerColors,
       scaffoldBackgroundColor: CvColors.black,
       iconTheme: const IconThemeData(color: Colors.white),
-      textTheme: appTheme.textTheme.apply(
-        bodyColor: Colors.white,
-        displayColor: Colors.white,
+      textTheme: playerTextTheme,
+      listTileTheme: const ListTileThemeData(
+        textColor: Colors.white,
+        iconColor: Colors.white,
+        titleTextStyle: TextStyle(
+          color: Colors.white,
+          fontSize: 16,
+          fontWeight: FontWeight.w800,
+        ),
+        subtitleTextStyle: TextStyle(color: CvColors.muted, fontSize: 14),
+      ),
+      chipTheme: ChipThemeData(
+        color: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) {
+            return CvColors.accent.withValues(alpha: .20);
+          }
+          if (states.contains(WidgetState.disabled)) {
+            return Colors.white.withValues(alpha: .08);
+          }
+          return Colors.white.withValues(alpha: .06);
+        }),
+        labelStyle: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+        ),
+        secondaryLabelStyle: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w900,
+        ),
+        disabledColor: Colors.white.withValues(alpha: .08),
+        selectedColor: CvColors.accent.withValues(alpha: .20),
+        backgroundColor: Colors.white.withValues(alpha: .06),
+        side: const BorderSide(color: CvColors.borderLight),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+      dividerTheme: const DividerThemeData(
+        color: CvColors.borderLight,
+        thickness: 1,
+      ),
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: Colors.white,
+          disabledForegroundColor: disabledText,
+          side: const BorderSide(color: CvColors.borderLight),
+        ),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return Colors.black;
+          return disabledText;
+        }),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return CvColors.accent;
+          return Colors.white.withValues(alpha: .18);
+        }),
       ),
       bottomSheetTheme: appTheme.bottomSheetTheme.copyWith(
         backgroundColor: CvColors.ink,
@@ -15886,7 +15944,15 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Widget _playerChromeThemeBuilder(BuildContext context, Widget child) {
-    return Theme(data: _playerChromeTheme(context), child: child);
+    final theme = _playerChromeTheme(context);
+    return Theme(
+      data: theme,
+      child: DefaultTextStyle(
+        style:
+            theme.textTheme.bodyMedium ?? const TextStyle(color: Colors.white),
+        child: child,
+      ),
+    );
   }
 
   void _cycleFitMode() {
