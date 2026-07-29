@@ -10551,7 +10551,7 @@ class MovieCollectionSelector extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         FocusButton(
-          autofocus: true,
+          autofocus: !isTvBuild,
           borderRadius: 10,
           onPressed: () async {
             final selected = await showDialog<MovieCollectionItem>(
@@ -10707,6 +10707,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
   bool isFavorite = false;
   bool favoriteBusy = false;
   bool descriptionExpanded = false;
+  bool detailInitialFocusRequested = false;
   int detailSectionIndex = 0;
   WatchItem? resumeItem;
   late Future<List<Movie>> related;
@@ -10821,6 +10822,7 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
       serverIndex = 0;
       detailSectionIndex = 0;
       descriptionExpanded = false;
+      detailInitialFocusRequested = false;
       resumeItem = null;
       favoriteMovieId = part.movieId;
       isFavorite = false;
@@ -11191,6 +11193,14 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
             heroActionIndex,
             detailHeroActionFocusNodes.length,
           );
+          if (isTvBuild &&
+              !detailInitialFocusRequested &&
+              detailHeroActionCount > 0) {
+            detailInitialFocusRequested = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) focusDetailHeroAction(0);
+            });
+          }
           final double expandedHeroHeight = isTvBuild
               ? math.min(
                   detailWidth * 9 / 16,
@@ -11200,171 +11210,177 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                   detailHeight * (usePortraitHero ? .72 : .58),
                   usePortraitHero ? 660 : 540,
                 );
-          return CustomScrollView(
-            controller: detailScrollController,
-            key: PageStorageKey('detail-scroll-${movie.id}'),
-            slivers: [
-              SliverAppBar(
-                expandedHeight: expandedHeroHeight,
-                pinned: true,
-                backgroundColor: Colors.black,
-                flexibleSpace: FlexibleSpaceBar(
-                  background: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      widget.heroTag != null
-                          ? Hero(tag: widget.heroTag!, child: detailBackdrop())
-                          : detailBackdrop(),
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              Colors.black.withValues(alpha: .1),
-                              CvColors.black,
-                            ],
-                            stops: const [.45, 1],
-                          ),
-                        ),
-                      ),
-                      Padding(
-                        padding: pagePadding(context).copyWith(bottom: 32),
-                        child: Align(
-                          alignment: Alignment.bottomLeft,
-                          child: ConstrainedBox(
-                            constraints: const BoxConstraints(maxWidth: 760),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  movie.title,
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontSize: titleSize,
-                                    height: 1.04,
-                                    fontWeight: FontWeight.w900,
-                                    shadows: const [
-                                      Shadow(
-                                        color: Colors.black,
-                                        blurRadius: 12,
-                                      ),
-                                    ],
-                                  ),
-                                  maxLines: 3,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                if (movie.titleEn.isNotEmpty &&
-                                    movie.titleEn != movie.title) ...[
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    movie.titleEn,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      color: Colors.white.withValues(
-                                        alpha: .82,
-                                      ),
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                                if (metaChips.isNotEmpty) ...[
-                                  const SizedBox(height: 12),
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: metaChips
-                                        .map(
-                                          (label) => InfoPill(
-                                            label,
-                                            prominent: label == movie.quality,
-                                          ),
-                                        )
-                                        .toList(),
-                                  ),
-                                ],
-                                const SizedBox(height: 16),
-                                Wrap(
-                                  spacing: useLeanbackControls ? 12 : 10,
-                                  runSpacing: useLeanbackControls ? 12 : 10,
-                                  children: heroActions,
-                                ),
+          return FocusTraversalGroup(
+            policy: OrderedTraversalPolicy(),
+            child: CustomScrollView(
+              controller: detailScrollController,
+              key: PageStorageKey('detail-scroll-${movie.id}'),
+              slivers: [
+                SliverAppBar(
+                  expandedHeight: expandedHeroHeight,
+                  pinned: true,
+                  backgroundColor: Colors.black,
+                  flexibleSpace: FlexibleSpaceBar(
+                    background: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        widget.heroTag != null
+                            ? Hero(
+                                tag: widget.heroTag!,
+                                child: detailBackdrop(),
+                              )
+                            : detailBackdrop(),
+                        DecoratedBox(
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.black.withValues(alpha: .1),
+                                CvColors.black,
                               ],
+                              stops: const [.45, 1],
                             ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: pagePadding(context).copyWith(top: 20, bottom: 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (movie.description.isNotEmpty)
-                        CollapsibleMovieDescription(
-                          description: movie.description,
-                          expanded: descriptionExpanded,
-                          collapsedLines: 2,
-                          onToggle: () => setState(
-                            () => descriptionExpanded = !descriptionExpanded,
+                        Padding(
+                          padding: pagePadding(context).copyWith(bottom: 32),
+                          child: Align(
+                            alignment: Alignment.bottomLeft,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 760),
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    movie.title,
+                                    style: TextStyle(
+                                      color: Colors.white,
+                                      fontSize: titleSize,
+                                      height: 1.04,
+                                      fontWeight: FontWeight.w900,
+                                      shadows: const [
+                                        Shadow(
+                                          color: Colors.black,
+                                          blurRadius: 12,
+                                        ),
+                                      ],
+                                    ),
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  if (movie.titleEn.isNotEmpty &&
+                                      movie.titleEn != movie.title) ...[
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      movie.titleEn,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: Colors.white.withValues(
+                                          alpha: .82,
+                                        ),
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                  if (metaChips.isNotEmpty) ...[
+                                    const SizedBox(height: 12),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: metaChips
+                                          .map(
+                                            (label) => InfoPill(
+                                              label,
+                                              prominent: label == movie.quality,
+                                            ),
+                                          )
+                                          .toList(),
+                                    ),
+                                  ],
+                                  const SizedBox(height: 16),
+                                  Wrap(
+                                    spacing: useLeanbackControls ? 12 : 10,
+                                    runSpacing: useLeanbackControls ? 12 : 10,
+                                    children: heroActions,
+                                  ),
+                                ],
+                              ),
+                            ),
                           ),
                         ),
-                      if ((movie.collection?.items.length ?? 0) >= 2) ...[
-                        const SizedBox(height: 22),
-                        MovieCollectionSelector(
-                          collection: movie.collection!,
-                          currentMovieId: movie.id,
-                          onSelected: selectCollectionPart,
-                        ),
                       ],
-                      if (movie.genres.isNotEmpty) ...[
-                        const SizedBox(height: 18),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: movie.genres
-                              .map((e) => GenreChip(label: e))
-                              .toList(),
-                        ),
-                      ],
-                      if (!snapshot.hasData)
-                        const Padding(
-                          padding: EdgeInsets.only(top: 24),
-                          child: LinearProgressIndicator(
-                            color: CvColors.accent,
-                          ),
-                        ),
-                      if (detailTabs.isNotEmpty) ...[
-                        SizedBox(height: isTvBuild ? 30 : 24),
-                        DetailSectionTabs(
-                          tabs: detailTabs,
-                          selectedIndex: activeDetailSectionIndex,
-                          selectedFocusNode: detailTabsFocusNode,
-                          onSelected: (value) =>
-                              setState(() => detailSectionIndex = value),
-                          onMoveUp: focusDetailPrimaryAction,
-                          onMoveDown:
-                              detailTabs[activeDetailSectionIndex].label ==
-                                  'Tập phim'
-                              ? focusEpisodeSection
-                              : null,
-                        ),
-                        SizedBox(height: isTvBuild ? 20 : 16),
-                        detailTabs[activeDetailSectionIndex].builder(context),
-                      ],
-                    ],
+                    ),
                   ),
                 ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 36)),
-            ],
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: pagePadding(context).copyWith(top: 20, bottom: 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (movie.description.isNotEmpty)
+                          CollapsibleMovieDescription(
+                            description: movie.description,
+                            expanded: descriptionExpanded,
+                            collapsedLines: 2,
+                            onToggle: () => setState(
+                              () => descriptionExpanded = !descriptionExpanded,
+                            ),
+                          ),
+                        if ((movie.collection?.items.length ?? 0) >= 2) ...[
+                          const SizedBox(height: 22),
+                          MovieCollectionSelector(
+                            collection: movie.collection!,
+                            currentMovieId: movie.id,
+                            onSelected: selectCollectionPart,
+                          ),
+                        ],
+                        if (movie.genres.isNotEmpty) ...[
+                          const SizedBox(height: 18),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: movie.genres
+                                .map((e) => GenreChip(label: e))
+                                .toList(),
+                          ),
+                        ],
+                        if (!snapshot.hasData)
+                          const Padding(
+                            padding: EdgeInsets.only(top: 24),
+                            child: LinearProgressIndicator(
+                              color: CvColors.accent,
+                            ),
+                          ),
+                        if (detailTabs.isNotEmpty) ...[
+                          SizedBox(height: isTvBuild ? 30 : 24),
+                          DetailSectionTabs(
+                            tabs: detailTabs,
+                            selectedIndex: activeDetailSectionIndex,
+                            selectedFocusNode: detailTabsFocusNode,
+                            onSelected: (value) =>
+                                setState(() => detailSectionIndex = value),
+                            onMoveUp: focusDetailPrimaryAction,
+                            onMoveDown:
+                                detailTabs[activeDetailSectionIndex].label ==
+                                    'Tập phim'
+                                ? focusEpisodeSection
+                                : null,
+                          ),
+                          SizedBox(height: isTvBuild ? 20 : 16),
+                          detailTabs[activeDetailSectionIndex].builder(context),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 36)),
+              ],
+            ),
           );
         },
       ),
