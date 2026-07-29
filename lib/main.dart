@@ -4239,6 +4239,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   late Future<HomeData> data;
   HomeData? _cachedHome; // dữ liệu cache hiển ngay khi mở app
+  HomeData? _currentHome;
+  bool _homeDataReady = false;
   bool _refreshingHistoryOnly = false;
   bool _historyRefreshQueued = false;
 
@@ -4264,7 +4266,11 @@ class _HomeScreenState extends State<HomeScreen> {
     final cached = results[0] as HomeData?;
     final localHistory = results[1] as List<WatchItem>;
     if (cached != null && mounted) {
-      setState(() => _cachedHome = cached.copyWith(history: localHistory));
+      final next = cached.copyWith(history: localHistory);
+      setState(() {
+        _cachedHome = next;
+        _currentHome = next;
+      });
     }
     return _load();
   }
@@ -4315,7 +4321,13 @@ class _HomeScreenState extends State<HomeScreen> {
     );
     // Ghi cache nền (không cache history vì thay đổi liên tục).
     unawaited(HomeCache.write(home));
-    if (mounted) setState(() => _cachedHome = null);
+    if (mounted) {
+      setState(() {
+        _cachedHome = null;
+        _currentHome = home;
+        _homeDataReady = true;
+      });
+    }
     return home;
   }
 
@@ -4343,6 +4355,24 @@ class _HomeScreenState extends State<HomeScreen> {
     return mergedWatchHistory(widget.repo);
   }
 
+  Future<List<WatchItem>> _localHistory() async {
+    final local = await LocalHistory.items();
+    return mergeWatchHistoryItems(local, const []);
+  }
+
+  void _replaceVisibleHistory(List<WatchItem> history) {
+    if (!mounted) return;
+    final current = _currentHome ?? _cachedHome;
+    if (current == null) return;
+    if (listEquals(current.history, history)) return;
+    final next = current.copyWith(history: history);
+    setState(() {
+      _currentHome = next;
+      _cachedHome = _cachedHome?.copyWith(history: history);
+      if (_homeDataReady) data = Future.value(next);
+    });
+  }
+
   Future<void> _refreshHistoryOnly() async {
     if (!mounted) return;
     if (_refreshingHistoryOnly) {
@@ -4351,17 +4381,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     _refreshingHistoryOnly = true;
     try {
-      final history = await _safeHistory();
-      HomeData? current = _cachedHome;
+      // Player save đã ghi LocalHistory trước. Cập nhật Home bằng local ngay,
+      // rồi mới merge cloud nền để tránh phải đóng/mở app mới thấy "Xem tiếp".
       try {
-        current = await data;
-      } catch (_) {}
-      if (!mounted || current == null) return;
-      final next = current.copyWith(history: history);
-      setState(() {
-        _cachedHome = _cachedHome?.copyWith(history: history);
-        data = Future.value(next);
-      });
+        _replaceVisibleHistory(await _localHistory());
+      } catch (error, stackTrace) {
+        debugPrint('CineViet local history refresh error: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+      final history = await _safeHistory();
+      _replaceVisibleHistory(history);
     } finally {
       _refreshingHistoryOnly = false;
       if (_historyRefreshQueued && mounted) {
@@ -4407,6 +4436,8 @@ class _HomeScreenState extends State<HomeScreen> {
             }
             return const HomeSkeleton();
           }
+          _currentHome = snapshot.data!;
+          _homeDataReady = true;
           return _buildHome(snapshot.data!);
         },
       ),
