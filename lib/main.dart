@@ -4238,6 +4238,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late Future<HomeData> data;
   HomeData? _cachedHome; // dữ liệu cache hiển ngay khi mở app
   bool _refreshingHistoryOnly = false;
+  bool _historyRefreshQueued = false;
 
   @override
   void initState() {
@@ -4341,7 +4342,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _refreshHistoryOnly() async {
-    if (!mounted || _refreshingHistoryOnly) return;
+    if (!mounted) return;
+    if (_refreshingHistoryOnly) {
+      _historyRefreshQueued = true;
+      return;
+    }
     _refreshingHistoryOnly = true;
     try {
       final history = await _safeHistory();
@@ -4357,6 +4362,10 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     } finally {
       _refreshingHistoryOnly = false;
+      if (_historyRefreshQueued && mounted) {
+        _historyRefreshQueued = false;
+        unawaited(_refreshHistoryOnly());
+      }
     }
   }
 
@@ -14804,9 +14813,12 @@ class _PlayerScreenState extends State<PlayerScreen>
       updatedAtMs: DateTime.now().millisecondsSinceEpoch,
     );
     await LocalHistory.upsert(item);
-    if (Api.instance.hasAuthToken) {
-      await widget.repo.syncWatch(item);
-    }
+    _syncWatchInBackground(item);
+  }
+
+  void _syncWatchInBackground(WatchItem item) {
+    if (!Api.instance.hasAuthToken) return;
+    unawaited(widget.repo.syncWatch(item));
   }
 
   // Lưu tiến độ khi phát bằng WebView (NguồnC/StreamC). Đọc currentTime/duration
@@ -14879,9 +14891,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       updatedAtMs: DateTime.now().millisecondsSinceEpoch,
     );
     await LocalHistory.upsert(item);
-    if (Api.instance.hasAuthToken) {
-      await widget.repo.syncWatch(item);
-    }
+    _syncWatchInBackground(item);
   }
 
   void _scheduleControlsHide() {
