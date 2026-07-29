@@ -19651,7 +19651,11 @@ class ContinueCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
+                                color: Colors.white,
                                 fontWeight: FontWeight.w800,
+                                shadows: [
+                                  Shadow(color: Colors.black87, blurRadius: 6),
+                                ],
                               ),
                             ),
                             const SizedBox(height: 4),
@@ -19679,7 +19683,7 @@ class ContinueCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
-                                color: CvColors.muted,
+                                color: Color(0xFFE6EDF7),
                                 fontSize: 11,
                                 fontWeight: FontWeight.w700,
                               ),
@@ -19750,7 +19754,11 @@ class MiniBadge extends StatelessWidget {
         label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w900),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 11,
+          fontWeight: FontWeight.w900,
+        ),
       ),
     ),
   );
