@@ -12810,34 +12810,20 @@ class _ResumeLoaderScreenState extends State<ResumeLoaderScreen> {
           _openingPlayer = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
-            final navigator = Navigator.of(context);
-            unawaited(
-              navigator
-                  .push(
-                    MaterialPageRoute(
-                      builder: (_) => PlayerScreen(
-                        repo: widget.repo,
-                        movie: movie,
-                        server: server,
-                        episode: episode,
-                        serverIndex: item.serverIndex.clamp(
-                          0,
-                          movie.episodes.length - 1,
-                        ),
-                        resume: Duration(milliseconds: item.positionMs),
-                      ),
-                    ),
-                  )
-                  .whenComplete(() {
-                    if (!navigator.mounted) return;
-                    if (navigator.canPop()) {
-                      navigator.pop();
-                    } else {
-                      navigator.pushReplacement(
-                        MaterialPageRoute(builder: (_) => const AppShell()),
-                      );
-                    }
-                  }),
+            Navigator.of(context).pushReplacement(
+              MaterialPageRoute(
+                builder: (_) => PlayerScreen(
+                  repo: widget.repo,
+                  movie: movie,
+                  server: server,
+                  episode: episode,
+                  serverIndex: item.serverIndex.clamp(
+                    0,
+                    movie.episodes.length - 1,
+                  ),
+                  resume: Duration(milliseconds: item.positionMs),
+                ),
+              ),
             );
           });
         }
