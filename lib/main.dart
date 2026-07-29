@@ -15955,6 +15955,31 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  Widget _playerSheetChoiceChip({
+    required Widget label,
+    required bool selected,
+    required ValueChanged<bool> onSelected,
+  }) {
+    final labelColor = selected ? Colors.black : Colors.white;
+    return ChoiceChip(
+      label: DefaultTextStyle.merge(
+        style: TextStyle(color: labelColor, fontWeight: FontWeight.w900),
+        child: label,
+      ),
+      selected: selected,
+      showCheckmark: false,
+      labelStyle: TextStyle(color: labelColor, fontWeight: FontWeight.w900),
+      selectedColor: const Color(0xFFC9F7E6),
+      backgroundColor: Colors.white.withValues(alpha: .10),
+      disabledColor: Colors.white.withValues(alpha: .08),
+      side: BorderSide(
+        color: selected ? CvColors.accent : CvColors.borderLight,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      onSelected: onSelected,
+    );
+  }
+
   void _cycleFitMode() {
     setState(() {
       fitMode = switch (fitMode) {
@@ -16039,10 +16064,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                         runSpacing: 8,
                         children: [
                           for (final audio in currentEpisode.audioSources)
-                            ChoiceChip(
+                            _playerSheetChoiceChip(
                               label: Text(audio.label),
                               selected: selectedAudioKey == audio.key,
-                              showCheckmark: false,
                               onSelected: (_) async {
                                 await _selectAudioSource(audio.key);
                                 setSheetState(() {});
@@ -16062,12 +16086,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          ChoiceChip(
+                          _playerSheetChoiceChip(
                             label: const Text('Tắt'),
                             selected:
                                 selectedSubtitleLang == null ||
                                 selectedSubtitleLang == 'off',
-                            showCheckmark: false,
                             onSelected: (_) async {
                               await _selectSubtitleTrack('off');
                               setSheetState(() {});
@@ -16079,20 +16102,18 @@ class _PlayerScreenState extends State<PlayerScreen>
                               currentEpisode.subtitles.any(
                                 (item) => item.lang.toLowerCase() == 'en',
                               ))
-                            ChoiceChip(
+                            _playerSheetChoiceChip(
                               label: const Text('Song ngữ VI + EN'),
                               selected: selectedSubtitleLang == 'dual',
-                              showCheckmark: false,
                               onSelected: (_) async {
                                 await _selectSubtitleTrack('dual');
                                 setSheetState(() {});
                               },
                             ),
                           for (final subtitle in currentEpisode.subtitles)
-                            ChoiceChip(
+                            _playerSheetChoiceChip(
                               label: Text(subtitle.label),
                               selected: selectedSubtitleLang == subtitle.lang,
-                              showCheckmark: false,
                               onSelected: (_) async {
                                 await _selectSubtitleTrack(subtitle.lang);
                                 setSheetState(() {});
@@ -16129,7 +16150,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                             for (final speed in speeds)
                               SizedBox(
                                 width: itemWidth,
-                                child: ChoiceChip(
+                                child: _playerSheetChoiceChip(
                                   label: Center(
                                     child: Text(
                                       speed == 1.0 ? '1x' : _formatSpeed(speed),
@@ -16138,7 +16159,6 @@ class _PlayerScreenState extends State<PlayerScreen>
                                     ),
                                   ),
                                   selected: playbackSpeed == speed,
-                                  showCheckmark: false,
                                   onSelected: (_) async {
                                     await _setPlaybackSpeed(speed);
                                     setSheetState(() {});
