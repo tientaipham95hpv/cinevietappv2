@@ -122,4 +122,42 @@ void main() {
     expect(item.durationMs, 1000000);
     expect(item.shouldShow, isTrue);
   });
+
+  test('Continue Watching giữ local item khi thiếu movieId nhưng có slug', () {
+    final local = WatchItem(
+      movieId: 0,
+      slug: 'phim-mobile',
+      title: 'Phim mobile',
+      poster: '',
+      backdrop: '',
+      serverName: 'Server 1',
+      serverIndex: 0,
+      episodeName: '1',
+      streamUrl: 'https://example.test/video.m3u8',
+      positionMs: 120000,
+      durationMs: 2400000,
+      updatedAtMs: 20,
+    );
+    final older = WatchItem(
+      movieId: 0,
+      slug: 'phim-mobile',
+      title: 'Phim mobile',
+      poster: '',
+      backdrop: '',
+      serverName: 'Server 2',
+      serverIndex: 1,
+      episodeName: '1',
+      streamUrl: 'https://example.test/older.m3u8',
+      positionMs: 30000,
+      durationMs: 2400000,
+      updatedAtMs: 10,
+    );
+
+    expect(local.shouldShow, isTrue);
+    final merged = mergeWatchHistoryItems([older], [local]);
+
+    expect(merged, hasLength(1));
+    expect(merged.single.streamUrl, local.streamUrl);
+    expect(merged.single.progressPercent, 5);
+  });
 }

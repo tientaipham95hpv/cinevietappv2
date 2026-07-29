@@ -1740,7 +1740,8 @@ class WatchItem {
   final int durationMs;
   final int updatedAtMs;
 
-  String get key => '$slug|$serverName|$episodeName';
+  String get identityKey => movieId > 0 ? 'id:$movieId' : 'slug:$slug';
+  String get key => '$identityKey|$serverName|$episodeName';
   double get progress =>
       durationMs > 0 ? (positionMs / durationMs).clamp(0, 1) : 0;
   bool get isCompleted => progress >= 0.95;
@@ -1750,7 +1751,10 @@ class WatchItem {
     return percent;
   }
 
-  bool get shouldShow => positionMs >= 3000 && !isCompleted;
+  bool get shouldShow =>
+      positionMs >= 3000 &&
+      !isCompleted &&
+      (movieId > 0 || slug.trim().isNotEmpty);
 
   String get resumeLabel {
     final episode = episodeName.trim();
@@ -3189,21 +3193,19 @@ class LocalHistory {
   }
 
   static Future<void> mergeFromCloud(List<WatchItem> cloud) async {
-    final incoming = cloud
-        .where((item) => item.shouldShow && item.movieId > 0)
-        .toList();
+    final incoming = cloud.where((item) => item.shouldShow).toList();
     if (incoming.isEmpty) return;
     final prefs = await SharedPreferences.getInstance();
     final deletedIds = await deletedMovieIds();
-    final byMovie = <int, WatchItem>{};
+    final byMovie = <String, WatchItem>{};
     for (final item in await items()) {
-      if (item.movieId <= 0) continue;
-      byMovie[item.movieId] = item;
+      if (!item.shouldShow) continue;
+      byMovie[item.identityKey] = item;
     }
     var changed = false;
     for (final item in incoming) {
       if (deletedIds.contains(item.movieId)) continue;
-      final current = byMovie[item.movieId];
+      final current = byMovie[item.identityKey];
       final cloudIsNewer =
           current == null || item.updatedAtMs > current.updatedAtMs;
       final sameTimestampButDifferentProgress =
@@ -3213,7 +3215,7 @@ class LocalHistory {
               item.durationMs != current.durationMs ||
               item.episodeName != current.episodeName);
       if (cloudIsNewer || sameTimestampButDifferentProgress) {
-        byMovie[item.movieId] = item;
+        byMovie[item.identityKey] = item;
         changed = true;
       }
     }
@@ -3381,12 +3383,12 @@ List<WatchItem> mergeWatchHistoryItems(
   List<WatchItem> local,
   List<WatchItem> cloud,
 ) {
-  final merged = <int, WatchItem>{};
+  final merged = <String, WatchItem>{};
   for (final item in [...local, ...cloud]) {
-    if (!item.shouldShow || item.movieId <= 0) continue;
-    final existing = merged[item.movieId];
+    if (!item.shouldShow) continue;
+    final existing = merged[item.identityKey];
     if (existing == null || item.updatedAtMs >= existing.updatedAtMs) {
-      merged[item.movieId] = item;
+      merged[item.identityKey] = item;
     }
   }
   final list = merged.values.toList();
@@ -12936,6 +12938,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   int runtimeRecoveryAttempts = 0;
   int lastHistorySaveAtMs = 0;
   Duration? lastGoodPosition;
+  Duration? lastGoodDuration;
   static const introSkipSeconds = 72;
   String? playbackNotice;
   String? lastPlaybackError;
@@ -14689,6 +14692,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     final c = controller;
     if (c == null || !c.value.isInitialized) return;
     lastGoodPosition = c.value.position;
+    if (c.value.duration > Duration.zero) {
+      lastGoodDuration = c.value.duration;
+    }
     final now = DateTime.now().millisecondsSinceEpoch;
     if (c.value.position.inSeconds >= 3 &&
         (!savedCurrentEpisodeProgress || now - lastHistorySaveAtMs >= 5000)) {
@@ -14794,11 +14800,28 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (c == null || !c.value.isInitialized) {
       // Nguồn WebView (NguồnC/StreamC) không có controller native -> đọc tiến độ
       // trực tiếp từ thẻ <video> trong trang qua JS để vẫn lưu "Xem tiếp".
-      if (activeWebViewUrl != null) await _saveWebView();
+      if (activeWebViewUrl != null) {
+        await _saveWebView();
+      } else {
+        await _saveSnapshotProgress();
+      }
       return;
     }
+    final position = c.value.position;
+    final duration = c.value.duration;
+    lastGoodPosition = position;
+    if (duration > Duration.zero) lastGoodDuration = duration;
     _emitWatchSync();
-    final item = WatchItem(
+    final item = _watchItemForProgress(position: position, duration: duration);
+    await LocalHistory.upsert(item);
+    _syncWatchInBackground(item);
+  }
+
+  WatchItem _watchItemForProgress({
+    required Duration position,
+    required Duration duration,
+  }) {
+    return WatchItem(
       movieId: widget.movie.id,
       slug: widget.movie.slug,
       title: widget.movie.title,
@@ -14808,9 +14831,18 @@ class _PlayerScreenState extends State<PlayerScreen>
       serverIndex: currentServerIndex,
       episodeName: currentEpisode.name,
       streamUrl: currentEpisode.playUrl,
-      positionMs: c.value.position.inMilliseconds,
-      durationMs: c.value.duration.inMilliseconds,
+      positionMs: position.inMilliseconds,
+      durationMs: duration.inMilliseconds,
       updatedAtMs: DateTime.now().millisecondsSinceEpoch,
+    );
+  }
+
+  Future<void> _saveSnapshotProgress() async {
+    final position = lastGoodPosition;
+    if (position == null || position.inMilliseconds < 3000) return;
+    final item = _watchItemForProgress(
+      position: position,
+      duration: lastGoodDuration ?? Duration.zero,
     );
     await LocalHistory.upsert(item);
     _syncWatchInBackground(item);
@@ -14863,8 +14895,12 @@ class _PlayerScreenState extends State<PlayerScreen>
         })();
       ''';
       final raw = wc != null
-          ? await wc.runJavaScriptReturningResult(script)
-          : await wwc!.executeScript(script);
+          ? await wc
+                .runJavaScriptReturningResult(script)
+                .timeout(const Duration(milliseconds: 700))
+          : await wwc!
+                .executeScript(script)
+                .timeout(const Duration(milliseconds: 700));
       final text = raw.toString().replaceAll('"', '');
       final parts = text.split('|');
       if (parts.length == 2) {
@@ -15631,6 +15667,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   Future<void> _retryPlayback() async {
     runtimeRecoveryAttempts = 0;
     lastGoodPosition = null;
+    lastGoodDuration = null;
     lastPlaybackError = null;
     _trackPlaybackEvent('manual_retry');
     await _init();
@@ -15845,6 +15882,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     runtimeRecoveryAttempts = 0;
     lastHistorySaveAtMs = 0;
     lastGoodPosition = null;
+    lastGoodDuration = null;
     _loadIntroSkipSegments();
     await _init();
   }
@@ -16789,6 +16827,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   @override
   void dispose() {
+    unawaited(_save(force: true));
     playerDisposed = true;
     leavingPlayer = true;
     _stopPlaybackNow();
@@ -16798,7 +16837,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (decrypted != null) {
       unawaited(decrypted.delete().catchError((_) => decrypted));
     }
-    unawaited(_save(force: true));
     unawaited(_stopWebViewNow());
     controlsTimer?.cancel();
     levelApplyTimer?.cancel();
