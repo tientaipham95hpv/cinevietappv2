@@ -17172,6 +17172,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                       focusNode: introSkipFocusNode,
                       label: introSegment?.buttonLabel ?? 'Bỏ qua intro',
                       onPressed: _skipIntro,
+                      onArrowDown: () => playButtonFocusNode.requestFocus(),
                     ),
                   if (controls && !controlsLocked)
                     FocusScope(
@@ -17195,9 +17196,11 @@ class _PlayerScreenState extends State<PlayerScreen>
                           onReplay: () => _seekBy(const Duration(seconds: -10)),
                           onForward: () => _seekBy(const Duration(seconds: 10)),
                           onFocusBack: () => backButtonFocusNode.requestFocus(),
+                          onFocusIntroSkip: _focusTvIntroSkip,
                           onFocusPrimaryControl: () =>
                               playButtonFocusNode.requestFocus(),
                           onFocusSeekBar: () => seekBarFocusNode.requestFocus(),
+                          introSkipVisible: showIntroSkip,
                           onSeekComplete: () {
                             _emitWatchSync(force: true);
                             unawaited(_save(force: true));
@@ -17404,11 +17407,13 @@ class IntroSkipButton extends StatelessWidget {
     this.focusNode,
     required this.label,
     required this.onPressed,
+    this.onArrowDown,
   });
 
   final FocusNode? focusNode;
   final String label;
   final VoidCallback onPressed;
+  final VoidCallback? onArrowDown;
 
   @override
   Widget build(BuildContext context) => Positioned(
@@ -17418,6 +17423,7 @@ class IntroSkipButton extends StatelessWidget {
       child: FocusButton(
         focusNode: focusNode,
         onPressed: onPressed,
+        onArrowDown: onArrowDown,
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: Colors.black.withValues(alpha: .72),
@@ -17764,8 +17770,10 @@ class PlayerOverlay extends StatelessWidget {
     required this.onReplay,
     required this.onForward,
     required this.onFocusBack,
+    this.onFocusIntroSkip,
     required this.onFocusPrimaryControl,
     required this.onFocusSeekBar,
+    required this.introSkipVisible,
     required this.onSeekComplete,
     required this.onPrevious,
     required this.onNext,
@@ -17792,8 +17800,10 @@ class PlayerOverlay extends StatelessWidget {
   final VoidCallback onReplay;
   final VoidCallback onForward;
   final VoidCallback onFocusBack;
+  final VoidCallback? onFocusIntroSkip;
   final VoidCallback onFocusPrimaryControl;
   final VoidCallback onFocusSeekBar;
+  final bool introSkipVisible;
   final VoidCallback onSeekComplete;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
@@ -17911,7 +17921,10 @@ class PlayerOverlay extends StatelessWidget {
                           controller: c,
                           onSeekBackward: onReplay,
                           onSeekForward: onForward,
-                          onFocusBack: onFocusBack,
+                          onFocusBack:
+                              introSkipVisible && onFocusIntroSkip != null
+                              ? onFocusIntroSkip!
+                              : onFocusBack,
                           focusNode: seekBarFocusNode,
                           onFocusPrimaryControl: onFocusPrimaryControl,
                           onSeekComplete: onSeekComplete,
@@ -17992,7 +18005,12 @@ class PlayerOverlay extends StatelessWidget {
                                       if (event is KeyDownEvent &&
                                           event.logicalKey ==
                                               LogicalKeyboardKey.arrowUp) {
-                                        onFocusSeekBar();
+                                        if (introSkipVisible &&
+                                            onFocusIntroSkip != null) {
+                                          onFocusIntroSkip!();
+                                        } else {
+                                          onFocusSeekBar();
+                                        }
                                         return KeyEventResult.handled;
                                       }
                                       return KeyEventResult.ignored;
