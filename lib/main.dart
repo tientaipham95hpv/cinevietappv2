@@ -3428,7 +3428,9 @@ WatchItem? findWatchItemForMovie(List<WatchItem> items, Movie movie) {
 }
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key});
+  const AppShell({super.key, this.initialIndex = 0});
+
+  final int initialIndex;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -3436,7 +3438,7 @@ class AppShell extends StatefulWidget {
 
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final repo = MovieRepository(Api.instance);
-  int index = 0;
+  late int index = widget.initialIndex;
   bool ready = false;
 
   @override
@@ -4277,7 +4279,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<HomeData> _load() async {
     final sectionLimit = isTvBuild ? 8 : 18;
-    final historyFuture = _safeHistory();
+    final localHistoryFuture = _localHistory();
 
     // Gọi tất cả section cùng lúc. Trước đây Latest chạy xong rồi mới bắt đầu
     // 7 request còn lại, khiến Home bị cộng dồn latency mạng.
@@ -4317,7 +4319,7 @@ class _HomeScreenState extends State<HomeScreen> {
       anime: sectionOrFallback(results[4], 'anime'),
       tvShows: sectionOrFallback(results[5], 'tvshows'),
       bilingual: results[6],
-      history: await historyFuture,
+      history: await localHistoryFuture,
     );
     // Ghi cache nền (không cache history vì thay đổi liên tục).
     unawaited(HomeCache.write(home));
@@ -4328,6 +4330,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _homeDataReady = true;
       });
     }
+    unawaited(_refreshHistoryOnly());
     return home;
   }
 
@@ -4436,9 +4439,13 @@ class _HomeScreenState extends State<HomeScreen> {
             }
             return const HomeSkeleton();
           }
-          _currentHome = snapshot.data!;
+          final snapshotHome = snapshot.data!;
+          final visibleHome = _currentHome == null
+              ? snapshotHome
+              : snapshotHome.copyWith(history: _currentHome!.history);
+          _currentHome = visibleHome;
           _homeDataReady = true;
-          return _buildHome(snapshot.data!);
+          return _buildHome(visibleHome);
         },
       ),
     );
@@ -12822,6 +12829,7 @@ class _ResumeLoaderScreenState extends State<ResumeLoaderScreen> {
                     movie.episodes.length - 1,
                   ),
                   resume: Duration(milliseconds: item.positionMs),
+                  returnToHomeOnExit: isTvBuild,
                 ),
               ),
             );
@@ -12845,6 +12853,7 @@ class PlayerScreen extends StatefulWidget {
     this.watchTogetherState,
     this.watchTogetherCode,
     this.offlineManifestPath,
+    this.returnToHomeOnExit = false,
   });
 
   final MovieRepository repo;
@@ -12856,6 +12865,7 @@ class PlayerScreen extends StatefulWidget {
   final WatchTogetherState? watchTogetherState;
   final String? watchTogetherCode;
   final String? offlineManifestPath;
+  final bool returnToHomeOnExit;
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -12875,6 +12885,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   Timer? tvSeekHoldDelayTimer;
   Timer? tvSeekRepeatTimer;
   Timer? webViewLoadWatchdogTimer;
+  Timer? windowsPlaybackWatchdogTimer;
   LogicalKeyboardKey? tvSeekHeldKey;
   final focusNode = FocusNode();
   final overlayFocusScopeNode = FocusScopeNode(
@@ -12940,6 +12951,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   int webViewSessionId = 0;
   int webViewRecoveryAttempts = 0;
   bool webViewPageFinished = false;
+  int windowsWebViewBlackTicks = 0;
+  double? lastWindowsWebViewWatchdogPositionSec;
   IntroSkipData? introSkipData;
   String introSkipDataKey = '';
   final skippedIntroDbSegments = <String>{};
@@ -12954,6 +12967,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   int lastAutoNextPromptSecond = -1;
   int runtimeRecoveryAttempts = 0;
   int lastHistorySaveAtMs = 0;
+  int windowsBufferingStartedAtMs = 0;
   Duration? lastGoodPosition;
   Duration? lastGoodDuration;
   static const introSkipSeconds = 72;
@@ -14250,6 +14264,124 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  void _scheduleWindowsPlaybackWatchdog() {
+    if (kIsWeb || !Platform.isWindows) return;
+    windowsPlaybackWatchdogTimer?.cancel();
+    windowsBufferingStartedAtMs = 0;
+    windowsPlaybackWatchdogTimer = Timer.periodic(const Duration(seconds: 6), (
+      _,
+    ) {
+      if (!mounted || leavingPlayer || playerDisposed) return;
+      if (activeWebViewUrl != null) {
+        unawaited(_checkWindowsWebViewVideoSurface());
+        return;
+      }
+      final c = controller;
+      if (c == null) {
+        if (lastGoodPosition != null) {
+          unawaited(_restartWindowsPlaybackSurface('controller_missing'));
+        }
+        return;
+      }
+      final value = c.value;
+      if (!value.isInitialized || !value.isPlaying) {
+        windowsBufferingStartedAtMs = 0;
+        return;
+      }
+      if (!value.isBuffering) {
+        windowsBufferingStartedAtMs = 0;
+        return;
+      }
+      final now = DateTime.now().millisecondsSinceEpoch;
+      windowsBufferingStartedAtMs = windowsBufferingStartedAtMs == 0
+          ? now
+          : windowsBufferingStartedAtMs;
+      if (now - windowsBufferingStartedAtMs >= 14000) {
+        unawaited(_restartWindowsPlaybackSurface('buffering_surface_stall'));
+      }
+    });
+  }
+
+  Future<void> _checkWindowsWebViewVideoSurface() async {
+    final wwc = windowsWebViewController;
+    final url = activeWebViewUrl;
+    if (wwc == null || url == null || url.isEmpty) return;
+    try {
+      final raw = await wwc
+          .executeScript('''
+            (function () {
+              try {
+                var videos = Array.prototype.slice.call(document.querySelectorAll('video'));
+                var v = videos.sort(function (a, b) {
+                  return (b.currentTime || 0) - (a.currentTime || 0);
+                })[0];
+                if (!v) return '0|0|0|0|0';
+                return [
+                  isFinite(v.currentTime) ? v.currentTime : 0,
+                  v.videoWidth || 0,
+                  v.videoHeight || 0,
+                  v.readyState || 0,
+                  v.paused ? 0 : 1
+                ].join('|');
+              } catch (e) { return '0|0|0|0|0'; }
+            })();
+          ''')
+          .timeout(const Duration(milliseconds: 700));
+      final parts = raw.toString().replaceAll('"', '').split('|');
+      if (parts.length < 5) return;
+      final pos = double.tryParse(parts[0]) ?? 0;
+      final width = int.tryParse(parts[1]) ?? 0;
+      final height = int.tryParse(parts[2]) ?? 0;
+      final readyState = int.tryParse(parts[3]) ?? 0;
+      final playing = parts[4] == '1';
+      final previous = lastWindowsWebViewWatchdogPositionSec;
+      lastWindowsWebViewWatchdogPositionSec = pos;
+      final advancing = previous != null && pos > previous + 1;
+      final blackVideo =
+          playing && readyState >= 2 && (width == 0 || height == 0);
+      if (advancing && blackVideo) {
+        windowsWebViewBlackTicks += 1;
+      } else {
+        windowsWebViewBlackTicks = 0;
+      }
+      if (windowsWebViewBlackTicks >= 2) {
+        windowsWebViewBlackTicks = 0;
+        playbackNotice = 'Video đen màn, đang tải lại nguồn...';
+        _trackPlaybackEvent(
+          'webview_reload',
+          errorCode: 'windows_black_video_surface',
+          errorMessage: url,
+        );
+        if (mounted) setState(() {});
+        await _reloadActiveWebView();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _restartWindowsPlaybackSurface(String reason) async {
+    if (recoveringPlayback ||
+        leavingPlayer ||
+        playerDisposed ||
+        activeWebViewUrl != null) {
+      return;
+    }
+    recoveringPlayback = true;
+    windowsBufferingStartedAtMs = 0;
+    final position = controller?.value.position ?? lastGoodPosition;
+    _trackPlaybackEvent(
+      'auto_recover_source',
+      errorCode: reason,
+      errorMessage: 'Windows playback surface watchdog',
+    );
+    if (mounted) {
+      setState(
+        () => playbackNotice = 'Màn hình phát bị đen, đang khôi phục...',
+      );
+    }
+    await _init(startAt: position);
+    recoveringPlayback = false;
+  }
+
   Future<void> _openWebViewSource(PlaybackSourceCandidate source) async {
     final url = source.webViewUrl;
     if (url == null || url.isEmpty) return;
@@ -14280,6 +14412,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       error = null;
       saveTimer?.cancel();
       saveTimer = Timer.periodic(const Duration(seconds: 30), (_) => _save());
+      _scheduleWindowsPlaybackWatchdog();
       _trackPlaybackEvent('webview_windows_start');
       if (mounted) setState(() {});
       _scheduleControlsHide();
@@ -14427,6 +14560,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       });
     }
     saveTimer?.cancel();
+    windowsPlaybackWatchdogTimer?.cancel();
     controller?.removeListener(_handlePlayerTick);
     await controller?.dispose();
     controller = null;
@@ -14507,6 +14641,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         await next.play();
         next.addListener(_handlePlayerTick);
         saveTimer = Timer.periodic(const Duration(seconds: 30), (_) => _save());
+        _scheduleWindowsPlaybackWatchdog();
         playbackNotice = null;
         if (mounted) setState(() {});
         return;
@@ -14630,6 +14765,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         recoveringPlayback = false;
         next.addListener(_handlePlayerTick);
         saveTimer = Timer.periodic(const Duration(seconds: 30), (_) => _save());
+        _scheduleWindowsPlaybackWatchdog();
         _scheduleControlsHide();
         _trackPlaybackEvent('playback_start');
         playbackNotice = null;
@@ -14925,9 +15061,14 @@ class _PlayerScreenState extends State<PlayerScreen>
         durSec = double.tryParse(parts[1]) ?? 0;
       }
     } catch (_) {
+      await _saveSnapshotProgress();
       return;
     }
     if (posSec < 3) return;
+    lastGoodPosition = Duration(milliseconds: (posSec * 1000).round());
+    if (durSec > 0) {
+      lastGoodDuration = Duration(milliseconds: (durSec * 1000).round());
+    }
     _emitWatchSync();
     final item = WatchItem(
       movieId: widget.movie.id,
@@ -15595,6 +15736,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     final wc = webViewController;
     final wwc = windowsWebViewController;
     webViewLoadWatchdogTimer?.cancel();
+    windowsPlaybackWatchdogTimer?.cancel();
     webViewSessionId += 1;
     webViewRecoveryAttempts = 0;
     webViewPageFinished = false;
@@ -15633,6 +15775,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     } catch (_) {}
     webViewController = null;
     activeWebViewUrl = null;
+    windowsWebViewBlackTicks = 0;
+    lastWindowsWebViewWatchdogPositionSec = null;
   }
 
   Future<void> _setLandscapeFullscreen(bool enabled) async {
@@ -15672,7 +15816,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     if (!mounted) return;
     final navigator = Navigator.of(context);
-    if (navigator.canPop()) {
+    if (widget.returnToHomeOnExit) {
+      navigator.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const AppShell(initialIndex: 0)),
+        (_) => false,
+      );
+    } else if (navigator.canPop()) {
       navigator.pop();
     } else {
       navigator.pushReplacement(
@@ -16856,6 +17005,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     unawaited(_stopWebViewNow());
     controlsTimer?.cancel();
+    windowsPlaybackWatchdogTimer?.cancel();
     levelApplyTimer?.cancel();
     gestureHintTimer?.cancel();
     deviceLevelSyncTimer?.cancel();
