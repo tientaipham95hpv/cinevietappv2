@@ -10724,10 +10724,12 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     future.then(refreshResumeState).catchError((_) {});
     if (widget.resumeOnOpen != null) {
       future
-          .then((_) {
+          .then((movie) {
             if (!mounted) return;
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) unawaited(openResume(widget.resumeOnOpen!));
+              if (mounted) {
+                unawaited(_openResumePlayer(movie, widget.resumeOnOpen!));
+              }
             });
           })
           .catchError((_) {});
@@ -10859,6 +10861,29 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
     if (!mounted) return;
     final movie = await future.catchError((_) => widget.initial);
     if (mounted) unawaited(refreshResumeState(movie));
+  }
+
+  Future<void> _openResumePlayer(Movie movie, WatchItem item) async {
+    if (movie.episodes.isEmpty) return;
+    final selectedServerIndex = item.serverIndex.clamp(
+      0,
+      movie.episodes.length - 1,
+    );
+    final server = movie.episodes[selectedServerIndex];
+    if (server.items.isEmpty) return;
+    final episode = server.items.firstWhere(
+      (entry) =>
+          entry.name == item.episodeName ||
+          entry.displayName == item.episodeName,
+      orElse: () => server.items.first,
+    );
+    await openEpisode(
+      movie,
+      server,
+      episode,
+      selectedServerIndex,
+      resume: Duration(milliseconds: item.positionMs),
+    );
   }
 
   Future<void> openEpisode(
@@ -12833,25 +12858,20 @@ class _ResumeLoaderScreenState extends State<ResumeLoaderScreen> {
           _openingPlayer = true;
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (!mounted) return;
+            // Giữ trang chi tiết bên dưới player để Back trên Android TV
+            // luôn quay về đúng phim thay vì văng app hoặc nhảy về Home.
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
-                builder: (_) => PlayerScreen(
+                builder: (_) => MovieDetailScreen(
                   repo: widget.repo,
-                  movie: movie,
-                  server: server,
-                  episode: episode,
-                  serverIndex: item.serverIndex.clamp(
-                    0,
-                    movie.episodes.length - 1,
-                  ),
-                  resume: Duration(milliseconds: item.positionMs),
-                  returnToHomeOnExit: isTvBuild,
+                  initial: movie,
+                  resumeOnOpen: item,
                 ),
               ),
             );
           });
         }
-        return const LoadingPage(label: 'Đang mở player');
+        return const LoadingPage(label: 'Đang mở chi tiết phim');
       },
     );
   }
