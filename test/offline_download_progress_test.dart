@@ -42,4 +42,22 @@ void main() {
       1,
     );
   });
+
+  test(
+    'local poster path survives persistence and remains backward compatible',
+    () {
+      final original = item(
+        state: OfflineDownloadState.completed,
+        completed: 10,
+        total: 10,
+      ).copyWith(localPosterPath: '/downloads/movie/poster.jpg');
+
+      expect(
+        OfflineDownloadItem.fromJson(original.toJson()).localPosterPath,
+        '/downloads/movie/poster.jpg',
+      );
+      final legacyJson = original.toJson()..remove('localPosterPath');
+      expect(OfflineDownloadItem.fromJson(legacyJson).localPosterPath, isEmpty);
+    },
+  );
 }

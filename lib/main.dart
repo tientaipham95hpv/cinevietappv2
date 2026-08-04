@@ -7125,9 +7125,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 repo: widget.repo,
                 onRequireLogin: requireLogin,
                 onOfflineDownloads: supportsOfflineDownloads
-                    ? () async {
-                        if (!await requireOfflineVip(context)) return;
-                        if (!context.mounted) return;
+                    ? () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) =>
@@ -7143,9 +7141,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   icon: Icons.download_done_rounded,
                   title: 'Tải xuống',
                   subtitle: 'Xem phim khi không có mạng',
-                  onTap: () async {
-                    if (!await requireOfflineVip(context)) return;
-                    if (!context.mounted) return;
+                  onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) =>
@@ -21671,9 +21667,13 @@ class _OfflineDownloadsScreenState extends State<OfflineDownloadsScreen> {
     final movies = groups.values.toList()
       ..sort((a, b) => b.first.createdAt.compareTo(a.first.createdAt));
     return Scaffold(
-      appBar: AppBar(title: const Text('Tải xuống')),
+      appBar: AppBar(title: const Text('Nội dung tải xuống')),
       body: movies.isEmpty
-          ? const EmptyState('Chưa có nội dung tải xuống')
+          ? const EmptyActionState(
+              message:
+                  'Chưa có nội dung tải xuống\nTải phim để xem khi không có mạng',
+              icon: Icons.download_for_offline_outlined,
+            )
           : ListView.separated(
               padding: pagePadding(context).copyWith(top: 18, bottom: 32),
               itemCount: movies.length,
@@ -21727,7 +21727,18 @@ class _OfflineDownloadsScreenState extends State<OfflineDownloadsScreen> {
                         child: SizedBox(
                           width: 56,
                           height: 76,
-                          child: movie.posterUrl.isEmpty
+                          child:
+                              movie.localPosterPath.isNotEmpty &&
+                                  File(movie.localPosterPath).existsSync()
+                              ? Image.file(
+                                  File(movie.localPosterPath),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => const ColoredBox(
+                                    color: CvColors.panel2,
+                                    child: Icon(Icons.movie_rounded),
+                                  ),
+                                )
+                              : movie.posterUrl.isEmpty
                               ? const ColoredBox(
                                   color: CvColors.panel2,
                                   child: Icon(Icons.movie_rounded),
@@ -21798,6 +21809,9 @@ class _OfflineDownloadsScreenState extends State<OfflineDownloadsScreen> {
             ],
           ],
         ),
+        onTap: item.state == OfflineDownloadState.completed
+            ? () => _play(item)
+            : null,
         trailing: Wrap(
           spacing: 2,
           children: [

@@ -43,6 +43,7 @@ class OfflineDownloadItem {
     required this.state,
     required this.createdAt,
     this.localManifestPath = '',
+    this.localPosterPath = '',
     this.receivedBytes = 0,
     this.totalBytes = 0,
     this.completedFiles = 0,
@@ -63,6 +64,7 @@ class OfflineDownloadItem {
   final OfflineDownloadState state;
   final DateTime createdAt;
   final String localManifestPath;
+  final String localPosterPath;
   final int receivedBytes;
   final int totalBytes;
   final int completedFiles;
@@ -82,6 +84,7 @@ class OfflineDownloadItem {
   OfflineDownloadItem copyWith({
     OfflineDownloadState? state,
     String? localManifestPath,
+    String? localPosterPath,
     int? receivedBytes,
     int? totalBytes,
     int? completedFiles,
@@ -103,6 +106,7 @@ class OfflineDownloadItem {
     state: state ?? this.state,
     createdAt: createdAt,
     localManifestPath: localManifestPath ?? this.localManifestPath,
+    localPosterPath: localPosterPath ?? this.localPosterPath,
     receivedBytes: receivedBytes ?? this.receivedBytes,
     totalBytes: totalBytes ?? this.totalBytes,
     completedFiles: completedFiles ?? this.completedFiles,
@@ -124,6 +128,7 @@ class OfflineDownloadItem {
     'state': state.name,
     'createdAt': createdAt.toIso8601String(),
     'localManifestPath': localManifestPath,
+    'localPosterPath': localPosterPath,
     'receivedBytes': receivedBytes,
     'totalBytes': totalBytes,
     'completedFiles': completedFiles,
@@ -168,6 +173,7 @@ class OfflineDownloadItem {
           DateTime.tryParse(json['createdAt']?.toString() ?? '') ??
           DateTime.now(),
       localManifestPath: json['localManifestPath']?.toString() ?? '',
+      localPosterPath: json['localPosterPath']?.toString() ?? '',
       receivedBytes: (json['receivedBytes'] as num?)?.toInt() ?? 0,
       totalBytes: (json['totalBytes'] as num?)?.toInt() ?? 0,
       completedFiles: (json['completedFiles'] as num?)?.toInt() ?? 0,
@@ -340,6 +346,23 @@ class OfflineDownloadManager extends ChangeNotifier {
       if (await directory.exists()) await directory.delete(recursive: true);
       await directory.create(recursive: true);
 
+      var localPosterPath = initial.localPosterPath;
+      final posterUri = Uri.tryParse(initial.posterUrl.trim());
+      if (posterUri != null && posterUri.hasScheme) {
+        try {
+          final extension = _imageExtensionFor(posterUri);
+          final poster = File('${directory.path}/poster.$extension');
+          await _dio.download(
+            posterUri.toString(),
+            poster.path,
+            cancelToken: token,
+          );
+          localPosterPath = poster.path;
+        } catch (_) {
+          // Ảnh bìa chỉ làm đẹp thư viện; không được làm hỏng video tải về.
+        }
+      }
+
       var manifestUri = Uri.parse(initial.sourceUrl);
       var manifest = await _getText(manifestUri, token);
       if (!manifest.startsWith('#EXTM3U')) {
@@ -485,6 +508,7 @@ class OfflineDownloadManager extends ChangeNotifier {
         (item) => item.copyWith(
           state: OfflineDownloadState.completed,
           localManifestPath: localManifest.path,
+          localPosterPath: localPosterPath,
           audioSources: localAudio,
           subtitles: localSubtitles,
           receivedBytes: received,
@@ -682,6 +706,14 @@ class OfflineDownloadManager extends ChangeNotifier {
       if (RegExp(r'^[a-z0-9]{1,5}$').hasMatch(ext)) return ext;
     }
     return kind == 'map' ? 'mp4' : 'ts';
+  }
+
+  String _imageExtensionFor(Uri uri) {
+    final path = uri.path.toLowerCase();
+    for (final extension in const ['jpg', 'jpeg', 'png', 'webp']) {
+      if (path.endsWith('.$extension')) return extension;
+    }
+    return 'jpg';
   }
 
   Future<Directory> _rootDirectory() async {
