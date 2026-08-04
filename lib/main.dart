@@ -11096,13 +11096,8 @@ class _MovieDetailScreenState extends State<MovieDetailScreen> {
                       currentIndex < detailHeroActionFocusNodes.length
                   ? detailHeroActionFocusNodes[currentIndex]
                   : null,
-              onArrowLeft: currentIndex == null || currentIndex == 0
-                  ? null
-                  : () => focusDetailHeroAction(currentIndex - 1),
-              onArrowRight: currentIndex == null
-                  ? null
-                  : () => focusDetailHeroAction(currentIndex + 1),
-              onArrowDown: focusDetailTabs,
+              // Directional traversal follows the buttons' real positions in
+              // the Wrap. Index traversal breaks when TV actions wrap to a new row.
               onPressed: onPressed,
             );
           }
