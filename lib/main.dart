@@ -63,6 +63,29 @@ const cineVietPlaybackHeaders = <String, String>{
   'Referer': '$siteBase/',
   'User-Agent': 'CineVietAppV2/1.0',
 };
+
+String normalizePlaybackUrl(String raw, {String base = siteBase}) {
+  var value = raw.trim();
+  if (value.isEmpty) return '';
+  // API values occasionally arrive JSON/HTML escaped (most often bilingual
+  // manifests embedded in an upstream player response).
+  value = value
+      .replaceAll(r'\/', '/')
+      .replaceAll('&amp;', '&')
+      .replaceAll('&#38;', '&');
+  if (value.startsWith('//')) return 'https:$value';
+  final parsed = Uri.tryParse(value);
+  if (parsed != null && parsed.hasScheme) return parsed.toString();
+  return Uri.parse('$base/').resolve(value).toString();
+}
+
+Map<String, String> playbackHeadersFor(Uri uri) {
+  final host = uri.host.toLowerCase();
+  return host == 'cineviet.live' || host.endsWith('.cineviet.live')
+      ? cineVietPlaybackHeaders
+      : const <String, String>{};
+}
+
 const tmdbImageBase = 'https://image.tmdb.org/t/p';
 const appFlavor = String.fromEnvironment('FLUTTER_APP_FLAVOR');
 const isTvBuild = bool.fromEnvironment('APP_IS_TV') || appFlavor == 'tv';
@@ -1840,7 +1863,7 @@ class WatchItem {
     final title = cleanText(
       json['title'] ?? json['movie_title'] ?? movie['title'] ?? movie['name'],
     );
-    final updatedAt =
+    final rawUpdatedAt =
         asInt(json['updatedAtMs'] ?? json['updated_at_ms']) ??
         DateTime.tryParse(
           cleanText(
@@ -1851,6 +1874,10 @@ class WatchItem {
           ),
         )?.millisecondsSinceEpoch ??
         DateTime.now().millisecondsSinceEpoch;
+    // Some API deployments expose Unix seconds despite the *_ms name.
+    final updatedAt = rawUpdatedAt > 0 && rawUpdatedAt < 100000000000
+        ? rawUpdatedAt * 1000
+        : rawUpdatedAt;
     return WatchItem(
       movieId: asInt(json['movieId'] ?? json['movie_id'] ?? movie['id']) ?? 0,
       slug: cleanText(json['slug'] ?? movie['slug']),
@@ -1882,6 +1909,19 @@ class WatchItem {
       updatedAtMs: updatedAt,
     );
   }
+}
+
+List<dynamic> cloudHistoryRows(dynamic response) {
+  if (response is List) return response;
+  if (response is! Map) return const [];
+  for (final key in const ['history', 'items', 'results']) {
+    final value = response[key];
+    if (value is List) return value;
+  }
+  final data = response['data'];
+  if (data is List) return data;
+  if (data is Map) return cloudHistoryRows(data);
+  return const [];
 }
 
 class CinePlaylist {
@@ -2460,9 +2500,7 @@ class MovieRepository {
           extra: const {'retryCount': 2},
         ),
       );
-      final rows = res.data is List
-          ? res.data as List
-          : ((res.data['history'] as List?) ?? const []);
+      final rows = cloudHistoryRows(res.data);
       final list = rows
           .whereType<Map>()
           .map((e) => WatchItem.fromJson(Map<String, dynamic>.from(e)))
@@ -2475,6 +2513,7 @@ class MovieRepository {
   }
 
   Future<void> syncWatch(WatchItem item) async {
+    if (!api.hasAuthToken) await api.restoreToken();
     if (!api.hasAuthToken) return;
     final payload = item.toCloudJson();
     var synced = false;
@@ -2492,6 +2531,7 @@ class MovieRepository {
   }
 
   Future<int> syncLocalHistoryToCloud() async {
+    if (!api.hasAuthToken) await api.restoreToken();
     if (!api.hasAuthToken) return 0;
     final local = await LocalHistory.items();
     final deletedIds = await LocalHistory.deletedMovieIds();
@@ -13252,13 +13292,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   String _absoluteMediaUrl(String raw) {
-    final value = raw.trim();
-    if (value.isEmpty) return '';
-    final parsed = Uri.tryParse(value);
-    if (parsed == null) return value;
-    if (parsed.hasScheme) return parsed.toString();
-    if (value.startsWith('//')) return 'https:$value';
-    return Uri.parse('$siteBase/').resolve(value).toString();
+    return normalizePlaybackUrl(raw);
   }
 
   Future<ClosedCaptionFile> _closedCaptionFileForTrack(
@@ -14748,9 +14782,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           parsed,
           formatHint: isHls ? VideoFormat.hls : null,
           closedCaptionFile: captionFile,
-          httpHeaders: parsed.host.toLowerCase() == 'cdn.cineviet.live'
-              ? cineVietPlaybackHeaders
-              : const {},
+          httpHeaders: playbackHeadersFor(parsed),
         );
         controller = next;
         await next.initialize().timeout(const Duration(seconds: 18));

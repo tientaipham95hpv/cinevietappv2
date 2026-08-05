@@ -160,4 +160,39 @@ void main() {
     expect(merged.single.streamUrl, local.streamUrl);
     expect(merged.single.progressPercent, 5);
   });
+
+  test(
+    'normalizes escaped bilingual HLS URLs and sends first-party headers',
+    () {
+      final url = normalizePlaybackUrl(
+        r'\/api\/stream?url=https%3A%2F%2Fmedia.test%2Fdual.m3u8&amp;audio=vi',
+      );
+      expect(url, contains('/api/stream?url='));
+      expect(url, contains('&audio=vi'));
+      expect(playbackHeadersFor(Uri.parse(url)), contains('Origin'));
+      expect(
+        playbackHeadersFor(Uri.parse('https://media.test/video.m3u8')),
+        isEmpty,
+      );
+    },
+  );
+
+  test('cloud history accepts nested iOS/API response and Unix seconds', () {
+    final rows = cloudHistoryRows({
+      'data': {
+        'items': [
+          {
+            'movie_id': 99,
+            'position_seconds': 30,
+            'duration_seconds': 300,
+            'updated_at_ms': 1785906000,
+          },
+        ],
+      },
+    });
+    final item = WatchItem.fromJson(Map<String, dynamic>.from(rows.single));
+    expect(item.movieId, 99);
+    expect(item.updatedAtMs, 1785906000000);
+    expect(item.shouldShow, isTrue);
+  });
 }

@@ -55,6 +55,13 @@
 	<string>CineViet sử dụng mạng nội bộ để hỗ trợ phát và ghép nối thiết bị khi cần.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>CineViet cần quyền microphone nếu tính năng phát nội dung yêu cầu âm thanh hệ thống.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Upstream HLS playlists can contain HTTP segment/key URLs even when
+		     the master manifest is HTTPS. Limit the exception to media loads. -->
+		<key>NSAllowsArbitraryLoadsForMedia</key>
+		<true/>
+	</dict>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
