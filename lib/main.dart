@@ -14329,6 +14329,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  // Recover streams that still report playing while their timestamp is stuck.
   void _schedulePlaybackStallWatchdog() {
     playbackStallWatchdogTimer?.cancel();
     playbackStallStartedAtMs = 0;
