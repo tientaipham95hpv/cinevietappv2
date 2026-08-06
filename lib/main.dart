@@ -1652,6 +1652,14 @@ class PlaybackUrlCandidate {
   final String url;
 }
 
+bool isDecoderCapabilityPlaybackError(Object? error) {
+  final message = '$error'.toLowerCase();
+  return message.contains('no_exceeds_capabilities') ||
+      message.contains('mediacodecvideorenderer error') ||
+      message.contains('decoderinitializationexception') ||
+      message.contains('decoder init failed');
+}
+
 class IntroSkipSegment {
   const IntroSkipSegment({
     required this.type,
@@ -14916,14 +14924,23 @@ class _PlayerScreenState extends State<PlayerScreen>
         controller = null;
       } catch (e) {
         lastError = e;
+        final decoderUnsupported = isDecoderCapabilityPlaybackError(e);
         _trackPlaybackEvent(
           'init_error',
-          errorCode: e.runtimeType.toString(),
+          errorCode: decoderUnsupported
+              ? 'decoder_capability_unsupported'
+              : e.runtimeType.toString(),
           errorMessage: '$e',
         );
         controller?.removeListener(_handlePlayerTick);
         await controller?.dispose();
         controller = null;
+        if (decoderUnsupported && mounted) {
+          setState(
+            () => playbackNotice =
+                'Video không tương thích thiết bị, đang đổi server...',
+          );
+        }
       }
     }
     final webViewSource = _currentPlaybackSources().firstWhere(
@@ -15000,10 +15017,13 @@ class _PlayerScreenState extends State<PlayerScreen>
     runtimeRecoveryAttempts += 1;
     final position = controller?.value.position ?? lastGoodPosition;
     final message = reason ?? 'unknown';
+    final decoderUnsupported = isDecoderCapabilityPlaybackError(message);
     lastPlaybackError = message;
     _trackPlaybackEvent(
       'runtime_error',
-      errorCode: 'video_player_runtime_error',
+      errorCode: decoderUnsupported
+          ? 'decoder_capability_unsupported'
+          : 'video_player_runtime_error',
       errorMessage: message,
     );
     debugPrint(
@@ -15013,7 +15033,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (runtimeRecoveryAttempts <= 3 &&
         activePlayableUrlIndex + 1 < activePlayableUrls.length) {
       if (mounted) {
-        setState(() => playbackNotice = 'Nguồn lỗi, đang thử nguồn khác...');
+        setState(
+          () => playbackNotice = decoderUnsupported
+              ? 'Video không tương thích thiết bị, đang đổi server...'
+              : 'Nguồn lỗi, đang thử nguồn khác...',
+        );
       }
       _trackPlaybackEvent('auto_recover_source');
       await _init(startUrlIndex: activePlayableUrlIndex + 1, startAt: position);
