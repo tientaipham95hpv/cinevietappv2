@@ -13169,7 +13169,14 @@ class _PlayerScreenState extends State<PlayerScreen>
     final isPhimApi = host == 'player.phimapi.com' && path.contains('/player');
     final isNguonC =
         host == 'phim.nguonc.com' && !path.contains('/public/images/');
-    return isStreamC || isPhimApi || isNguonC;
+    // ViCDN's web player can software-decode High 10 AVC renditions that
+    // ExoPlayer/AVPlayer reject on many Android/iOS devices. Keep the native
+    // HLS path first, then use this exact allowlisted embed as a same-server
+    // fallback so Song Ngữ is preserved instead of switching to Vietsub.
+    final isViCdn =
+        (host == 'vicdn.cc' || host == 'www.vicdn.cc') &&
+        RegExp(r'^/tv-[a-z0-9-]+$').hasMatch(path);
+    return isStreamC || isPhimApi || isNguonC || isViCdn;
   }
 
   bool _isStreamCEmbedUrl(String raw) {
@@ -14594,7 +14601,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                 host == initialHost ||
                 host.endsWith('.streamc.xyz') ||
                 host == 'player.phimapi.com' ||
-                host == 'phim.nguonc.com';
+                host == 'phim.nguonc.com' ||
+                host == 'vicdn.cc' ||
+                host == 'www.vicdn.cc';
             if (request.isMainFrame && !isTrustedPlayerFrame) {
               // Chặn popup/redirect quảng cáo chiếm toàn màn hình. Tài nguyên phụ
               // (JS/CDN/ads iframe) vẫn để trang tự xử lý để player StreamC chạy.
