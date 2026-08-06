@@ -12953,6 +12953,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   Timer? tvSeekRepeatTimer;
   Timer? webViewLoadWatchdogTimer;
   Timer? windowsPlaybackWatchdogTimer;
+  Timer? playbackStallWatchdogTimer;
   LogicalKeyboardKey? tvSeekHeldKey;
   final focusNode = FocusNode();
   final overlayFocusScopeNode = FocusScopeNode(
@@ -13035,6 +13036,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   int runtimeRecoveryAttempts = 0;
   int lastHistorySaveAtMs = 0;
   int windowsBufferingStartedAtMs = 0;
+  int playbackStallStartedAtMs = 0;
+  int playbackStallRecoveryAtMs = 0;
+  Duration? playbackWatchdogPosition;
   Duration? lastGoodPosition;
   Duration? lastGoodDuration;
   static const introSkipSeconds = 72;
@@ -14325,6 +14329,67 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  void _schedulePlaybackStallWatchdog() {
+    playbackStallWatchdogTimer?.cancel();
+    playbackStallStartedAtMs = 0;
+    playbackWatchdogPosition = null;
+    playbackStallWatchdogTimer = Timer.periodic(const Duration(seconds: 3), (
+      _,
+    ) {
+      if (!mounted || leavingPlayer || playerDisposed || recoveringPlayback) {
+        return;
+      }
+      final c = controller;
+      if (c == null || !c.value.isInitialized || !c.value.isPlaying) {
+        playbackStallStartedAtMs = 0;
+        playbackWatchdogPosition = c?.value.position;
+        return;
+      }
+      final value = c.value;
+      final position = value.position;
+      final previous = playbackWatchdogPosition;
+      playbackWatchdogPosition = position;
+      final advanced =
+          previous == null ||
+          position.inMilliseconds - previous.inMilliseconds >= 500;
+      if (advanced) {
+        playbackStallStartedAtMs = 0;
+        return;
+      }
+      final now = DateTime.now().millisecondsSinceEpoch;
+      playbackStallStartedAtMs = playbackStallStartedAtMs == 0
+          ? now
+          : playbackStallStartedAtMs;
+      if (now - playbackStallStartedAtMs < 12000 ||
+          now - playbackStallRecoveryAtMs < 15000) {
+        return;
+      }
+      playbackStallStartedAtMs = 0;
+      playbackStallRecoveryAtMs = now;
+      unawaited(_recoverPlaybackStall(c, position));
+    });
+  }
+
+  Future<void> _recoverPlaybackStall(
+    VideoPlayerController stalledController,
+    Duration position,
+  ) async {
+    if (!identical(controller, stalledController) ||
+        !stalledController.value.isPlaying) {
+      return;
+    }
+    try {
+      await stalledController.pause();
+      await stalledController.seekTo(position);
+      await stalledController.play();
+      _trackPlaybackEvent('stall_recovered');
+    } catch (error) {
+      if (identical(controller, stalledController)) {
+        unawaited(_recoverPlayback('playback_stall: $error'));
+      }
+    }
+  }
+
   void _scheduleWindowsPlaybackWatchdog() {
     if (kIsWeb || !Platform.isWindows) return;
     windowsPlaybackWatchdogTimer?.cancel();
@@ -14622,6 +14687,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     saveTimer?.cancel();
     windowsPlaybackWatchdogTimer?.cancel();
+    playbackStallWatchdogTimer?.cancel();
     controller?.removeListener(_handlePlayerTick);
     await controller?.dispose();
     controller = null;
@@ -14825,6 +14891,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         next.addListener(_handlePlayerTick);
         saveTimer = Timer.periodic(const Duration(seconds: 30), (_) => _save());
         _scheduleWindowsPlaybackWatchdog();
+        _schedulePlaybackStallWatchdog();
         _scheduleControlsHide();
         _trackPlaybackEvent('playback_start');
         playbackNotice = null;
@@ -17065,6 +17132,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     unawaited(_stopWebViewNow());
     controlsTimer?.cancel();
     windowsPlaybackWatchdogTimer?.cancel();
+    playbackStallWatchdogTimer?.cancel();
     levelApplyTimer?.cancel();
     gestureHintTimer?.cancel();
     deviceLevelSyncTimer?.cancel();
@@ -18183,7 +18251,7 @@ class PlayerOverlay extends StatelessWidget {
                                   dimension: compact ? 54 : 62,
                                   child: Center(
                                     child: Icon(
-                                      value.isPlaying
+                                      value.isPlaying || value.isBuffering
                                           ? Icons.pause_rounded
                                           : Icons.play_arrow_rounded,
                                       size: compact ? 28 : 34,
