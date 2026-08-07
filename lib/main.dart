@@ -2968,6 +2968,11 @@ class MovieRepository {
     io.OptionBuilder()
         .setPath('/socket.io')
         .setTransports(['websocket', 'polling'])
+        // socket_io_client caches Manager instances by origin. Xem chung creates
+        // short-lived sockets, so reusing a stale Manager can leave connect/ACK
+        // pending until our manual timeout even while the server is healthy.
+        .enableForceNew()
+        .disableMultiplex()
         .disableAutoConnect()
         .enableReconnection()
         .setTimeout(12000)
