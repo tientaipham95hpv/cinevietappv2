@@ -9907,9 +9907,23 @@ class _MobileTvPairingScreenState extends State<MobileTvPairingScreen> {
     try {
       final decoded = jsonDecode(value);
       if (decoded is Map && decoded['type'] == 'cineviet_tv_pairing') {
-        final code = cleanText(decoded['code']);
+        final code = cleanText(
+          decoded['code'] ??
+              decoded['userCode'] ??
+              decoded['tvCode'] ??
+              decoded['deviceCode'],
+        ).replaceAll(RegExp(r'\D'), '');
         if (RegExp(r'^\d{6}$').hasMatch(code)) return code;
       }
+    } catch (_) {}
+    try {
+      final uri = Uri.parse(value);
+      final code = cleanText(
+        uri.queryParameters['code'] ??
+            uri.queryParameters['tvCode'] ??
+            uri.queryParameters['userCode'],
+      ).replaceAll(RegExp(r'\D'), '');
+      if (RegExp(r'^\d{6}$').hasMatch(code)) return code;
     } catch (_) {}
     return '';
   }
