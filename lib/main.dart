@@ -13041,6 +13041,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   String? activeWebViewUrl;
   int webViewSessionId = 0;
   int webViewRecoveryAttempts = 0;
+  String? lastReportedWebViewError;
+  int lastReportedWebViewErrorAtMs = 0;
   bool webViewPageFinished = false;
   int windowsWebViewBlackTicks = 0;
   double? lastWindowsWebViewWatchdogPositionSec;
@@ -14546,6 +14548,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     webViewSessionId += 1;
     final sessionId = webViewSessionId;
     webViewRecoveryAttempts = 0;
+    lastReportedWebViewError = null;
+    lastReportedWebViewErrorAtMs = 0;
     webViewPageFinished = false;
     if (!kIsWeb && Platform.isWindows) {
       final controller = windows_webview.WebviewController();
@@ -14642,11 +14646,18 @@ class _PlayerScreenState extends State<PlayerScreen>
           onWebResourceError: (error) {
             if (error.isForMainFrame == false) return;
             lastPlaybackError = '${error.errorCode}: ${error.description}';
-            _trackPlaybackEvent(
-              'webview_error',
-              errorCode: '${error.errorCode}',
-              errorMessage: error.description,
-            );
+            final errorKey = '${error.errorCode}:${error.description}';
+            final now = DateTime.now().millisecondsSinceEpoch;
+            if (errorKey != lastReportedWebViewError ||
+                now - lastReportedWebViewErrorAtMs >= 5000) {
+              lastReportedWebViewError = errorKey;
+              lastReportedWebViewErrorAtMs = now;
+              _trackPlaybackEvent(
+                'webview_error',
+                errorCode: '${error.errorCode}',
+                errorMessage: error.description,
+              );
+            }
             if (sessionId == webViewSessionId &&
                 !leavingPlayer &&
                 webViewRecoveryAttempts < 1) {
