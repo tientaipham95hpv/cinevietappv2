@@ -2610,6 +2610,14 @@ class MovieRepository {
       syncLocalHistoryToCloud(),
       syncLocalFavoritesToCloud(),
     ]);
+    try {
+      final cloud = await cloudHistory();
+      if (cloud.isNotEmpty) {
+        await LocalHistory.mergeFromCloud(cloud);
+      }
+    } catch (error) {
+      debugPrint('CineViet cloud history pull after login error: $error');
+    }
     return (history: results[0], favorites: results[1]);
   }
 
@@ -3493,6 +3501,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   final repo = MovieRepository(Api.instance);
   late int index = widget.initialIndex;
   bool ready = false;
+  Timer? cloudHistoryRefreshTimer;
 
   @override
   void initState() {
@@ -3506,6 +3515,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         unawaited(DeepLinkService.start(repo));
         if (Api.instance.hasAuthToken) {
           unawaited(repo.syncLocalLibraryToCloud());
+          _startCloudHistoryRefresh();
         }
       });
     });
@@ -3513,8 +3523,17 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    cloudHistoryRefreshTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  void _startCloudHistoryRefresh() {
+    if (cloudHistoryRefreshTimer != null) return;
+    cloudHistoryRefreshTimer = Timer.periodic(const Duration(seconds: 45), (_) {
+      if (!Api.instance.hasAuthToken) return;
+      unawaited(mergedWatchHistory(repo));
+    });
   }
 
   @override
@@ -3522,6 +3541,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (state != AppLifecycleState.resumed || !Api.instance.hasAuthToken) {
       return;
     }
+    _startCloudHistoryRefresh();
     unawaited(mergedWatchHistory(repo));
   }
 
