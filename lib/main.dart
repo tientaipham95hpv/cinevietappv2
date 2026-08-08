@@ -5966,7 +5966,12 @@ class _BrowseScreenState extends State<BrowseScreen> {
                       child: TextField(
                         controller: search,
                         textInputAction: TextInputAction.search,
-                        onChanged: (_) => scheduleSearch(),
+                        // Android TV IMEs can emit composing updates for every
+                        // remote-key press. Rebuilding the full results grid and
+                        // starting requests during composition makes the keyboard
+                        // appear frozen on lower-powered TVs. On TV, search only
+                        // when the IME action or the adjacent button is pressed.
+                        onChanged: isTvBuild ? null : (_) => scheduleSearch(),
                         onSubmitted: (_) => runSearch(),
                         decoration: InputDecoration(
                           hintText: 'Tên phim, diễn viên, quốc gia...',
@@ -6184,7 +6189,12 @@ class _BrowseScreenState extends State<BrowseScreen> {
       ],
     );
     if (widget.embedded) return content;
-    return Scaffold(body: content);
+    return Scaffold(
+      // Keep the large TV results grid stable while the on-screen keyboard is
+      // overlaid. Re-laying out it for every IME inset animation is expensive.
+      resizeToAvoidBottomInset: !isTvBuild,
+      body: content,
+    );
   }
 
   Widget typeFilter(String label, String value, IconData icon) {
